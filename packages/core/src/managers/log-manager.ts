@@ -1,0 +1,193 @@
+/**
+ * Log Manager
+ * Handles log storage, retrieval, and statistics
+ */
+
+import { randomUUID } from "node:crypto";
+import type {
+	LogClearResult,
+	LogEntry,
+	LogFilter,
+	PaginationOptions,
+	SortOptions,
+} from "@inspector-hook/protocol";
+
+export interface LogManagerOptions {
+	storagePath: string;
+	maxLogsInMemory: number;
+	retentionDays: number;
+}
+
+export interface LogManagerStats {
+	totalLogs: number;
+	errors: number;
+	warnings: number;
+	blocked: number;
+	logsPerMinute: number;
+}
+
+export class LogManager {
+	private logs: LogEntry[] = [];
+	private options: LogManagerOptions;
+	private logsLastMinute: number[] = [];
+
+	constructor(options: LogManagerOptions) {
+		this.options = options;
+
+		// Clean up old rate tracking entries every minute
+		setInterval(() => {
+			const cutoff = Date.now() - 60000;
+			this.logsLastMinute = this.logsLastMinute.filter((t) => t > cutoff);
+		}, 60000);
+	}
+
+	/**
+	 * Add a new log entry
+	 */
+	async addLog(data: Partial<LogEntry>): Promise<LogEntry> {
+		const log: LogEntry = {
+			id: randomUUID(),
+			timestamp: new Date().toISOString(),
+			hook: data.hook || "unknown",
+			event: data.event || "unknown",
+			level: data.level || "info",
+			message: data.message || "",
+			sessionId: data.sessionId,
+			tool: data.tool,
+			file: data.file,
+			details: data.details,
+		};
+
+		// Add to in-memory store
+		this.logs.push(log);
+
+		// Trim if exceeding max
+		if (this.logs.length > this.options.maxLogsInMemory) {
+			this.logs = this.logs.slice(-this.options.maxLogsInMemory);
+		}
+
+		// Track rate
+		this.logsLastMinute.push(Date.now());
+
+		return log;
+	}
+
+	/**
+	 * Get logs with optional filtering
+	 */
+	async getLogs(params?: {
+		filter?: LogFilter;
+		pagination?: PaginationOptions;
+		sort?: SortOptions;
+	}): Promise<{
+		logs: LogEntry[];
+		total: number;
+		offset: number;
+		limit: number;
+	}> {
+		let filtered = [...this.logs];
+
+		// Apply filters
+		if (params?.filter) {
+			const f = params.filter;
+			if (f.sessionId)
+				filtered = filtered.filter((l) => l.sessionId === f.sessionId);
+			if (f.hook) filtered = filtered.filter((l) => l.hook === f.hook);
+			if (f.event) filtered = filtered.filter((l) => l.event === f.event);
+			if (f.level) {
+				const levels = Array.isArray(f.level) ? f.level : [f.level];
+				filtered = filtered.filter((l) => levels.includes(l.level));
+			}
+			if (f.tool) filtered = filtered.filter((l) => l.tool === f.tool);
+			if (f.file) filtered = filtered.filter((l) => l.file === f.file);
+			if (f.search) {
+				const search = f.search.toLowerCase();
+				filtered = filtered.filter((l) =>
+					l.message.toLowerCase().includes(search),
+				);
+			}
+			if (f.startTime)
+				filtered = filtered.filter((l) => l.timestamp >= f.startTime!);
+			if (f.endTime)
+				filtered = filtered.filter((l) => l.timestamp <= f.endTime!);
+		}
+
+		// Apply sorting
+		if (params?.sort) {
+			const { field, order } = params.sort;
+			filtered.sort((a, b) => {
+				const aVal = (a as any)[field];
+				const bVal = (b as any)[field];
+				const cmp = String(aVal).localeCompare(String(bVal));
+				return order === "asc" ? cmp : -cmp;
+			});
+		} else {
+			// Default: newest first
+			filtered.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+		}
+
+		// Apply pagination
+		const total = filtered.length;
+		const offset = params?.pagination?.offset || 0;
+		const limit = params?.pagination?.limit || 100;
+		const paginated = filtered.slice(offset, offset + limit);
+
+		return { logs: paginated, total, offset, limit };
+	}
+
+	/**
+	 * Get a single log by ID
+	 */
+	async getLogById(id: string): Promise<LogEntry | null> {
+		return this.logs.find((l) => l.id === id) || null;
+	}
+
+	/**
+	 * Clear logs with optional filter
+	 */
+	async clear(filter?: LogFilter): Promise<LogClearResult> {
+		const before = this.logs.length;
+
+		if (filter) {
+			// Remove matching logs
+			if (filter.sessionId) {
+				this.logs = this.logs.filter((l) => l.sessionId !== filter.sessionId);
+			}
+			if (filter.olderThan) {
+				this.logs = this.logs.filter((l) => l.timestamp >= filter.olderThan!);
+			}
+		} else {
+			this.logs = [];
+		}
+
+		return {
+			success: true,
+			cleared: before - this.logs.length,
+			clearedAt: new Date().toISOString(),
+		};
+	}
+
+	/**
+	 * Get statistics
+	 */
+	getStats(): LogManagerStats {
+		const errors = this.logs.filter((l) => l.level === "error").length;
+		const warnings = this.logs.filter((l) => l.level === "warn").length;
+		const blocked = this.logs.filter((l) => l.level === "blocked").length;
+
+		return {
+			totalLogs: this.logs.length,
+			errors,
+			warnings,
+			blocked,
+			logsPerMinute: this.logsLastMinute.length,
+		};
+	}
+
+	/**
+	 * Flush pending changes to disk
+	 */
+	async flush(): Promise<void> {
+		// TODO: Persist to disk
+	}
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@inspector-hook/hooks",
+  "version": "0.1.0",
+  "description": "Claude Code hook scripts for Inspector Hook",
+  "license": "MIT",
+  "type": "module",
+  "main": "scripts/inspector-hook.sh",
+  "bin": {
+    "inspector-hook-install": "./scripts/install.sh"
+  },
+  "files": [
+    "scripts/*",
+    "claude/*",
+    "claude/lib/*",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo 'No build step needed for shell scripts'",
+    "install-hooks": "./scripts/install.sh",
+    "uninstall-hooks": "./scripts/uninstall.sh"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@inspector-hook/core",
+  "version": "0.1.0",
+  "description": "Core business logic for Inspector Hook",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "inspector-hook-core": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:@inspector-hook/protocol && tsc --emitDeclarationOnly",
+    "dev": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:@inspector-hook/protocol --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@inspector-hook/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
+  },
+  "keywords": [
+    "inspector-hook",
+    "core",
+    "ai-agent"
+  ],
+  "license": "MIT"
+}

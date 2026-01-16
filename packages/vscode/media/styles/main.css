@@ -1,0 +1,548 @@
+/**
+ * Inspector Hook Webview Styles
+ * VS Code theme-aware styling
+ */
+
+/* CSS Variables - VS Code Theme Integration */
+:root {
+  --panel-bg: var(--vscode-panel-background);
+  --sidebar-bg: var(--vscode-sideBar-background);
+  --card-bg: var(--vscode-editor-background);
+  --border-color: var(--vscode-panel-border);
+  --text-primary: var(--vscode-foreground);
+  --text-secondary: var(--vscode-descriptionForeground);
+  --text-muted: var(--vscode-disabledForeground);
+
+  /* Status Colors */
+  --error-color: #f44336;
+  --error-bg: rgba(244, 67, 54, 0.1);
+  --warning-color: #ff9800;
+  --warning-bg: rgba(255, 152, 0, 0.1);
+  --blocked-color: #e91e63;
+  --blocked-bg: rgba(233, 30, 99, 0.1);
+  --success-color: #4caf50;
+  --success-bg: rgba(76, 175, 80, 0.1);
+  --info-color: var(--vscode-foreground);
+
+  /* Interactive */
+  --hover-bg: var(--vscode-list-hoverBackground);
+  --active-bg: var(--vscode-list-activeSelectionBackground);
+  --focus-border: var(--vscode-focusBorder);
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* Reset */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  line-height: 1.5;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.status-indicator.connected {
+  background: var(--success-color);
+}
+
+.status-indicator.disconnected {
+  background: var(--error-color);
+}
+
+.status-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.search-input {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  width: 200px;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--focus-border);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background: var(--hover-bg);
+}
+
+.btn:focus {
+  outline: none;
+  border-color: var(--focus-border);
+}
+
+.btn-primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-background);
+}
+
+.btn-primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.btn-secondary {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+
+.btn-danger {
+  background: var(--error-bg);
+  color: var(--error-color);
+  border-color: var(--error-color);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 var(--spacing-md);
+}
+
+.tab {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--vscode-button-background);
+}
+
+/* Main Content */
+.main {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-md);
+}
+
+.view {
+  display: none;
+  height: 100%;
+}
+
+.view.active {
+  display: block;
+}
+
+/* Dashboard Grid */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-xl);
+}
+
+.stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  text-align: center;
+}
+
+.stat-card.error {
+  border-color: var(--error-color);
+  background: var(--error-bg);
+}
+
+.stat-card.warning {
+  border-color: var(--warning-color);
+  background: var(--warning-bg);
+}
+
+.stat-card.blocked {
+  border-color: var(--blocked-color);
+  background: var(--blocked-bg);
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: var(--spacing-xs);
+}
+
+/* Recent Activity */
+.recent-activity {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+}
+
+.recent-activity h3 {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: var(--spacing-md);
+  color: var(--text-primary);
+}
+
+/* Log List */
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.log-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  font-size: 12px;
+}
+
+.log-item:hover {
+  background: var(--hover-bg);
+}
+
+.log-item.error {
+  background: var(--error-bg);
+}
+
+.log-item.warning {
+  background: var(--warning-bg);
+}
+
+.log-item.blocked {
+  background: var(--blocked-bg);
+}
+
+.log-time {
+  color: var(--text-muted);
+  min-width: 70px;
+}
+
+.log-hook {
+  color: var(--vscode-symbolIcon-functionForeground);
+  min-width: 120px;
+}
+
+.log-message {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Log Table */
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.log-table th,
+.log-table td {
+  padding: var(--spacing-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.log-table th {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 12px;
+  background: var(--sidebar-bg);
+  position: sticky;
+  top: 0;
+}
+
+/* Sessions List */
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.session-item:hover {
+  background: var(--hover-bg);
+}
+
+.session-item.active {
+  border-color: var(--success-color);
+}
+
+.session-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.session-status.active {
+  background: var(--success-color);
+}
+
+.session-status.completed {
+  background: var(--text-muted);
+}
+
+.session-status.error {
+  background: var(--error-color);
+}
+
+.session-info {
+  flex: 1;
+}
+
+.session-name {
+  font-weight: 500;
+}
+
+.session-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* File Changes View */
+.split-view {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: var(--spacing-md);
+  height: 100%;
+}
+
+.changes-list {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: auto;
+}
+
+.change-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.change-item:hover {
+  background: var(--hover-bg);
+}
+
+.change-item.selected {
+  background: var(--active-bg);
+}
+
+.change-type {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.change-type.create {
+  background: var(--success-bg);
+  color: var(--success-color);
+}
+
+.change-type.modify {
+  background: var(--warning-bg);
+  color: var(--warning-color);
+}
+
+.change-type.delete {
+  background: var(--error-bg);
+  color: var(--error-color);
+}
+
+.change-file {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Diff Viewer */
+.diff-viewer {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.diff-line {
+  display: flex;
+  padding: 0 var(--spacing-sm);
+  line-height: 20px;
+}
+
+.diff-line.add {
+  background: var(--success-bg);
+  color: var(--success-color);
+}
+
+.diff-line.remove {
+  background: var(--error-bg);
+  color: var(--error-color);
+  text-decoration: line-through;
+}
+
+.diff-line-number {
+  min-width: 40px;
+  text-align: right;
+  padding-right: var(--spacing-sm);
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.diff-line-content {
+  flex: 1;
+  white-space: pre;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+/* Responsive */
+@media (max-width: 800px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .split-view {
+    grid-template-columns: 1fr;
+  }
+}
