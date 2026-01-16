@@ -23,13 +23,14 @@ export interface HttpServerOptions {
 
 export class HttpServer {
 	private server: Server | null = null;
-	private port: number;
+	private requestedPort: number;
+	private actualPort: number = 0;
 	private logManager: LogManager;
 	private sessionManager: SessionManager;
 	private fileTracker: FileTracker;
 
 	constructor(options: HttpServerOptions) {
-		this.port = options.port;
+		this.requestedPort = options.port;
 		this.logManager = options.logManager;
 		this.sessionManager = options.sessionManager;
 		this.fileTracker = options.fileTracker;
@@ -37,6 +38,7 @@ export class HttpServer {
 
 	/**
 	 * Start the HTTP server
+	 * If port is 0, the OS will assign an available port
 	 */
 	async start(): Promise<void> {
 		return new Promise((resolve, reject) => {
@@ -44,16 +46,25 @@ export class HttpServer {
 
 			this.server.on("error", (error: NodeJS.ErrnoException) => {
 				if (error.code === "EADDRINUSE") {
-					reject(new Error(`Port ${this.port} is already in use`));
+					reject(new Error(`Port ${this.requestedPort} is already in use`));
 				} else {
 					reject(error);
 				}
 			});
 
-			this.server.listen(this.port, "127.0.0.1", () => {
+			this.server.listen(this.requestedPort, "127.0.0.1", () => {
+				const addr = this.server?.address();
+				this.actualPort = typeof addr === "object" ? (addr?.port ?? 0) : 0;
 				resolve();
 			});
 		});
+	}
+
+	/**
+	 * Get the actual port the server is listening on
+	 */
+	getPort(): number {
+		return this.actualPort;
 	}
 
 	/**
@@ -90,7 +101,7 @@ export class HttpServer {
 			return;
 		}
 
-		const url = new URL(req.url || "/", `http://localhost:${this.port}`);
+		const url = new URL(req.url || "/", `http://localhost:${this.actualPort}`);
 
 		try {
 			switch (url.pathname) {

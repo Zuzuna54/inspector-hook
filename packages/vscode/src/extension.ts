@@ -28,6 +28,7 @@ export async function activate(
 		storagePath: context.globalStorageUri.fsPath,
 		httpPort,
 		wsPort,
+		extensionPath: context.extensionUri.fsPath,
 	});
 
 	// Register commands

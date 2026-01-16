@@ -14,8 +14,8 @@
     }
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:@inspector-hook/protocol && tsc --emitDeclarationOnly",
-    "dev": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:@inspector-hook/protocol --watch",
+    "build": "esbuild src/index.ts src/cli.ts --bundle --platform=node --outdir=dist --external:@inspector-hook/protocol && tsc --emitDeclarationOnly",
+    "dev": "esbuild src/index.ts src/cli.ts --bundle --platform=node --outdir=dist --external:@inspector-hook/protocol --watch",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit"
   },

@@ -6,6 +6,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import type {
 	DiffResult,
@@ -21,22 +22,30 @@ import type {
 	Stats,
 } from "@inspector-hook/protocol";
 
+// Union type for JSON-RPC response (success or error)
+type JsonRpcResult = JsonRpcResponse | JsonRpcError;
+
 export interface CoreBridgeOptions {
 	storagePath: string;
 	httpPort: number;
 	wsPort: number;
+	extensionPath?: string;
 }
 
-type Callback = (result: any, error?: any) => void;
+type ResponseCallback = {
+	resolve: (result: unknown) => void;
+	reject: (error: Error) => void;
+};
 
 export class CoreBridge extends EventEmitter {
 	private process: ChildProcess | null = null;
 	private readline: Interface | null = null;
 	private options: CoreBridgeOptions;
 	private requestId = 0;
-	private pendingRequests: Map<number, Callback> = new Map();
+	private pendingRequests: Map<number, ResponseCallback> = new Map();
 	private stats: Stats | null = null;
 	private running = false;
+	private httpPort = 0;
 
 	constructor(options: CoreBridgeOptions) {
 		super();
@@ -49,9 +58,113 @@ export class CoreBridge extends EventEmitter {
 	async start(): Promise<void> {
 		if (this.running) return;
 
-		// TODO: In production, spawn the actual core process
-		// For now, we'll use a mock implementation
-		this.running = true;
+		return new Promise((resolve, reject) => {
+			// Find the core CLI
+			const corePath = this.findCorePath();
+
+			// Spawn the core process
+			this.process = spawn("node", [corePath], {
+				stdio: ["pipe", "pipe", "pipe"],
+				env: {
+					...process.env,
+					INSPECTOR_HOOK_WORKSPACE: this.options.storagePath,
+				},
+			});
+
+			// Handle process errors
+			this.process.on("error", (error) => {
+				this.running = false;
+				reject(error);
+			});
+
+			this.process.on("exit", (code) => {
+				this.running = false;
+				this.emit("exit", code);
+			});
+
+			// Read stderr for error messages
+			if (this.process.stderr) {
+				this.process.stderr.on("data", (data: Buffer) => {
+					this.emit("stderr", data.toString());
+				});
+			}
+
+			// Set up readline for stdout
+			if (this.process.stdout) {
+				this.readline = createInterface({
+					input: this.process.stdout,
+					terminal: false,
+				});
+
+				let readyReceived = false;
+
+				this.readline.on("line", (line: string) => {
+					if (!line.trim()) return;
+
+					try {
+						const message = JSON.parse(line);
+
+						// Handle ready message (first message from core)
+						if (!readyReceived && message.type === "ready") {
+							readyReceived = true;
+							this.httpPort = message.port;
+							this.running = true;
+							this.initializeStats();
+							resolve();
+							return;
+						}
+
+						// Handle JSON-RPC response
+						if ("id" in message && message.jsonrpc === "2.0") {
+							this.handleResponse(message as JsonRpcResult);
+							return;
+						}
+
+						// Handle JSON-RPC notification
+						if ("method" in message && !("id" in message)) {
+							this.handleNotification(message as JsonRpcNotification);
+							return;
+						}
+					} catch {
+						// Ignore malformed messages
+					}
+				});
+			}
+
+			// Timeout after 10 seconds
+			setTimeout(() => {
+				if (!this.running) {
+					this.stop();
+					reject(new Error("Timeout waiting for core process to start"));
+				}
+			}, 10000);
+		});
+	}
+
+	/**
+	 * Find the path to the core CLI
+	 */
+	private findCorePath(): string {
+		// When running from VS Code extension, look in node_modules
+		if (this.options.extensionPath) {
+			return join(
+				this.options.extensionPath,
+				"node_modules",
+				"@inspector-hook",
+				"core",
+				"dist",
+				"cli.js",
+			);
+		}
+
+		// Fallback to workspace path for development
+		return join(__dirname, "..", "..", "core", "dist", "cli.js");
+	}
+
+	/**
+	 * Initialize stats
+	 */
+	private initializeStats(): void {
 		this.stats = {
 			totalLogs: 0,
 			errors: 0,
@@ -64,10 +177,53 @@ export class CoreBridge extends EventEmitter {
 	}
 
 	/**
+	 * Handle JSON-RPC response
+	 */
+	private handleResponse(response: JsonRpcResult): void {
+		const pending = this.pendingRequests.get(response.id as number);
+		if (pending) {
+			this.pendingRequests.delete(response.id as number);
+			if ("error" in response) {
+				pending.reject(new Error(response.error.message));
+			} else {
+				pending.resolve(response.result);
+			}
+		}
+	}
+
+	/**
+	 * Handle JSON-RPC notification
+	 */
+	private handleNotification(notification: JsonRpcNotification): void {
+		switch (notification.method) {
+			case "log":
+				this.emit("log", notification.params);
+				break;
+			case "stats":
+				this.stats = notification.params as Stats;
+				this.emit("stats", notification.params);
+				break;
+			case "session":
+				this.emit("session", notification.params);
+				break;
+			case "fileChange":
+				this.emit("fileChange", notification.params);
+				break;
+		}
+	}
+
+	/**
 	 * Stop the core process
 	 */
 	async stop(): Promise<void> {
 		if (this.process) {
+			// Try graceful shutdown first
+			try {
+				await this.sendRequest("core.shutdown", {});
+			} catch {
+				// Ignore errors during shutdown
+			}
+
 			this.process.kill();
 			this.process = null;
 		}
@@ -76,6 +232,7 @@ export class CoreBridge extends EventEmitter {
 			this.readline = null;
 		}
 		this.running = false;
+		this.pendingRequests.clear();
 	}
 
 	/**
@@ -83,6 +240,13 @@ export class CoreBridge extends EventEmitter {
 	 */
 	isRunning(): boolean {
 		return this.running;
+	}
+
+	/**
+	 * Get the HTTP port
+	 */
+	getHttpPort(): number {
+		return this.httpPort;
 	}
 
 	/**
@@ -96,51 +260,35 @@ export class CoreBridge extends EventEmitter {
 	 * Send JSON-RPC request and wait for response
 	 */
 	private async sendRequest<T>(method: string, params?: unknown): Promise<T> {
-		if (!this.running) {
+		if (!this.running || !this.process?.stdin) {
 			throw new Error("Core process is not running");
 		}
 
-		// Mock implementation for now
-		return this.mockRequest<T>(method, params);
-	}
+		const id = ++this.requestId;
+		const request: JsonRpcRequest = {
+			jsonrpc: "2.0",
+			id,
+			method,
+			params: params as Record<string, unknown>,
+		};
 
-	/**
-	 * Mock request handler for development
-	 */
-	private async mockRequest<T>(method: string, params?: unknown): Promise<T> {
-		switch (method) {
-			case "logs.getAll":
-				return { logs: [], total: 0, offset: 0, limit: 100 } as T;
+		return new Promise((resolve, reject) => {
+			this.pendingRequests.set(id, {
+				resolve: resolve as (result: unknown) => void,
+				reject,
+			});
 
-			case "sessions.getAll":
-				return { sessions: [] } as T;
+			// Send request to core process
+			this.process!.stdin!.write(JSON.stringify(request) + "\n");
 
-			case "fileChanges.getPending":
-				return { changes: [] } as T;
-
-			case "fileChanges.getDiff":
-				return {
-					beforeContent: "",
-					afterContent: "",
-					hunks: [],
-					additions: 0,
-					deletions: 0,
-				} as T;
-
-			case "fileChanges.keep":
-			case "fileChanges.revert":
-				return { success: true } as T;
-
-			case "logs.clear":
-				return {
-					success: true,
-					cleared: 0,
-					clearedAt: new Date().toISOString(),
-				} as T;
-
-			default:
-				return {} as T;
-		}
+			// Timeout after 30 seconds
+			setTimeout(() => {
+				if (this.pendingRequests.has(id)) {
+					this.pendingRequests.delete(id);
+					reject(new Error(`Request timeout: ${method}`));
+				}
+			}, 30000);
+		});
 	}
 
 	// ==========================================================================

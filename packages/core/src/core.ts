@@ -105,6 +105,13 @@ export class InspectorCore {
 	}
 
 	/**
+	 * Get actual HTTP port (may differ from config if port 0 was used)
+	 */
+	getHttpPort(): number {
+		return this.httpServer.getPort();
+	}
+
+	/**
 	 * Get current status
 	 */
 	getStatus(): CoreStatus {
@@ -114,7 +121,7 @@ export class InspectorCore {
 				this.startTime > 0
 					? Math.floor((Date.now() - this.startTime) / 1000)
 					: 0,
-			httpPort: this.config.httpPort,
+			httpPort: this.httpServer.getPort(),
 			wsPort: this.config.wsPort,
 			stats: this.getStats(),
 			version: VERSION,
