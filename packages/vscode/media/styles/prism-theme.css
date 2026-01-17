@@ -1,0 +1,276 @@
+/**
+ * Syntax Highlighting Theme
+ * VS Code theme-aware colors for code syntax highlighting
+ */
+
+/* ==========================================================================
+   Code Container Base Styles
+   ========================================================================== */
+
+pre[class*="language-"],
+code[class*="language-"] {
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  overflow-x: auto;
+}
+
+pre[class*="language-"] {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  max-height: 300px;
+  overflow: auto;
+}
+
+code[class*="language-"] {
+  padding: 0;
+}
+
+/* Inline code */
+:not(pre) > code[class*="language-"] {
+  padding: 2px 4px;
+  border-radius: var(--radius-xs);
+  white-space: normal;
+}
+
+/* ==========================================================================
+   Token Colors - VS Code Theme Mapping
+   ========================================================================== */
+
+/* Comments */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--vscode-editorLineNumber-foreground, #6a9955);
+  font-style: italic;
+}
+
+/* Punctuation */
+.token.punctuation {
+  color: var(--fg-secondary);
+}
+
+/* Strings */
+.token.string,
+.token.attr-value,
+.token.template-string {
+  color: var(--vscode-terminal-ansiGreen, #ce9178);
+}
+
+/* Property names (JSON keys, object keys) */
+.token.property,
+.token.tag,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe);
+}
+
+/* Keywords */
+.token.keyword,
+.token.control,
+.token.directive,
+.token.unit {
+  color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+}
+
+/* Boolean, null, undefined */
+.token.boolean,
+.token.null,
+.token.undefined {
+  color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+}
+
+/* Numbers */
+.token.number {
+  color: var(--vscode-terminal-ansiYellow, #b5cea8);
+}
+
+/* Function names */
+.token.function,
+.token.selector,
+.token.builtin {
+  color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+}
+
+/* Class names, type names */
+.token.class-name,
+.token.type,
+.token.maybe-class-name {
+  color: var(--vscode-symbolIcon-classForeground, #4ec9b0);
+}
+
+/* Operators */
+.token.operator,
+.token.entity,
+.token.url {
+  color: var(--fg-primary);
+}
+
+/* Variables */
+.token.variable {
+  color: var(--vscode-symbolIcon-variableForeground, #9cdcfe);
+}
+
+/* Regex */
+.token.regex {
+  color: var(--vscode-terminal-ansiRed, #d16969);
+}
+
+/* Important */
+.token.important {
+  color: var(--color-error);
+  font-weight: bold;
+}
+
+/* Inserted */
+.token.inserted {
+  color: var(--diff-added-fg);
+}
+
+/* Deleted */
+.token.deleted {
+  color: var(--diff-removed-fg);
+}
+
+/* Attribute names (HTML) */
+.token.attr-name {
+  color: var(--vscode-symbolIcon-fieldForeground, #9cdcfe);
+}
+
+/* HTML tags */
+.token.tag-name {
+  color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+}
+
+/* ==========================================================================
+   Language-Specific Adjustments
+   ========================================================================== */
+
+/* JSON - highlight keys differently */
+.language-json .token.property {
+  color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe);
+}
+
+.language-json .token.string {
+  color: var(--vscode-terminal-ansiGreen, #ce9178);
+}
+
+/* TypeScript - highlight types */
+.language-typescript .token.type,
+.language-ts .token.type {
+  color: var(--vscode-symbolIcon-classForeground, #4ec9b0);
+}
+
+/* CSS - highlight selectors and properties */
+.language-css .token.selector {
+  color: var(--vscode-symbolIcon-classForeground, #d7ba7d);
+}
+
+.language-css .token.property {
+  color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe);
+}
+
+/* HTML - highlight tags */
+.language-html .token.tag .token.punctuation,
+.language-markup .token.tag .token.punctuation {
+  color: var(--fg-secondary);
+}
+
+.language-html .token.tag-name,
+.language-markup .token.tag-name {
+  color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+}
+
+/* Markdown - headers */
+.language-markdown .token.title,
+.language-md .token.title {
+  color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+  font-weight: bold;
+}
+
+.language-markdown .token.bold,
+.language-md .token.bold {
+  font-weight: bold;
+}
+
+.language-markdown .token.italic,
+.language-md .token.italic {
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Line Numbers (when displayed)
+   ========================================================================== */
+
+.line-numbers {
+  counter-reset: linenumber;
+}
+
+.line-numbers > code {
+  position: relative;
+  padding-left: 3.5em;
+}
+
+.line-numbers .line-number {
+  display: inline-block;
+  width: 2.5em;
+  margin-left: -3.5em;
+  margin-right: 1em;
+  text-align: right;
+  color: var(--fg-muted);
+  user-select: none;
+}
+
+/* ==========================================================================
+   Code Block with Header
+   ========================================================================== */
+
+.code-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+}
+
+.code-block-language {
+  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
+}
+
+.code-block pre {
+  margin: 0;
+  border-radius: 0;
+}
+
+/* ==========================================================================
+   Scrollable Code Content
+   ========================================================================== */
+
+.code-scrollable {
+  max-height: 300px;
+  overflow: auto;
+}
+
+.code-scrollable pre {
+  max-height: none;
+}

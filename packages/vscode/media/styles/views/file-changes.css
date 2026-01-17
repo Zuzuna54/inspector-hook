@@ -1,0 +1,541 @@
+/**
+ * File Changes View Styles - v2 Redesign
+ * Session > File > Changes accordion structure with per-hunk operations
+ */
+
+/* ==========================================================================
+   Main Layout
+   ========================================================================== */
+
+.file-changes-v2 {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.fc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.fc-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.fc-header-left h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.fc-count {
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  background: var(--bg-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+}
+
+.fc-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.fc-search {
+  width: 180px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-sm);
+  color: var(--fg-primary);
+  font-size: var(--font-size-sm);
+}
+
+.fc-search:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.fc-search::placeholder {
+  color: var(--fg-muted);
+}
+
+/* ==========================================================================
+   Content Area
+   ========================================================================== */
+
+.fc-content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-md);
+}
+
+.fc-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+/* ==========================================================================
+   Session Accordion
+   ========================================================================== */
+
+.fc-session {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.fc-session.expanded {
+  border-color: var(--accent);
+}
+
+.fc-session-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.fc-session-header:hover {
+  background: var(--bg-hover);
+}
+
+.fc-expand-icon {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+
+.fc-session-name {
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.fc-session-meta {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.fc-session-stats {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  margin-left: auto;
+  margin-right: var(--spacing-md);
+}
+
+.fc-session-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-session-header:hover .fc-session-actions {
+  opacity: 1;
+}
+
+.fc-session-content {
+  padding: 0 var(--spacing-md) var(--spacing-md);
+}
+
+.fc-session-content.hidden {
+  display: none;
+}
+
+/* ==========================================================================
+   File Accordion
+   ========================================================================== */
+
+.fc-file {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-xs);
+  overflow: hidden;
+}
+
+.fc-file:last-child {
+  margin-bottom: 0;
+}
+
+.fc-file.expanded {
+  border-color: var(--accent);
+}
+
+.fc-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.fc-file-header:hover {
+  background: var(--bg-hover);
+}
+
+.fc-file-name {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.fc-file-path {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-change-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.fc-file-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-file-header:hover .fc-file-actions {
+  opacity: 1;
+}
+
+.fc-file-content {
+  border-top: 1px solid var(--border);
+}
+
+.fc-file-content.hidden {
+  display: none;
+}
+
+/* ==========================================================================
+   Diff Viewer
+   ========================================================================== */
+
+.fc-diff-viewer {
+  background: var(--bg-primary);
+}
+
+.fc-diff-loading,
+.fc-diff-empty {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+.fc-diff-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.fc-hunk-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.fc-hunk-position {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  min-width: 80px;
+  text-align: center;
+}
+
+.fc-diff-stats {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.fc-additions {
+  color: var(--diff-added-fg);
+}
+
+.fc-deletions {
+  color: var(--diff-removed-fg);
+}
+
+.fc-diff-hunks {
+  overflow: auto;
+  max-height: 400px;
+}
+
+/* ==========================================================================
+   Hunk
+   ========================================================================== */
+
+.fc-hunk {
+  margin-bottom: var(--spacing-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.fc-hunk:last-child {
+  margin-bottom: 0;
+}
+
+.fc-hunk.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.fc-hunk-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--diff-hunk-header-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.fc-hunk-checkbox {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.fc-hunk-checkbox input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.fc-hunk-info {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--diff-hunk-header-fg);
+  flex: 1;
+}
+
+.fc-hunk-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-hunk:hover .fc-hunk-actions {
+  opacity: 1;
+}
+
+.fc-hunk-lines {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   Diff Lines
+   ========================================================================== */
+
+.fc-line {
+  display: flex;
+  min-height: 20px;
+}
+
+.fc-line.added {
+  background: var(--diff-added-bg);
+}
+
+.fc-line.removed {
+  background: var(--diff-removed-bg);
+}
+
+.fc-line.context {
+  background: var(--diff-context-bg);
+}
+
+.fc-line-num {
+  width: 40px;
+  padding: 0 var(--spacing-xs);
+  text-align: right;
+  color: var(--fg-muted);
+  user-select: none;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+}
+
+.fc-line-num.fc-line-new {
+  border-right: none;
+}
+
+.fc-line-prefix {
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.fc-line.added .fc-line-prefix {
+  color: var(--diff-added-fg);
+}
+
+.fc-line.removed .fc-line-prefix {
+  color: var(--diff-removed-fg);
+}
+
+.fc-line-content {
+  flex: 1;
+  padding-left: var(--spacing-xs);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* ==========================================================================
+   Button Variants
+   ========================================================================== */
+
+.btn-group {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.btn-sm {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+}
+
+.btn-xs {
+  padding: 2px var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  min-width: 24px;
+}
+
+.btn-success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.btn-success:hover {
+  background: var(--color-success);
+  color: var(--bg-primary);
+}
+
+.btn-danger {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.btn-danger:hover {
+  background: var(--color-error);
+  color: white;
+}
+
+/* ==========================================================================
+   Empty State
+   ========================================================================== */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-2xl);
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.empty-state-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--spacing-xs);
+}
+
+.empty-state-description {
+  font-size: var(--font-size-sm);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 600px) {
+  .fc-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fc-header-right {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fc-search {
+    width: 100%;
+  }
+
+  .btn-group {
+    justify-content: stretch;
+  }
+
+  .btn-group .btn {
+    flex: 1;
+  }
+
+  .fc-session-stats {
+    display: none;
+  }
+
+  .fc-file-path {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Greyed Out State (for kept/reverted)
+   ========================================================================== */
+
+.fc-session.resolved,
+.fc-file.resolved {
+  opacity: 0.5;
+}
+
+.fc-session.resolved .fc-session-header,
+.fc-file.resolved .fc-file-header {
+  background: var(--bg-primary);
+}
+
+.fc-session.resolved .fc-session-actions,
+.fc-file.resolved .fc-file-actions {
+  display: none;
+}

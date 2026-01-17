@@ -1,0 +1,837 @@
+/**
+ * Sessions View Styles
+ * Session cards and tool badges
+ */
+
+/* ==========================================================================
+   Sessions View Layout
+   ========================================================================== */
+
+#view-sessions {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ==========================================================================
+   Sessions Header
+   ========================================================================== */
+
+.sessions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+}
+
+.sessions-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.sessions-count {
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+}
+
+/* ==========================================================================
+   Sessions List
+   ========================================================================== */
+
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  overflow: auto;
+  flex: 1;
+}
+
+/* ==========================================================================
+   Session Card
+   ========================================================================== */
+
+.session-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.session-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--fg-muted);
+}
+
+.session-card.selected {
+  border-color: var(--accent);
+  background: var(--bg-active);
+}
+
+.session-card.active {
+  border-left: 3px solid var(--color-success);
+}
+
+.session-card.completed {
+  border-left: 3px solid var(--fg-muted);
+}
+
+.session-card.error {
+  border-left: 3px solid var(--color-error);
+}
+
+/* Session Header */
+.session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.session-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.session-header-right {
+  flex-shrink: 0;
+}
+
+.session-delete-btn {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  padding: 2px 6px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.session-card:hover .session-delete-btn {
+  opacity: 0.6;
+}
+
+.session-delete-btn:hover {
+  opacity: 1 !important;
+}
+
+.session-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.session-status-dot.active {
+  background: var(--color-success);
+  box-shadow: 0 0 4px var(--color-success);
+}
+
+.session-status-dot.completed {
+  background: var(--fg-muted);
+}
+
+.session-status-dot.error {
+  background: var(--color-error);
+}
+
+.session-name {
+  flex: 1;
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-status-text {
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
+  text-transform: capitalize;
+}
+
+.session-card.active .session-status-text {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.session-card.error .session-status-text {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+/* Session Meta */
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.session-time {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+.session-duration {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+/* Session Stats */
+.session-stats {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.session-stats .stat {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.session-stats .stat strong {
+  color: var(--fg-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Session Tools */
+.session-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+
+.tool-more {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  padding: 2px 6px;
+}
+
+/* ==========================================================================
+   Session Details Panel
+   ========================================================================== */
+
+.session-details {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.session-details-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.session-details-title {
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+}
+
+.session-details-content {
+  padding: var(--spacing-md);
+}
+
+/* Session Info Grid */
+.session-info-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-sm);
+}
+
+.session-info-label {
+  color: var(--fg-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.session-info-value {
+  color: var(--fg-primary);
+}
+
+/* ==========================================================================
+   Tool Execution List
+   ========================================================================== */
+
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-md);
+}
+
+.tool-list-header {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.tool-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.tool-item-name {
+  font-family: var(--font-family-mono);
+  color: var(--fg-primary);
+}
+
+.tool-item-status {
+  margin-left: auto;
+}
+
+.tool-item-duration {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+/* ==========================================================================
+   File Changes List (within session)
+   ========================================================================== */
+
+.session-files {
+  margin-top: var(--spacing-md);
+}
+
+.session-files-header {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.session-file-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+}
+
+.session-file-item:hover {
+  background: var(--bg-hover);
+}
+
+.session-file-name {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  color: var(--fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Empty State
+   ========================================================================== */
+
+.sessions-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--fg-muted);
+}
+
+.sessions-empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--spacing-md);
+  opacity: 0.5;
+}
+
+.sessions-empty-text {
+  font-size: var(--font-size-md);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 600px) {
+  .session-meta {
+    flex-wrap: wrap;
+  }
+
+  .session-stats {
+    flex-wrap: wrap;
+  }
+
+  .session-tools {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Tool Timeline
+   ========================================================================== */
+
+.tool-timeline {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border);
+}
+
+.tool-timeline.empty {
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+.timeline-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--spacing-sm);
+}
+
+.timeline-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.timeline-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--border);
+}
+
+.timeline-tool .tool-index {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-semibold);
+  font-size: 10px;
+  color: var(--fg-secondary);
+}
+
+.timeline-tool .tool-name {
+  font-family: var(--font-family-mono);
+  color: var(--fg-primary);
+}
+
+.timeline-tool .tool-duration {
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+
+.timeline-tool.error {
+  background: var(--color-error-bg);
+  border-color: var(--color-error);
+}
+
+.timeline-tool.error .tool-name {
+  color: var(--color-error);
+}
+
+.timeline-tool.completed {
+  border-color: var(--color-success);
+}
+
+.timeline-tool.completed .tool-index {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.timeline-connector {
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-family: var(--font-family-mono);
+}
+
+/* ==========================================================================
+   Session Detail Panel (Expanded)
+   ========================================================================== */
+
+.session-detail-panel {
+  margin-top: var(--spacing-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.session-detail-panel .detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.session-detail-panel .detail-header h4 {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.session-detail-panel .detail-body {
+  padding: var(--spacing-md);
+}
+
+.session-detail-panel .detail-row {
+  display: flex;
+  padding: var(--spacing-xs) 0;
+  font-size: var(--font-size-sm);
+}
+
+.session-detail-panel .detail-row .label {
+  width: 120px;
+  flex-shrink: 0;
+  color: var(--fg-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.session-detail-panel .detail-row .value {
+  flex: 1;
+  color: var(--fg-primary);
+  word-break: break-all;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* ==========================================================================
+   Session Files Link
+   ========================================================================== */
+
+.session-files-link {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.btn-link:hover {
+  color: var(--accent-hover, var(--accent));
+  text-decoration: underline;
+}
+
+.btn-link:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ==========================================================================
+   Close Button
+   ========================================================================== */
+
+.btn-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.btn-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.btn-close:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Timeline Responsive
+   ========================================================================== */
+
+@media (max-width: 600px) {
+  .timeline-items {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .timeline-connector {
+    display: none;
+  }
+
+  .session-detail-panel .detail-row {
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .session-detail-panel .detail-row .label {
+    width: auto;
+  }
+}
+
+/* ==========================================================================
+   Expandable Tool Executions List
+   ========================================================================== */
+
+.tool-executions {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border);
+}
+
+.tool-executions.empty {
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+.tool-executions .tool-list-header {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--spacing-sm);
+}
+
+.tool-executions .tool-item {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-xs);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.tool-executions .tool-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--fg-muted);
+}
+
+.tool-executions .tool-item.expanded {
+  border-color: var(--accent);
+}
+
+.tool-executions .tool-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+}
+
+.tool-executions .tool-name {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.tool-executions .tool-status {
+  font-size: 12px;
+  padding: 2px;
+}
+
+.tool-executions .tool-status.completed,
+.tool-executions .tool-status.success {
+  color: var(--color-success);
+}
+
+.tool-executions .tool-status.error,
+.tool-executions .tool-status.failed {
+  color: var(--color-error);
+}
+
+.tool-executions .tool-status.running {
+  color: var(--color-warning);
+}
+
+.tool-executions .tool-duration {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.tool-executions .tool-expand {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  color: var(--fg-muted);
+  font-weight: var(--font-weight-semibold);
+}
+
+.tool-executions .tool-details {
+  padding: var(--spacing-sm);
+  padding-top: 0;
+  border-top: 1px solid var(--border);
+  margin-top: var(--spacing-xs);
+}
+
+.tool-executions .tool-details.hidden {
+  display: none;
+}
+
+.tool-executions .tool-input,
+.tool-executions .tool-output,
+.tool-executions .tool-error {
+  margin-bottom: var(--spacing-sm);
+}
+
+.tool-executions .tool-input:last-child,
+.tool-executions .tool-output:last-child,
+.tool-executions .tool-error:last-child {
+  margin-bottom: 0;
+}
+
+.tool-executions .tool-input label,
+.tool-executions .tool-output label,
+.tool-executions .tool-error label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--spacing-xs);
+}
+
+.tool-executions .error-content {
+  margin: 0;
+  padding: var(--spacing-sm);
+  background: var(--color-error-bg);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 150px;
+  overflow: auto;
+}
+
+/* ==========================================================================
+   Delete Confirmation Modal
+   ========================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal, 1000);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.modal-overlay.visible {
+  opacity: 1;
+}
+
+.modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-width: 300px;
+  max-width: 400px;
+  transform: scale(0.95);
+  transition: transform 200ms ease;
+}
+
+.modal-overlay.visible .modal-content {
+  transform: scale(1);
+}
+
+.modal-header {
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.modal-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.modal-body {
+  padding: var(--spacing-md);
+}
+
+.modal-body p {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.modal-body p:last-child {
+  margin-bottom: 0;
+}
+
+.modal-warning {
+  color: var(--color-warning) !important;
+  font-size: var(--font-size-xs) !important;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}

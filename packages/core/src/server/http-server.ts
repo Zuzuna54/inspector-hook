@@ -124,6 +124,23 @@ export class HttpServer {
 					this.handleStats(res);
 					break;
 
+				// Debug endpoints for visibility into all data
+				case "/api/debug":
+					await this.handleDebug(res, url);
+					break;
+
+				case "/api/logs":
+					await this.handleGetLogs(res, url);
+					break;
+
+				case "/api/sessions":
+					await this.handleGetSessions(res);
+					break;
+
+				case "/api/changes":
+					await this.handleGetChanges(res);
+					break;
+
 				default:
 					this.sendNotFound(res);
 			}
@@ -206,6 +223,91 @@ export class HttpServer {
 	private handleStats(res: ServerResponse): void {
 		const stats = this.logManager.getStats();
 		this.sendJson(res, stats);
+	}
+
+	/**
+	 * Handle GET /api/debug - comprehensive system dump
+	 */
+	private async handleDebug(res: ServerResponse, url: URL): Promise<void> {
+		const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+
+		const logsResult = await this.logManager.getLogs({
+			pagination: { limit, offset: 0 },
+		});
+		const sessionsResult = await this.sessionManager.getSessions({ limit });
+		const changesResult = await this.fileTracker.getPendingChanges({});
+
+		// Get recent logs with tool info
+		const toolLogs = logsResult.logs.filter(
+			(log) => log.hook === "PreToolUse" || log.hook === "PostToolUse"
+		);
+
+		this.sendJson(res, {
+			timestamp: new Date().toISOString(),
+			stats: this.logManager.getStats(),
+			summary: {
+				totalLogs: logsResult.total,
+				toolLogs: toolLogs.length,
+				sessions: sessionsResult.sessions.length,
+				pendingChanges: changesResult.changes.length,
+			},
+			recentLogs: logsResult.logs.slice(0, 20).map((log) => ({
+				id: log.id,
+				timestamp: log.timestamp,
+				hook: log.hook,
+				event: log.event,
+				tool: log.tool,
+				file: log.file,
+				sessionId: log.sessionId,
+				message: log.message,
+				hasDetails: !!log.details,
+				detailsKeys: log.details ? Object.keys(log.details) : [],
+			})),
+			recentToolLogs: toolLogs.slice(0, 10).map((log) => ({
+				id: log.id,
+				timestamp: log.timestamp,
+				hook: log.hook,
+				tool: log.tool,
+				file: log.file,
+				sessionId: log.sessionId,
+				details: log.details,
+			})),
+			sessions: sessionsResult.sessions.slice(0, 10),
+			pendingChanges: changesResult.changes.slice(0, 10),
+		});
+	}
+
+	/**
+	 * Handle GET /api/logs - list all logs
+	 */
+	private async handleGetLogs(res: ServerResponse, url: URL): Promise<void> {
+		const limit = parseInt(url.searchParams.get("limit") || "100", 10);
+		const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+		const hook = url.searchParams.get("hook") || undefined;
+		const tool = url.searchParams.get("tool") || undefined;
+
+		const result = await this.logManager.getLogs({
+			filter: { hook, tool },
+			pagination: { limit, offset },
+		});
+
+		this.sendJson(res, result);
+	}
+
+	/**
+	 * Handle GET /api/sessions - list all sessions
+	 */
+	private async handleGetSessions(res: ServerResponse): Promise<void> {
+		const result = await this.sessionManager.getSessions({ limit: 50 });
+		this.sendJson(res, result);
+	}
+
+	/**
+	 * Handle GET /api/changes - list pending file changes
+	 */
+	private async handleGetChanges(res: ServerResponse): Promise<void> {
+		const result = await this.fileTracker.getPendingChanges({});
+		this.sendJson(res, result);
 	}
 
 	/**

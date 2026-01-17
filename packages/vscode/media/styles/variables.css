@@ -1,0 +1,128 @@
+/**
+ * CSS Design System Variables
+ * VS Code theme-aware custom properties
+ */
+
+:root {
+  /* ==========================================================================
+     Colors - VS Code Compatible
+     ========================================================================== */
+
+  /* Backgrounds */
+  --bg-primary: var(--vscode-editor-background, #1e1e1e);
+  --bg-secondary: var(--vscode-sideBar-background, #252526);
+  --bg-tertiary: var(--vscode-editorWidget-background, #2d2d2d);
+  --bg-input: var(--vscode-input-background, #3c3c3c);
+  --bg-hover: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+  --bg-active: var(--vscode-list-activeSelectionBackground, #094771);
+
+  /* Foregrounds */
+  --fg-primary: var(--vscode-editor-foreground, #d4d4d4);
+  --fg-secondary: var(--vscode-descriptionForeground, #858585);
+  --fg-muted: var(--vscode-disabledForeground, #6e6e6e);
+  --fg-link: var(--vscode-textLink-foreground, #3794ff);
+
+  /* Borders */
+  --border: var(--vscode-panel-border, #3c3c3c);
+  --border-focus: var(--vscode-focusBorder, #007acc);
+  --border-input: var(--vscode-input-border, #3c3c3c);
+
+  /* Accent */
+  --accent: var(--vscode-focusBorder, #007acc);
+  --accent-fg: var(--vscode-button-foreground, #ffffff);
+
+  /* ==========================================================================
+     Status Colors
+     ========================================================================== */
+
+  --color-error: var(--vscode-errorForeground, #f44747);
+  --color-error-bg: rgba(244, 71, 71, 0.15);
+  --color-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --color-warning-bg: rgba(204, 167, 0, 0.15);
+  --color-success: var(--vscode-testing-iconPassed, #73c991);
+  --color-success-bg: rgba(115, 201, 145, 0.15);
+  --color-info: var(--vscode-editorInfo-foreground, #3794ff);
+  --color-info-bg: rgba(55, 148, 255, 0.15);
+  --color-blocked: #e91e63;
+  --color-blocked-bg: rgba(233, 30, 99, 0.15);
+
+  /* ==========================================================================
+     Diff Colors
+     ========================================================================== */
+
+  --diff-added-bg: rgba(35, 134, 54, 0.2);
+  --diff-added-fg: #3fb950;
+  --diff-added-line-bg: rgba(35, 134, 54, 0.1);
+  --diff-removed-bg: rgba(248, 81, 73, 0.2);
+  --diff-removed-fg: #f85149;
+  --diff-removed-line-bg: rgba(248, 81, 73, 0.1);
+  --diff-context-bg: transparent;
+  --diff-hunk-header-bg: rgba(55, 148, 255, 0.1);
+  --diff-hunk-header-fg: var(--color-info);
+
+  /* ==========================================================================
+     Spacing
+     ========================================================================== */
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+
+  /* ==========================================================================
+     Typography
+     ========================================================================== */
+
+  --font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  --font-family-mono: var(--vscode-editor-font-family, 'Menlo', 'Monaco', 'Consolas', monospace);
+  --font-size: var(--vscode-font-size, 13px);
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-md: 13px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height: 1.5;
+  --line-height-tight: 1.3;
+
+  /* ==========================================================================
+     Borders & Radius
+     ========================================================================== */
+
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* ==========================================================================
+     Shadows
+     ========================================================================== */
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4);
+
+  /* ==========================================================================
+     Transitions
+     ========================================================================== */
+
+  --transition-fast: 100ms ease;
+  --transition-normal: 150ms ease;
+  --transition-slow: 200ms ease;
+
+  /* ==========================================================================
+     Z-Index Scale
+     ========================================================================== */
+
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 300;
+  --z-tooltip: 400;
+}

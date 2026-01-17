@@ -1,446 +1,539 @@
 /**
- * Inspector Hook Webview Script
- * Handles UI interactions and VS Code communication
+ * Inspector Hook Webview - Main Entry Point
+ * Initializes the application and sets up event handlers
  */
 
-// VS Code API
-const vscode = acquireVsCodeApi();
+// ==========================================================================
+// Utility Functions
+// ==========================================================================
 
-// State
-const state = {
-	currentTab: "dashboard",
-	logs: [],
-	sessions: [],
-	fileChanges: [],
-	stats: null,
-	selectedChangeId: null,
-	config: {
-		autoScroll: true,
-	},
-};
+const Utils = {
+  /**
+   * Escape HTML to prevent XSS
+   * @param {string} text - Text to escape
+   * @returns {string} Escaped text
+   */
+  escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  },
 
-// DOM Elements
-const elements = {
-	// Stats
-	statErrors: document.getElementById("stat-errors"),
-	statChanges: document.getElementById("stat-changes"),
-	totalLogs: document.getElementById("total-logs"),
-	totalErrors: document.getElementById("total-errors"),
-	totalWarnings: document.getElementById("total-warnings"),
-	totalBlocked: document.getElementById("total-blocked"),
+  /**
+   * Format timestamp to time string
+   * @param {string|number|Date} timestamp - Timestamp to format
+   * @returns {string} Formatted time string (HH:MM:SS)
+   */
+  formatTime(timestamp) {
+    if (!timestamp) return '';
+    return new Date(timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  },
 
-	// Views
-	dashboardView: document.getElementById("dashboard-view"),
-	logsView: document.getElementById("logs-view"),
-	sessionsView: document.getElementById("sessions-view"),
-	fileChangesView: document.getElementById("file-changes-view"),
+  /**
+   * Format timestamp to date string
+   * @param {string|number|Date} timestamp - Timestamp to format
+   * @returns {string} Formatted date string
+   */
+  formatDate(timestamp) {
+    if (!timestamp) return '';
+    return new Date(timestamp).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  },
 
-	// Content containers
-	recentLogs: document.getElementById("recent-logs"),
-	logsTable: document.getElementById("logs-table"),
-	sessionsList: document.getElementById("sessions-list"),
-	changesList: document.getElementById("changes-list"),
-	diffViewer: document.getElementById("diff-viewer"),
+  /**
+   * Format duration between two timestamps
+   * @param {string|number|Date} startTime - Start timestamp
+   * @param {string|number|Date} endTime - End timestamp (optional, defaults to now)
+   * @returns {string} Formatted duration string
+   */
+  formatDuration(startTime, endTime) {
+    if (!startTime) return '';
+    const start = new Date(startTime);
+    const end = endTime ? new Date(endTime) : new Date();
+    const ms = end - start;
 
-	// Controls
-	searchInput: document.getElementById("search"),
-	clearBtn: document.getElementById("clear-btn"),
-	tabs: document.querySelectorAll(".tab"),
-};
+    if (ms < 0) return '';
 
-// =============================================================================
-// Initialization
-// =============================================================================
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
 
-function init() {
-	// Set up tab switching
-	elements.tabs.forEach((tab) => {
-		tab.addEventListener("click", () => {
-			const tabName = tab.dataset.tab;
-			switchTab(tabName);
-		});
-	});
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  },
 
-	// Set up search
-	elements.searchInput?.addEventListener("input", debounce(handleSearch, 300));
+  /**
+   * Format file size in bytes to human readable string
+   * @param {number} bytes - Size in bytes
+   * @returns {string} Formatted size string
+   */
+  formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  },
 
-	// Set up clear button
-	elements.clearBtn?.addEventListener("click", handleClear);
+  /**
+   * Get file name from path
+   * @param {string} filePath - Full file path
+   * @returns {string} File name
+   */
+  getFileName(filePath) {
+    if (!filePath) return '';
+    return filePath.split('/').pop() || filePath;
+  },
 
-	// Set up file changes list click handler
-	elements.changesList?.addEventListener("click", handleChangeClick);
+  /**
+   * Get directory from path
+   * @param {string} filePath - Full file path
+   * @returns {string} Directory path
+   */
+  getDirectory(filePath) {
+    if (!filePath) return '';
+    const parts = filePath.split('/');
+    parts.pop();
+    return parts.join('/') || '/';
+  },
 
-	// Listen for messages from extension
-	window.addEventListener("message", handleMessage);
-}
+  /**
+   * Debounce a function
+   * @param {Function} fn - Function to debounce
+   * @param {number} delay - Delay in milliseconds
+   * @returns {Function} Debounced function
+   */
+  debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+  },
 
-// =============================================================================
-// Tab Management
-// =============================================================================
+  /**
+   * Throttle a function
+   * @param {Function} fn - Function to throttle
+   * @param {number} limit - Minimum time between calls in milliseconds
+   * @returns {Function} Throttled function
+   */
+  throttle(fn, limit) {
+    let inThrottle;
+    return function(...args) {
+      if (!inThrottle) {
+        fn.apply(this, args);
+        inThrottle = true;
+        setTimeout(() => inThrottle = false, limit);
+      }
+    };
+  },
 
-function switchTab(tabName) {
-	state.currentTab = tabName;
+  /**
+   * Generate a unique ID
+   * @returns {string} Unique ID
+   */
+  generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  },
 
-	// Update tab buttons
-	elements.tabs.forEach((tab) => {
-		tab.classList.toggle("active", tab.dataset.tab === tabName);
-	});
+  /**
+   * Deep clone an object
+   * @param {Object} obj - Object to clone
+   * @returns {Object} Cloned object
+   */
+  deepClone(obj) {
+    return JSON.parse(JSON.stringify(obj));
+  },
 
-	// Update views
-	const views = ["dashboard", "logs", "sessions", "file-changes"];
-	views.forEach((view) => {
-		const viewElement = document.getElementById(`${view}-view`);
-		if (viewElement) {
-			viewElement.classList.toggle("active", view === tabName);
-		}
-	});
+  // ==========================================================================
+  // Syntax Highlighting
+  // ==========================================================================
 
-	// Load data for the tab if needed
-	if (tabName === "logs") {
-		requestLogs();
-	}
-}
+  /**
+   * Detect language from file extension or content
+   * @param {string} filePath - File path (optional)
+   * @param {string} content - Code content (optional)
+   * @returns {string} Language identifier
+   */
+  detectLanguage(filePath, content) {
+    if (filePath) {
+      const ext = filePath.split('.').pop()?.toLowerCase();
+      const extMap = {
+        'js': 'javascript',
+        'jsx': 'javascript',
+        'ts': 'typescript',
+        'tsx': 'typescript',
+        'json': 'json',
+        'css': 'css',
+        'scss': 'css',
+        'less': 'css',
+        'html': 'html',
+        'htm': 'html',
+        'xml': 'html',
+        'svg': 'html',
+        'md': 'markdown',
+        'markdown': 'markdown',
+        'py': 'python',
+        'rb': 'ruby',
+        'go': 'go',
+        'rs': 'rust',
+        'sh': 'bash',
+        'bash': 'bash',
+        'zsh': 'bash',
+        'yml': 'yaml',
+        'yaml': 'yaml'
+      };
+      if (ext && extMap[ext]) return extMap[ext];
+    }
 
-// =============================================================================
-// Message Handling
-// =============================================================================
+    // Try to detect from content
+    if (content) {
+      const trimmed = content.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) return 'json';
+      if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) return 'html';
+      if (trimmed.startsWith('#') || trimmed.includes('```')) return 'markdown';
+    }
 
-function handleMessage(event) {
-	const message = event.data;
+    return 'plaintext';
+  },
 
-	switch (message.type) {
-		case "init":
-			handleInit(message.payload);
-			break;
-		case "stats":
-			handleStats(message.payload);
-			break;
-		case "log":
-			handleNewLog(message.payload);
-			break;
-		case "logs":
-			handleLogs(message.payload);
-			break;
-		case "diff-result":
-			handleDiffResult(message.payload);
-			break;
-		default:
-			// Unknown message types are silently ignored
-			break;
-	}
-}
+  /**
+   * Tokenize and highlight code
+   * @param {string} code - Code to highlight
+   * @param {string} language - Language identifier
+   * @returns {string} HTML with syntax highlighting spans
+   */
+  highlightCode(code, language = 'plaintext') {
+    if (!code) return '';
 
-function handleInit(data) {
-	if (data.stats) handleStats(data.stats);
-	if (data.logs) {
-		state.logs = data.logs;
-		renderRecentLogs();
-		renderLogsTable();
-	}
-	if (data.sessions) {
-		state.sessions = data.sessions;
-		renderSessions();
-	}
-	if (data.fileChanges) {
-		state.fileChanges = data.fileChanges;
-		renderFileChanges();
-	}
-	if (data.config) {
-		Object.assign(state.config, data.config);
-	}
-}
+    // Escape HTML first
+    let escaped = this.escapeHtml(code);
 
-function handleStats(stats) {
-	state.stats = stats;
-	renderStats();
-}
+    // Language-specific tokenization
+    switch (language) {
+      case 'json':
+        return this._highlightJson(escaped);
+      case 'javascript':
+      case 'typescript':
+        return this._highlightJavaScript(escaped);
+      case 'css':
+        return this._highlightCss(escaped);
+      case 'html':
+        return this._highlightHtml(escaped);
+      case 'markdown':
+        return this._highlightMarkdown(escaped);
+      default:
+        return escaped;
+    }
+  },
 
-function handleNewLog(log) {
-	state.logs.unshift(log);
-	if (state.logs.length > 1000) {
-		state.logs = state.logs.slice(0, 1000);
-	}
+  /**
+   * Highlight JSON code
+   * @private
+   */
+  _highlightJson(code) {
+    return code
+      // Strings (property values)
+      .replace(/:(\s*)(&quot;[^&]*?&quot;)/g, ':<span class="token string">$2</span>')
+      // Property names (keys)
+      .replace(/(&quot;[^&]+?&quot;)(\s*:)/g, '<span class="token property">$1</span>$2')
+      // Numbers
+      .replace(/:\s*(-?\d+\.?\d*)/g, ': <span class="token number">$1</span>')
+      // Boolean and null
+      .replace(/:\s*(true|false|null)\b/g, ': <span class="token boolean">$1</span>')
+      // Punctuation
+      .replace(/([{}\[\],])/g, '<span class="token punctuation">$1</span>');
+  },
 
-	renderRecentLogs();
-	if (state.currentTab === "logs") {
-		renderLogsTable();
-	}
-}
+  /**
+   * Highlight JavaScript/TypeScript code
+   * @private
+   */
+  _highlightJavaScript(code) {
+    const keywords = 'async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield';
+    const types = 'string|number|boolean|object|any|void|never|unknown|null|undefined|Array|Promise|Map|Set|Date|RegExp|Error';
 
-function handleLogs(data) {
-	state.logs = data.logs || [];
-	renderLogsTable();
-}
+    return code
+      // Comments (single line)
+      .replace(/(\/\/[^\n]*)/g, '<span class="token comment">$1</span>')
+      // Strings (single and double quotes)
+      .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*`)/g, '<span class="token string">$1</span>')
+      // Template literals
+      .replace(/(\${[^}]+})/g, '<span class="token variable">$1</span>')
+      // Keywords
+      .replace(new RegExp(`\\b(${keywords})\\b`, 'g'), '<span class="token keyword">$1</span>')
+      // Types
+      .replace(new RegExp(`\\b(${types})\\b`, 'g'), '<span class="token type">$1</span>')
+      // Numbers
+      .replace(/\b(\d+\.?\d*)\b/g, '<span class="token number">$1</span>')
+      // Boolean
+      .replace(/\b(true|false)\b/g, '<span class="token boolean">$1</span>')
+      // Function calls
+      .replace(/\b([a-zA-Z_]\w*)\s*\(/g, '<span class="token function">$1</span>(')
+      // Operators
+      .replace(/([=!<>+\-*/%&|^~]+)/g, '<span class="token operator">$1</span>');
+  },
 
-function handleDiffResult(diff) {
-	renderDiff(diff);
-}
+  /**
+   * Highlight CSS code
+   * @private
+   */
+  _highlightCss(code) {
+    return code
+      // Comments
+      .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="token comment">$1</span>')
+      // Selectors (class, id, element)
+      .replace(/([.#]?[\w-]+)\s*\{/g, '<span class="token selector">$1</span> {')
+      // Properties
+      .replace(/([\w-]+)(\s*:)/g, '<span class="token property">$1</span>$2')
+      // Values with units
+      .replace(/:\s*([\d.]+)(px|em|rem|%|vh|vw|s|ms)/g, ': <span class="token number">$1</span><span class="token unit">$2</span>')
+      // Colors
+      .replace(/(#[0-9a-fA-F]{3,8})/g, '<span class="token string">$1</span>')
+      // Strings
+      .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;)/g, '<span class="token string">$1</span>');
+  },
 
-// =============================================================================
-// Rendering
-// =============================================================================
+  /**
+   * Highlight HTML code
+   * @private
+   */
+  _highlightHtml(code) {
+    return code
+      // Comments
+      .replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="token comment">$1</span>')
+      // Tag names
+      .replace(/(&lt;\/?)([\w-]+)/g, '$1<span class="token tag-name">$2</span>')
+      // Attributes
+      .replace(/([\w-]+)(=)/g, '<span class="token attr-name">$1</span>$2')
+      // Attribute values
+      .replace(/(=)(&quot;[^&]*?&quot;)/g, '$1<span class="token attr-value">$2</span>')
+      // Punctuation
+      .replace(/(&lt;\/?|\/?\s*&gt;)/g, '<span class="token punctuation">$1</span>');
+  },
 
-function renderStats() {
-	const stats = state.stats;
-	if (!stats) return;
+  /**
+   * Highlight Markdown code
+   * @private
+   */
+  _highlightMarkdown(code) {
+    return code
+      // Headers
+      .replace(/^(#{1,6}\s+.*)$/gm, '<span class="token title">$1</span>')
+      // Bold
+      .replace(/(\*\*[^*]+\*\*|__[^_]+__)/g, '<span class="token bold">$1</span>')
+      // Italic
+      .replace(/(\*[^*]+\*|_[^_]+_)/g, '<span class="token italic">$1</span>')
+      // Code blocks
+      .replace(/(```[\s\S]*?```)/g, '<span class="token code">$1</span>')
+      // Inline code
+      .replace(/(`[^`]+`)/g, '<span class="token code">$1</span>')
+      // Links
+      .replace(/(\[[^\]]+\]\([^)]+\))/g, '<span class="token url">$1</span>');
+  },
 
-	if (elements.statErrors) {
-		elements.statErrors.textContent = `${stats.errors} errors`;
-	}
-	if (elements.statChanges) {
-		elements.statChanges.textContent = `${stats.pendingChanges} changes`;
-	}
-	if (elements.totalLogs) {
-		elements.totalLogs.textContent = stats.totalLogs;
-	}
-	if (elements.totalErrors) {
-		elements.totalErrors.textContent = stats.errors;
-	}
-	if (elements.totalWarnings) {
-		elements.totalWarnings.textContent = stats.warnings;
-	}
-	if (elements.totalBlocked) {
-		elements.totalBlocked.textContent = stats.blocked;
-	}
-}
+  /**
+   * Create a highlighted code block with optional header
+   * @param {string} code - Code to highlight
+   * @param {string} language - Language identifier
+   * @param {Object} options - Options (showHeader, maxHeight)
+   * @returns {string} HTML code block
+   */
+  createCodeBlock(code, language = 'plaintext', options = {}) {
+    const { showHeader = true, maxHeight = 300 } = options;
+    const highlighted = this.highlightCode(code, language);
+    const langDisplay = language === 'javascript' ? 'JS' :
+                        language === 'typescript' ? 'TS' :
+                        language.toUpperCase();
 
-function renderRecentLogs() {
-	if (!elements.recentLogs) return;
-
-	const recentLogs = state.logs.slice(0, 10);
-
-	if (recentLogs.length === 0) {
-		elements.recentLogs.innerHTML =
-			'<div class="empty-state">No recent activity</div>';
-		return;
-	}
-
-	elements.recentLogs.innerHTML = recentLogs
-		.map(
-			(log) => `
-      <div class="log-item ${log.level}">
-        <span class="log-time">${formatTime(log.timestamp)}</span>
-        <span class="log-hook">${escapeHtml(log.hook)}</span>
-        <span class="log-message">${escapeHtml(log.message || log.event)}</span>
-      </div>
-    `,
-		)
-		.join("");
-}
-
-function renderLogsTable() {
-	if (!elements.logsTable) return;
-
-	if (state.logs.length === 0) {
-		elements.logsTable.innerHTML = '<div class="empty-state">No logs yet</div>';
-		return;
-	}
-
-	elements.logsTable.innerHTML = `
-    <table class="log-table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Level</th>
-          <th>Hook</th>
-          <th>Event</th>
-          <th>Message</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.logs
-					.map(
-						(log) => `
-          <tr class="${log.level}">
-            <td>${formatTime(log.timestamp)}</td>
-            <td>${log.level}</td>
-            <td>${escapeHtml(log.hook)}</td>
-            <td>${escapeHtml(log.event)}</td>
-            <td>${escapeHtml(log.message || "")}</td>
-          </tr>
-        `,
-					)
-					.join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-function renderSessions() {
-	if (!elements.sessionsList) return;
-
-	if (state.sessions.length === 0) {
-		elements.sessionsList.innerHTML =
-			'<div class="empty-state">No sessions</div>';
-		return;
-	}
-
-	elements.sessionsList.innerHTML = state.sessions
-		.map(
-			(session) => `
-      <div class="session-item ${session.status}">
-        <div class="session-status ${session.status}"></div>
-        <div class="session-info">
-          <div class="session-name">${escapeHtml(session.name || session.id)}</div>
-          <div class="session-meta">
-            ${formatDuration(session.startTime, session.endTime)} •
-            ${session.toolCount || 0} tools •
-            ${session.fileChanges || 0} files
+    if (showHeader) {
+      return `
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-language">${langDisplay}</span>
+          </div>
+          <div class="code-scrollable" style="max-height: ${maxHeight}px;">
+            <pre class="language-${language}"><code>${highlighted}</code></pre>
           </div>
         </div>
-      </div>
-    `,
-		)
-		.join("");
+      `;
+    }
+
+    return `<pre class="language-${language}" style="max-height: ${maxHeight}px;"><code>${highlighted}</code></pre>`;
+  }
+};
+
+// Make Utils globally available
+window.Utils = Utils;
+
+// ==========================================================================
+// Application Initialization
+// ==========================================================================
+
+/**
+ * Initialize the application
+ */
+function init() {
+  console.log('========================================');
+  console.log('[Inspector Hook] WEBVIEW INITIALIZING');
+  console.log('========================================');
+  console.log('[Inspector Hook] API available:', typeof API !== 'undefined');
+  console.log('[Inspector Hook] API.vscode available:', API?.vscode != null);
+  console.log('[Inspector Hook] State available:', typeof State !== 'undefined');
+  console.log('[Inspector Hook] Router available:', typeof Router !== 'undefined');
+
+  // Set up tab navigation
+  setupTabNavigation();
+
+  // Set up search
+  setupSearch();
+
+  // Set up clear button
+  setupClearButton();
+
+  // Set up header stats updates
+  setupHeaderStats();
+
+  // Navigate to default view
+  Router.navigate('dashboard');
+
+  console.log('[Inspector Hook] Webview initialized, sending webview-ready...');
 }
 
-function renderFileChanges() {
-	if (!elements.changesList) return;
+/**
+ * Set up tab navigation
+ */
+function setupTabNavigation() {
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const viewName = tab.dataset.view;
+      if (viewName) {
+        Router.navigate(viewName);
+      }
+    });
 
-	if (state.fileChanges.length === 0) {
-		elements.changesList.innerHTML =
-			'<div class="empty-state">No pending changes</div>';
-		return;
-	}
-
-	elements.changesList.innerHTML = state.fileChanges
-		.map(
-			(change) => `
-      <div class="change-item ${change.id === state.selectedChangeId ? "selected" : ""}" data-change-id="${change.id}">
-        <span class="change-type ${change.changeType}">${change.changeType}</span>
-        <span class="change-file">${getFileName(change.filePath)}</span>
-      </div>
-    `,
-		)
-		.join("");
+    // Keyboard support
+    tab.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const viewName = tab.dataset.view;
+        if (viewName) {
+          Router.navigate(viewName);
+        }
+      }
+    });
+  });
 }
 
-function renderDiff(diff) {
-	if (!elements.diffViewer) return;
+/**
+ * Set up search input
+ */
+function setupSearch() {
+  const searchInput = document.getElementById('search');
+  if (searchInput) {
+    searchInput.addEventListener('input', Utils.debounce((e) => {
+      const query = e.target.value.trim();
+      State.update('searchQuery', query);
 
-	if (!diff || !diff.hunks || diff.hunks.length === 0) {
-		elements.diffViewer.innerHTML =
-			'<div class="empty-state">No diff available</div>';
-		return;
-	}
+      // Also request filtered logs from backend
+      if (query) {
+        API.getLogs({ search: query });
+      } else {
+        API.getLogs();
+      }
+    }, 300));
 
-	const linesHtml = diff.hunks
-		.flatMap((hunk) =>
-			hunk.lines.map(
-				(line) => `
-        <div class="diff-line ${line.type}">
-          <span class="diff-line-number">${line.lineNumber || ""}</span>
-          <span class="diff-line-content">${escapeHtml(line.content)}</span>
-        </div>
-      `,
-			),
-		)
-		.join("");
-
-	elements.diffViewer.innerHTML = `
-    <div class="diff-header">
-      <span>+${diff.additions} -${diff.deletions}</span>
-    </div>
-    <div class="diff-content">
-      ${linesHtml}
-    </div>
-  `;
+    // Clear search on Escape
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        searchInput.value = '';
+        State.update('searchQuery', '');
+        API.getLogs();
+      }
+    });
+  }
 }
 
-// =============================================================================
-// Event Handlers
-// =============================================================================
-
-function handleSearch(event) {
-	const query = event.target.value;
-	vscode.postMessage({
-		command: "get-logs",
-		params: { filter: { search: query } },
-	});
+/**
+ * Set up clear button
+ */
+function setupClearButton() {
+  const clearBtn = document.getElementById('clear-btn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (confirm('Clear all logs? This cannot be undone.')) {
+        API.clearLogs();
+      }
+    });
+  }
 }
 
-function handleClear() {
-	vscode.postMessage({
-		command: "clear-logs",
-	});
+/**
+ * Set up header stats updates
+ */
+function setupHeaderStats() {
+  // Subscribe to stats updates
+  State.subscribe('stats', updateHeaderStats);
+  State.subscribe('fileChanges', updateHeaderStats);
+
+  // Initial render
+  updateHeaderStats();
 }
 
-function handleChangeClick(event) {
-	const changeItem = event.target.closest(".change-item");
-	if (!changeItem) return;
+/**
+ * Update header stats display
+ */
+function updateHeaderStats() {
+  const stats = State.stats;
+  const fileChanges = State.fileChanges;
 
-	const changeId = changeItem.dataset.changeId;
-	state.selectedChangeId = changeId;
+  const errorsStat = document.getElementById('stat-errors');
+  if (errorsStat) {
+    errorsStat.textContent = `${stats.errors || 0} errors`;
+  }
 
-	renderFileChanges();
-
-	vscode.postMessage({
-		command: "get-diff",
-		params: { changeId },
-	});
+  const changesStat = document.getElementById('stat-changes');
+  if (changesStat) {
+    changesStat.textContent = `${fileChanges.length || 0} changes`;
+  }
 }
 
-function requestLogs() {
-	vscode.postMessage({
-		command: "get-logs",
-		params: { pagination: { limit: 100 } },
-	});
+// ==========================================================================
+// Start Application
+// ==========================================================================
+
+// Wait for DOM to be ready
+console.log('[Inspector Hook] Script loaded, readyState:', document.readyState);
+
+if (document.readyState === 'loading') {
+  console.log('[Inspector Hook] Waiting for DOMContentLoaded...');
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('[Inspector Hook] DOMContentLoaded fired');
+    init();
+    // Signal to VS Code that webview is ready to receive messages
+    console.log('[Inspector Hook] Sending webview-ready to extension...');
+    API.send('webview-ready', {});
+    console.log('[Inspector Hook] webview-ready sent!');
+  });
+} else {
+  console.log('[Inspector Hook] DOM already ready, initializing immediately');
+  init();
+  // Signal to VS Code that webview is ready to receive messages
+  console.log('[Inspector Hook] Sending webview-ready to extension...');
+  API.send('webview-ready', {});
+  console.log('[Inspector Hook] webview-ready sent!');
 }
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-function escapeHtml(text) {
-	if (!text) return "";
-	const div = document.createElement("div");
-	div.textContent = text;
-	return div.innerHTML;
-}
-
-function formatTime(timestamp) {
-	if (!timestamp) return "";
-	const date = new Date(timestamp);
-	return date.toLocaleTimeString("en-US", {
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	});
-}
-
-function formatDuration(startTime, endTime) {
-	if (!startTime) return "";
-	const start = new Date(startTime);
-	const end = endTime ? new Date(endTime) : new Date();
-	const ms = end - start;
-	const seconds = Math.floor(ms / 1000);
-	const minutes = Math.floor(seconds / 60);
-	const hours = Math.floor(minutes / 60);
-
-	if (hours > 0) {
-		return `${hours}h ${minutes % 60}m`;
-	} else if (minutes > 0) {
-		return `${minutes}m ${seconds % 60}s`;
-	} else {
-		return `${seconds}s`;
-	}
-}
-
-function getFileName(filePath) {
-	if (!filePath) return "";
-	return filePath.split("/").pop() || filePath;
-}
-
-function debounce(fn, delay) {
-	let timeoutId;
-	return function (...args) {
-		clearTimeout(timeoutId);
-		timeoutId = setTimeout(() => fn.apply(this, args), delay);
-	};
-}
-
-// =============================================================================
-// Start
-// =============================================================================
-
-init();

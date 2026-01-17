@@ -34,7 +34,9 @@ export async function activate(
 	// Register commands
 	registerCommands(context, {
 		showPanel: () => {
+			console.log("[InspectorHook Extension] showPanel command triggered");
 			panel = InspectorPanel.createOrShow(context.extensionUri, coreBridge!);
+			console.log("[InspectorHook Extension] Panel created/shown");
 		},
 		refreshLogs: () => {
 			panel?.refresh();

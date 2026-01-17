@@ -80,7 +80,29 @@ export class LogManager extends EventEmitter {
 	/**
 	 * Add a new log entry
 	 */
-	async addLog(data: Partial<LogEntry>): Promise<LogEntry> {
+	async addLog(data: Partial<LogEntry> & Record<string, unknown>): Promise<LogEntry> {
+		// Build details object, merging existing details with toolInput/toolResponse
+		// The hook script sends toolInput and toolResponse at root level
+		const details: Record<string, unknown> = {};
+
+		// Copy existing details if present
+		if (data.details && typeof data.details === "object") {
+			Object.assign(details, data.details);
+		}
+
+		// Capture toolInput/toolResponse from hook scripts
+		// Map to tool_input/tool_result for consistency with logs view
+		if ((data as Record<string, unknown>).toolInput) {
+			details.tool_input = (data as Record<string, unknown>).toolInput;
+		}
+		if ((data as Record<string, unknown>).toolResponse) {
+			details.tool_result = (data as Record<string, unknown>).toolResponse;
+		}
+		// Also capture raw input if present
+		if ((data as Record<string, unknown>).rawInput) {
+			details.rawInput = (data as Record<string, unknown>).rawInput;
+		}
+
 		const log: LogEntry = {
 			id: randomUUID(),
 			timestamp: new Date().toISOString(),
@@ -91,7 +113,7 @@ export class LogManager extends EventEmitter {
 			sessionId: data.sessionId,
 			tool: data.tool,
 			file: data.file,
-			details: data.details,
+			details: Object.keys(details).length > 0 ? details : undefined,
 		};
 
 		// Add to in-memory store

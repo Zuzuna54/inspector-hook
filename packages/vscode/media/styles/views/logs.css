@@ -1,0 +1,444 @@
+/**
+ * Logs View Styles
+ * Log table and filter bar
+ */
+
+/* ==========================================================================
+   Logs View Layout
+   ========================================================================== */
+
+#view-logs {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ==========================================================================
+   Logs Filter Bar
+   ========================================================================== */
+
+.logs-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+
+.logs-filter-bar .filter-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.logs-filter-bar .filter-label {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.logs-filter-bar .filter-spacer {
+  flex: 1;
+}
+
+.logs-filter-bar .filter-count {
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+}
+
+/* ==========================================================================
+   Logs Table Container
+   ========================================================================== */
+
+.logs-table-container {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* ==========================================================================
+   Logs Table
+   ========================================================================== */
+
+.logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.logs-table thead {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.logs-table th {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.logs-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+/* Column Widths */
+.logs-table th:nth-child(1),
+.logs-table td:nth-child(1) {
+  width: 80px;
+}
+
+.logs-table th:nth-child(2),
+.logs-table td:nth-child(2) {
+  width: 80px;
+}
+
+.logs-table th:nth-child(3),
+.logs-table td:nth-child(3) {
+  width: 120px;
+}
+
+.logs-table th:nth-child(4),
+.logs-table td:nth-child(4) {
+  width: 140px;
+}
+
+.logs-table th:nth-child(5),
+.logs-table td:nth-child(5) {
+  width: auto;
+}
+
+/* Row States */
+.logs-table tbody tr {
+  transition: background var(--transition-fast);
+}
+
+.logs-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.logs-table tbody tr.error {
+  background: var(--color-error-bg);
+}
+
+.logs-table tbody tr.error:hover {
+  background: rgba(244, 71, 71, 0.2);
+}
+
+.logs-table tbody tr.warning {
+  background: var(--color-warning-bg);
+}
+
+.logs-table tbody tr.warning:hover {
+  background: rgba(204, 167, 0, 0.2);
+}
+
+.logs-table tbody tr.blocked {
+  background: var(--color-blocked-bg);
+}
+
+.logs-table tbody tr.blocked:hover {
+  background: rgba(233, 30, 99, 0.2);
+}
+
+/* Cell Styles */
+.log-row .log-time {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.log-row .log-hook {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+}
+
+.log-row .log-event {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--vscode-symbolIcon-eventForeground, #ee9d28);
+}
+
+.log-row .log-message {
+  word-break: break-word;
+  color: var(--fg-primary);
+}
+
+/* ==========================================================================
+   Log Details Expandable Row
+   ========================================================================== */
+
+.log-details {
+  padding: var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+}
+
+.log-details-content {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-sm);
+}
+
+.log-details-label {
+  color: var(--fg-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.log-details-value {
+  color: var(--fg-primary);
+  font-family: var(--font-family-mono);
+  word-break: break-all;
+}
+
+/* ==========================================================================
+   Log Context
+   ========================================================================== */
+
+.log-context {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--fg-secondary);
+  max-height: 200px;
+  overflow: auto;
+}
+
+/* ==========================================================================
+   Virtual Scroll Placeholder
+   ========================================================================== */
+
+.logs-virtual-scroll {
+  height: 100%;
+  overflow: auto;
+}
+
+.logs-virtual-item {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 800px) {
+  .logs-table th:nth-child(3),
+  .logs-table td:nth-child(3) {
+    display: none;
+  }
+
+  .logs-table th:nth-child(4),
+  .logs-table td:nth-child(4) {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .logs-filter-bar {
+    flex-wrap: wrap;
+  }
+
+  .logs-filter-bar .filter-spacer {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Logs Table Wrapper
+   ========================================================================== */
+
+.logs-table-wrapper {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.logs-table-wrapper .logs-table-container {
+  flex: 1;
+  overflow: auto;
+}
+
+/* ==========================================================================
+   Log Detail Inline Popup
+   ========================================================================== */
+
+/* Row that has an open popup */
+.log-row-expanded {
+  background: var(--bg-active) !important;
+  border-bottom-color: transparent !important;
+}
+
+/* The popup row that appears below the clicked row */
+.log-detail-popup {
+  opacity: 0;
+  transform-origin: top;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.log-detail-popup.popup-visible {
+  opacity: 1;
+}
+
+.log-detail-popup > td {
+  padding: 0 !important;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Popup content container */
+.popup-content {
+  max-width: 400px;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.popup-title {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.popup-close {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--fg-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.popup-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.popup-body {
+  padding: var(--spacing-sm) var(--spacing-md);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.popup-field {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.popup-field:last-child {
+  border-bottom: none;
+}
+
+.popup-field-full {
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.popup-label {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 70px;
+}
+
+.popup-value {
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+  word-break: break-word;
+  flex: 1;
+}
+
+.popup-code-block {
+  margin-top: var(--spacing-xs);
+}
+
+.popup-code-block pre {
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+/* ==========================================================================
+   Load More Button
+   ========================================================================== */
+
+.load-more {
+  padding: var(--spacing-md);
+  text-align: center;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.load-more .btn {
+  min-width: 200px;
+}
+
+/* ==========================================================================
+   Detail Panel Responsive
+   ========================================================================== */
+
+@media (max-width: 700px) {
+  .log-detail-panel {
+    width: 100%;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    height: 60%;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+}

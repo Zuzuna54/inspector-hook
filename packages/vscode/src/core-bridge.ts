@@ -56,11 +56,17 @@ export class CoreBridge extends EventEmitter {
 	 * Start the core process
 	 */
 	async start(): Promise<void> {
-		if (this.running) return;
+		if (this.running) {
+			console.log("[CoreBridge] Already running, skipping start");
+			return;
+		}
+
+		console.log("[CoreBridge] Starting core process...");
 
 		return new Promise((resolve, reject) => {
 			// Find the core CLI
 			const corePath = this.findCorePath();
+			console.log("[CoreBridge] Core path:", corePath);
 
 			// Spawn the core process
 			this.process = spawn("node", [corePath], {
@@ -82,10 +88,12 @@ export class CoreBridge extends EventEmitter {
 				this.emit("exit", code);
 			});
 
-			// Read stderr for error messages
+			// Read stderr for error/debug messages
 			if (this.process.stderr) {
 				this.process.stderr.on("data", (data: Buffer) => {
-					this.emit("stderr", data.toString());
+					const msg = data.toString();
+					console.log("[CoreBridge] stderr:", msg.trim());
+					this.emit("stderr", msg);
 				});
 			}
 
@@ -110,6 +118,7 @@ export class CoreBridge extends EventEmitter {
 							this.httpPort = message.port;
 							this.running = true;
 							this.initializeStats();
+							console.log("[CoreBridge] Core process ready on port", this.httpPort);
 							resolve();
 							return;
 						}
@@ -355,6 +364,85 @@ export class CoreBridge extends EventEmitter {
 	 */
 	async clearLogs(filter?: LogFilter): Promise<{ success: boolean }> {
 		return this.sendRequest("logs.clear", { filter });
+	}
+
+	/**
+	 * Get a single session by ID
+	 */
+	async getSession(sessionId: string): Promise<Session | null> {
+		return this.sendRequest("sessions.getById", { id: sessionId });
+	}
+
+	/**
+	 * Delete a session
+	 */
+	async deleteSession(sessionId: string): Promise<{ success: boolean }> {
+		return this.sendRequest("sessions.delete", { id: sessionId });
+	}
+
+	/**
+	 * Keep all pending changes
+	 */
+	async keepAllChanges(sessionId?: string): Promise<{ success: boolean; count: number }> {
+		return this.sendRequest("fileChanges.keepAll", { sessionId });
+	}
+
+	/**
+	 * Revert all pending changes
+	 */
+	async revertAllChanges(sessionId?: string): Promise<{ success: boolean; count: number }> {
+		return this.sendRequest("fileChanges.revertAll", { sessionId });
+	}
+
+	/**
+	 * Get version history for a file
+	 */
+	async getVersionHistory(filePath: string, limit?: number): Promise<{
+		filePath: string;
+		versions: Array<{
+			versionNumber: number;
+			timestamp: string;
+			tool: string;
+			sessionId: string;
+			content?: string;
+		}>;
+	}> {
+		return this.sendRequest("history.getVersions", { filePath, limit });
+	}
+
+	/**
+	 * Restore a specific version of a file
+	 */
+	async restoreVersion(filePath: string, versionNumber: number): Promise<{ success: boolean }> {
+		return this.sendRequest("history.restoreVersion", { filePath, versionNumber });
+	}
+
+	/**
+	 * Compare two versions of a file
+	 */
+	async compareVersions(filePath: string, version1: number, version2: number | 'current'): Promise<DiffResult> {
+		return this.sendRequest("history.compareVersions", { filePath, version1, version2 });
+	}
+
+	/**
+	 * Get archived changes
+	 */
+	async getArchivedChanges(params?: { resolution?: string; limit?: number }): Promise<{ changes: FileChange[] }> {
+		return this.sendRequest("archive.getAll", params);
+	}
+
+	/**
+	 * Restore a change from archive
+	 */
+	async restoreArchived(changeId: string): Promise<{ success: boolean }> {
+		return this.sendRequest("archive.restoreFromArchive", { changeId });
+	}
+
+	/**
+	 * Get diff for an archived change
+	 */
+	async getArchivedDiff(changeId: string): Promise<DiffResult> {
+		return this.sendRequest("archive.getDiff", { id: changeId });
 	}
 
 	// ==========================================================================
