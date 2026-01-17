@@ -299,4 +299,13 @@ export class IpcServer {
 		// Write to stdout for JSON-RPC over stdio
 		process.stdout.write(JSON.stringify(notification) + "\n");
 	}
+
+	/**
+	 * Broadcast a notification to all connected clients
+	 * For stdio-based IPC, this is the same as sendNotification
+	 * but provides a cleaner API for event-driven notifications
+	 */
+	broadcast(event: string, data: unknown): void {
+		this.sendNotification(event, data);
+	}
 }

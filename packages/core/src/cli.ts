@@ -6,17 +6,17 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CoreInitParams } from "@inspector-hook/protocol";
 import { InspectorCore } from "./core.js";
 
-// Default configuration
+// Default configuration (can be overridden via environment variables)
 const DEFAULT_CONFIG = {
-	httpPort: 0, // Dynamic port - OS assigns available port
-	wsPort: 0,
-	maxLogsInMemory: 10000,
-	logRetentionDays: 7,
+	httpPort: parseInt(process.env.INSPECTOR_HOOK_HTTP_PORT || "0", 10), // 0 = OS assigns available port
+	wsPort: parseInt(process.env.INSPECTOR_HOOK_WS_PORT || "0", 10),
+	maxLogsInMemory: parseInt(process.env.INSPECTOR_HOOK_MAX_LOGS || "10000", 10),
+	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "7", 10),
 };
 
 // Get storage path (shared across sessions)
@@ -34,8 +34,9 @@ function getWorkspaceRoot(): string {
 }
 
 // Write port to file for hooks to discover
+// Uses fixed path /tmp/inspector-hook.port as per Phase 1 spec
 function writePortFile(port: number): void {
-	const portFile = join(tmpdir(), "inspector-hook.port");
+	const portFile = "/tmp/inspector-hook.port";
 	writeFileSync(portFile, port.toString(), "utf-8");
 }
 

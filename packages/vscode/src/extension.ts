@@ -68,10 +68,14 @@ export async function activate(
 	context.subscriptions.push(statusBar);
 
 	// Update status bar with stats
-	const updateStatusBar = () => {
+	const updateStatusBar = async () => {
 		if (coreBridge?.isRunning()) {
-			const stats = coreBridge.getStats();
-			statusBar.text = `$(eye) ${stats?.errors || 0} errors | ${stats?.pendingChanges || 0} changes`;
+			try {
+				const stats = await coreBridge.getStats();
+				statusBar.text = `$(eye) ${stats?.errors || 0} errors | ${stats?.pendingChanges || 0} changes`;
+			} catch {
+				statusBar.text = "$(eye) Inspector Hook";
+			}
 		} else {
 			statusBar.text = "$(eye) Inspector Hook (stopped)";
 		}

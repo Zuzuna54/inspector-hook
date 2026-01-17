@@ -31,6 +31,9 @@ importers:
 
   packages/vscode:
     dependencies:
+      '@inspector-hook/core':
+        specifier: workspace:*
+        version: link:../core
       '@inspector-hook/protocol':
         specifier: workspace:*
         version: link:../protocol

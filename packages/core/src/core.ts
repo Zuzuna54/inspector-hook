@@ -1,6 +1,6 @@
 /**
  * Main Inspector Hook Core class
- * Orchestrates all components
+ * Orchestrates all components with persistence and event handling
  */
 
 import type {
@@ -14,6 +14,7 @@ import { IpcServer } from "./ipc/ipc-server.js";
 import { FileTracker } from "./managers/file-tracker.js";
 import { LogManager } from "./managers/log-manager.js";
 import { SessionManager } from "./managers/session-manager.js";
+import { PersistenceStore } from "./persistence/store.js";
 import { HttpServer } from "./server/http-server.js";
 
 export class InspectorCore {
@@ -22,28 +23,41 @@ export class InspectorCore {
 	private logManager: LogManager;
 	private sessionManager: SessionManager;
 	private fileTracker: FileTracker;
+	private persistence: PersistenceStore;
 
 	private startTime: number = 0;
 	private status: CoreStatus["status"] = "starting";
 	private config: CoreConfig;
+	private storagePath: string;
 
 	constructor(params: CoreInitParams) {
 		this.config = params.config;
+		this.storagePath = params.storagePath;
 
-		// Initialize managers
+		// Initialize persistence store
+		this.persistence = new PersistenceStore({
+			basePath: params.storagePath,
+			maxLogFileSize: 10 * 1024 * 1024, // 10MB
+			maxLogFiles: 10,
+		});
+
+		// Initialize managers with persistence support
 		this.logManager = new LogManager({
 			storagePath: params.storagePath,
 			maxLogsInMemory: params.config.maxLogsInMemory,
 			retentionDays: params.config.logRetentionDays,
+			persistence: this.persistence,
 		});
 
 		this.sessionManager = new SessionManager({
 			storagePath: params.storagePath,
+			persistence: this.persistence,
 		});
 
 		this.fileTracker = new FileTracker({
 			workspaceRoot: params.workspaceRoot,
 			storagePath: params.storagePath,
+			persistence: this.persistence,
 		});
 
 		// Initialize servers
@@ -60,6 +74,116 @@ export class InspectorCore {
 			fileTracker: this.fileTracker,
 			core: this,
 		});
+
+		// Wire up events for cross-manager communication
+		this.setupEventHandlers();
+	}
+
+	/**
+	 * Set up event handlers for cross-manager communication
+	 */
+	private setupEventHandlers(): void {
+		// When a session is created, log it
+		this.sessionManager.on("session:created", (session) => {
+			this.logManager.addLog({
+				timestamp: new Date().toISOString(),
+				level: "info",
+				message: `Session created: ${session.id}`,
+				sessionId: session.id,
+				event: "session.start",
+			});
+		});
+
+		// When a session ends, log it
+		this.sessionManager.on("session:ended", (session) => {
+			this.logManager.addLog({
+				timestamp: new Date().toISOString(),
+				level: "info",
+				message: `Session ended: ${session.id}`,
+				sessionId: session.id,
+				event: "session.end",
+			});
+		});
+
+		// When a tool starts, capture file content before changes
+		this.sessionManager.on("tool:started", async ({ sessionId, execution }) => {
+			if (
+				execution.affectedFiles &&
+				(execution.tool === "Edit" || execution.tool === "Write")
+			) {
+				for (const filePath of execution.affectedFiles) {
+					await this.fileTracker.captureBeforeContent(
+						filePath,
+						sessionId,
+						execution.tool,
+					);
+				}
+			}
+		});
+
+		// When a tool completes, track the file change
+		this.sessionManager.on("tool:completed", async ({ sessionId, execution }) => {
+			if (
+				execution.affectedFiles &&
+				(execution.tool === "Edit" || execution.tool === "Write")
+			) {
+				for (const filePath of execution.affectedFiles) {
+					const change = await this.fileTracker.trackFromLog({
+						id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+						timestamp: execution.endTime || new Date().toISOString(),
+						level: "info",
+						hook: "ToolEnd",
+						message: `File modified: ${filePath}`,
+						sessionId,
+						tool: execution.tool,
+						file: filePath,
+						event: "tool.end",
+					});
+
+					if (change) {
+						// Link the change to the session
+						this.sessionManager.addFileChange(sessionId, change.id);
+					}
+				}
+			}
+		});
+
+		// When a file change is tracked, broadcast via IPC
+		this.fileTracker.on("change:tracked", (change) => {
+			this.ipcServer.broadcast("notification", {
+				type: "change:tracked",
+				changeId: change.id,
+				filePath: change.filePath,
+				sessionId: change.sessionId,
+			});
+		});
+
+		// When a change is kept, broadcast
+		this.fileTracker.on("change:kept", (change) => {
+			this.ipcServer.broadcast("notification", {
+				type: "change:kept",
+				changeId: change.id,
+				filePath: change.filePath,
+			});
+		});
+
+		// When a change is reverted, broadcast
+		this.fileTracker.on("change:reverted", (change) => {
+			this.ipcServer.broadcast("notification", {
+				type: "change:reverted",
+				changeId: change.id,
+				filePath: change.filePath,
+			});
+		});
+
+		// When a version is created, broadcast
+		this.fileTracker.on("version:created", ({ filePath, version }) => {
+			this.ipcServer.broadcast("notification", {
+				type: "version:created",
+				filePath,
+				versionNumber: version.versionNumber,
+			});
+		});
 	}
 
 	/**
@@ -70,6 +194,14 @@ export class InspectorCore {
 		this.status = "starting";
 
 		try {
+			// Initialize persistence first
+			await this.persistence.initialize();
+
+			// Load persisted data
+			await this.sessionManager.load();
+			await this.fileTracker.load();
+			await this.logManager.load();
+
 			// Start HTTP server for hook ingestion
 			await this.httpServer.start();
 
@@ -96,6 +228,7 @@ export class InspectorCore {
 			// Persist any pending data
 			await this.logManager.flush();
 			await this.sessionManager.flush();
+			await this.fileTracker.flush();
 
 			this.status = "running"; // Process will exit after this
 		} catch (error) {
@@ -166,5 +299,12 @@ export class InspectorCore {
 	 */
 	getFileTracker(): FileTracker {
 		return this.fileTracker;
+	}
+
+	/**
+	 * Get persistence store instance
+	 */
+	getPersistence(): PersistenceStore {
+		return this.persistence;
 	}
 }

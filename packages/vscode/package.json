@@ -81,6 +81,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@inspector-hook/core": "workspace:*",
     "@inspector-hook/protocol": "workspace:*"
   },
   "devDependencies": {

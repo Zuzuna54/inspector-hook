@@ -1,6 +1,6 @@
 /**
  * HTTP Server for hook log ingestion
- * Receives logs via POST /api/log from hook scripts
+ * Receives logs via POST /log (primary) or /api/log (alias) from hook scripts
  */
 
 import {
@@ -105,6 +105,9 @@ export class HttpServer {
 
 		try {
 			switch (url.pathname) {
+				// Primary endpoint per Phase 1 spec
+				case "/log":
+				// Alias for backwards compatibility
 				case "/api/log":
 					if (req.method === "POST") {
 						await this.handleLogPost(req, res);
@@ -130,7 +133,7 @@ export class HttpServer {
 	}
 
 	/**
-	 * Handle POST /api/log - receive log from hooks
+	 * Handle POST /log (or /api/log) - receive log from hooks
 	 */
 	private async handleLogPost(
 		req: IncomingMessage,
@@ -155,9 +158,25 @@ export class HttpServer {
 				this.sessionManager.trackActivity(log.sessionId, log);
 			}
 
-			// Track file changes for relevant events
-			if (log.file && log.tool) {
-				this.fileTracker.trackFromLog(log);
+			// File tracking workflow for Edit/Write tools:
+			// - On PreToolUse: capture BEFORE content from disk
+			// - On PostToolUse: read AFTER content from disk and detect change
+			if (log.file && log.tool && (log.tool === "Edit" || log.tool === "Write")) {
+				if (log.event === "PreToolUse") {
+					// Capture the before content BEFORE the tool modifies the file
+					await this.fileTracker.captureBeforeContent(
+						log.file,
+						log.sessionId || "unknown",
+						log.tool,
+					);
+				} else if (log.event === "PostToolUse") {
+					// After tool execution, detect the change by reading current file content
+					const change = await this.fileTracker.trackFromLog(log);
+					// If a change was detected, link it to the session
+					if (change && log.sessionId) {
+						this.sessionManager.addFileChange(log.sessionId, change.id);
+					}
+				}
 			}
 
 			this.sendJson(res, { success: true, id: log.id });

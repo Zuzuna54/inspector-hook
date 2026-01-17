@@ -169,23 +169,34 @@ export class InspectorPanel {
 	 * Send initial data to webview
 	 */
 	private async _sendInitData(): Promise<void> {
-		const [stats, logs, sessions, fileChanges] = await Promise.all([
-			this._coreBridge.getStats(),
-			this._coreBridge.getLogs({ pagination: { limit: 100 } }),
-			this._coreBridge.getSessions(),
-			this._coreBridge.getPendingChanges(),
-		]);
-
-		this._sendMessage({
-			type: "init",
-			payload: {
+		console.log("[Inspector Hook Panel] Fetching initial data...");
+		try {
+			const [stats, logs, sessions, fileChanges] = await Promise.all([
+				this._coreBridge.getStats(),
+				this._coreBridge.getLogs({ pagination: { limit: 100 } }),
+				this._coreBridge.getSessions(),
+				this._coreBridge.getPendingChanges(),
+			]);
+			console.log("[Inspector Hook Panel] Data received:", {
 				stats,
-				logs: logs?.logs || [],
-				sessions: sessions?.sessions || [],
-				fileChanges: fileChanges?.changes || [],
-				config: { autoScroll: true },
-			},
-		});
+				logsCount: logs?.logs?.length,
+				sessionsCount: sessions?.sessions?.length,
+				changesCount: fileChanges?.changes?.length,
+			});
+
+			this._sendMessage({
+				type: "init",
+				payload: {
+					stats,
+					logs: logs?.logs || [],
+					sessions: sessions?.sessions || [],
+					fileChanges: fileChanges?.changes || [],
+					config: { autoScroll: true },
+				},
+			});
+		} catch (error) {
+			console.error("[Inspector Hook Panel] Failed to fetch data:", error);
+		}
 	}
 
 	/**

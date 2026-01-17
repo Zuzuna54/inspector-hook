@@ -1,8 +1,9 @@
 /**
  * Session Manager
- * Handles session tracking and management
+ * Handles session tracking and management with full lifecycle support
  */
 
+import { EventEmitter } from "node:events";
 import type {
 	LogEntry,
 	Session,
@@ -10,10 +11,14 @@ import type {
 	SessionFilter,
 	SessionStats,
 	SessionStatus,
+	ToolExecution,
+	ExecutionStatus,
 } from "@inspector-hook/protocol";
+import type { PersistenceStore } from "../persistence/store.js";
 
 export interface SessionManagerOptions {
 	storagePath: string;
+	persistence?: PersistenceStore;
 }
 
 export interface SessionManagerStats {
@@ -21,12 +26,81 @@ export interface SessionManagerStats {
 	totalSessions: number;
 }
 
-export class SessionManager {
+export interface SessionManagerEvents {
+	"session:created": (session: Session) => void;
+	"session:ended": (session: Session) => void;
+	"session:terminated": (session: Session) => void;
+	"tool:started": (data: { sessionId: string; execution: ToolExecution }) => void;
+	"tool:completed": (data: { sessionId: string; execution: ToolExecution }) => void;
+	"tool:failed": (data: { sessionId: string; execution: ToolExecution }) => void;
+	"tool:blocked": (data: { sessionId: string; execution: ToolExecution }) => void;
+}
+
+export class SessionManager extends EventEmitter {
 	private sessions: Map<string, Session> = new Map();
 	private options: SessionManagerOptions;
+	private persistence?: PersistenceStore;
 
 	constructor(options: SessionManagerOptions) {
+		super();
 		this.options = options;
+		this.persistence = options.persistence;
+	}
+
+	/**
+	 * Set the persistence store after construction
+	 */
+	setPersistence(persistence: PersistenceStore): void {
+		this.persistence = persistence;
+	}
+
+	/**
+	 * Load sessions from persistence
+	 */
+	async load(): Promise<void> {
+		if (!this.persistence) return;
+
+		const sessions = await this.persistence.loadAllJSON<Session>("sessions");
+		for (const [id, session] of sessions) {
+			this.sessions.set(id, session);
+		}
+	}
+
+	/**
+	 * Create a new session
+	 */
+	createSession(
+		id: string,
+		metadata?: Record<string, unknown>,
+	): Session {
+		const session: Session = {
+			id,
+			status: "active",
+			startTime: new Date().toISOString(),
+			toolExecutions: [],
+			fileChanges: [],
+			metadata,
+		};
+
+		this.sessions.set(id, session);
+		this.emit("session:created", session);
+		this.persistSession(session);
+
+		return session;
+	}
+
+	/**
+	 * Get or create a session
+	 */
+	getOrCreateSession(
+		id: string,
+		metadata?: Record<string, unknown>,
+	): Session {
+		let session = this.sessions.get(id);
+		if (!session) {
+			session = this.createSession(id, metadata);
+		}
+		return session;
 	}
 
 	/**
@@ -37,29 +111,27 @@ export class SessionManager {
 
 		if (!session) {
 			// Create new session
-			session = {
-				id: sessionId,
-				status: "active",
-				startTime: log.timestamp,
-				toolExecutions: [],
-				fileChanges: [],
-			};
-			this.sessions.set(sessionId, session);
-		}
-
-		// Track tool execution
-		if (log.tool && log.event === "tool.start") {
-			session.toolExecutions.push({
-				id: `exec-${Date.now()}`,
-				tool: log.tool,
-				input: log.details || {},
-				startTime: log.timestamp,
-				status: "running",
+			session = this.createSession(sessionId, {
+				workingDirectory: log.details?.cwd as string | undefined,
 			});
 		}
 
-		// Update tool execution on completion
-		if (log.tool && log.event === "tool.end") {
+		// Track tool execution start (supports both tool.start and PreToolUse)
+		if (log.tool && (log.event === "tool.start" || log.event === "PreToolUse")) {
+			const execution: ToolExecution = {
+				id: `exec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+				tool: log.tool,
+				input: (log.details?.input as Record<string, unknown>) || log.details || {},
+				startTime: log.timestamp,
+				status: "running",
+				affectedFiles: log.file ? [log.file] : undefined,
+			};
+			session.toolExecutions.push(execution);
+			this.emit("tool:started", { sessionId, execution });
+		}
+
+		// Update tool execution on completion (supports both tool.end and PostToolUse)
+		if (log.tool && (log.event === "tool.end" || log.event === "PostToolUse")) {
 			const exec = session.toolExecutions.find(
 				(e) => e.tool === log.tool && e.status === "running",
 			);
@@ -67,13 +139,107 @@ export class SessionManager {
 				exec.endTime = log.timestamp;
 				exec.status = log.level === "error" ? "failed" : "completed";
 				exec.result = log.details;
+
+				if (exec.status === "completed") {
+					this.emit("tool:completed", { sessionId, execution: exec });
+				} else {
+					this.emit("tool:failed", { sessionId, execution: exec });
+				}
+			}
+		}
+
+		// Track blocked operations
+		if (log.level === "blocked") {
+			const exec = session.toolExecutions.find(
+				(e) => e.tool === log.tool && e.status === "running",
+			);
+			if (exec) {
+				exec.status = "blocked";
+				exec.error = log.message;
+				this.emit("tool:blocked", { sessionId, execution: exec });
+			}
+		}
+
+		// Track file changes
+		if (log.file && (log.tool === "Edit" || log.tool === "Write")) {
+			if (log.details?.changeId && !session.fileChanges.includes(log.details.changeId as string)) {
+				session.fileChanges.push(log.details.changeId as string);
 			}
 		}
 
 		// Check for session end
-		if (log.event === "session.end" || log.hook === "SessionEnd") {
+		if (log.event === "session.end" || log.hook === "SessionEnd" || log.hook === "Stop") {
 			session.status = "completed";
 			session.endTime = log.timestamp;
+			this.emit("session:ended", session);
+		}
+
+		this.persistSession(session);
+	}
+
+	/**
+	 * Add a file change ID to a session
+	 */
+	addFileChange(sessionId: string, changeId: string): void {
+		const session = this.sessions.get(sessionId);
+		if (session && !session.fileChanges.includes(changeId)) {
+			session.fileChanges.push(changeId);
+			this.persistSession(session);
+		}
+	}
+
+	/**
+	 * Add a tool execution to a session
+	 */
+	addToolExecution(sessionId: string, execution: ToolExecution): void {
+		const session = this.sessions.get(sessionId);
+		if (session) {
+			session.toolExecutions.push(execution);
+			this.emit("tool:started", { sessionId, execution });
+			this.persistSession(session);
+		}
+	}
+
+	/**
+	 * Complete a tool execution
+	 */
+	completeToolExecution(
+		sessionId: string,
+		executionId: string,
+		result: unknown,
+		status: ExecutionStatus = "completed",
+	): void {
+		const session = this.sessions.get(sessionId);
+		if (session) {
+			const execution = session.toolExecutions.find((e) => e.id === executionId);
+			if (execution) {
+				execution.endTime = new Date().toISOString();
+				execution.status = status;
+				execution.result = result;
+
+				if (status === "completed") {
+					this.emit("tool:completed", { sessionId, execution });
+				} else if (status === "failed") {
+					this.emit("tool:failed", { sessionId, execution });
+				} else if (status === "blocked") {
+					this.emit("tool:blocked", { sessionId, execution });
+				}
+
+				this.persistSession(session);
+			}
+		}
+	}
+
+	/**
+	 * End a session
+	 */
+	endSession(id: string): void {
+		const session = this.sessions.get(id);
+		if (session && session.status === "active") {
+			session.status = "completed";
+			session.endTime = new Date().toISOString();
+			this.emit("session:ended", session);
+			this.persistSession(session);
 		}
 	}
 
@@ -101,6 +267,15 @@ export class SessionManager {
 	}
 
 	/**
+	 * Get all active sessions
+	 */
+	getActiveSessions(): Session[] {
+		return Array.from(this.sessions.values()).filter(
+			(s) => s.status === "active",
+		);
+	}
+
+	/**
 	 * Get a single session by ID
 	 */
 	async getSession(id: string): Promise<Session | null> {
@@ -121,6 +296,12 @@ export class SessionManager {
 
 		session.status = "terminated";
 		session.endTime = new Date().toISOString();
+		if (reason) {
+			session.metadata = { ...session.metadata, terminationReason: reason };
+		}
+
+		this.emit("session:terminated", session);
+		this.persistSession(session);
 
 		return {
 			success: true,
@@ -141,6 +322,11 @@ export class SessionManager {
 		}
 
 		this.sessions.delete(id);
+
+		// Delete from persistence
+		if (this.persistence) {
+			await this.persistence.deleteJSON("sessions", id);
+		}
 
 		return {
 			success: true,
@@ -180,6 +366,9 @@ export class SessionManager {
 
 		for (const id of toDelete) {
 			this.sessions.delete(id);
+			if (this.persistence) {
+				await this.persistence.deleteJSON("sessions", id);
+			}
 		}
 
 		return {
@@ -203,18 +392,18 @@ export class SessionManager {
 				new Date(session.startTime).getTime()
 			: Date.now() - new Date(session.startTime).getTime();
 
+		const executions = session.toolExecutions;
+
 		return {
 			sessionId: id,
 			status: session.status,
 			duration: Math.floor(duration / 1000),
 			logCount: 0, // TODO: Count actual logs
-			toolExecutions: session.toolExecutions.length,
+			toolExecutions: executions.length,
 			fileChangesCount: session.fileChanges.length,
-			errors: session.toolExecutions.filter((e) => e.status === "failed")
-				.length,
+			errors: executions.filter((e) => e.status === "failed").length,
 			warnings: 0,
-			blocked: session.toolExecutions.filter((e) => e.status === "blocked")
-				.length,
+			blocked: executions.filter((e) => e.status === "blocked").length,
 		};
 	}
 
@@ -222,13 +411,12 @@ export class SessionManager {
 	 * Get overall statistics
 	 */
 	getStats(): SessionManagerStats {
-		const active = Array.from(this.sessions.values()).filter(
-			(s) => s.status === "active",
-		);
+		const sessions = Array.from(this.sessions.values());
+		const active = sessions.filter((s) => s.status === "active");
 
 		return {
 			activeSessions: active.length,
-			totalSessions: this.sessions.size,
+			totalSessions: sessions.length,
 		};
 	}
 
@@ -236,6 +424,19 @@ export class SessionManager {
 	 * Flush pending changes to disk
 	 */
 	async flush(): Promise<void> {
-		// TODO: Persist to disk
+		if (!this.persistence) return;
+
+		for (const [id, session] of this.sessions) {
+			await this.persistence.saveJSON("sessions", id, session);
+		}
+	}
+
+	/**
+	 * Persist a single session
+	 */
+	private async persistSession(session: Session): Promise<void> {
+		if (this.persistence) {
+			await this.persistence.saveJSON("sessions", session.id, session);
+		}
 	}
 }

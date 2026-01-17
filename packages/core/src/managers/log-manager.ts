@@ -1,8 +1,9 @@
 /**
  * Log Manager
- * Handles log storage, retrieval, and statistics
+ * Handles log storage, retrieval, and statistics with persistence
  */
 
+import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import type {
 	LogClearResult,
@@ -11,11 +12,13 @@ import type {
 	PaginationOptions,
 	SortOptions,
 } from "@inspector-hook/protocol";
+import type { PersistenceStore } from "../persistence/store.js";
 
 export interface LogManagerOptions {
 	storagePath: string;
 	maxLogsInMemory: number;
 	retentionDays: number;
+	persistence?: PersistenceStore;
 }
 
 export interface LogManagerStats {
@@ -26,19 +29,52 @@ export interface LogManagerStats {
 	logsPerMinute: number;
 }
 
-export class LogManager {
+export interface LogManagerEvents {
+	"log:added": (log: LogEntry) => void;
+	"log:error": (log: LogEntry) => void;
+	"log:warning": (log: LogEntry) => void;
+	"log:blocked": (log: LogEntry) => void;
+}
+
+export class LogManager extends EventEmitter {
 	private logs: LogEntry[] = [];
 	private options: LogManagerOptions;
+	private persistence?: PersistenceStore;
 	private logsLastMinute: number[] = [];
+	private cleanupInterval?: ReturnType<typeof setInterval>;
 
 	constructor(options: LogManagerOptions) {
+		super();
 		this.options = options;
+		this.persistence = options.persistence;
 
 		// Clean up old rate tracking entries every minute
-		setInterval(() => {
+		this.cleanupInterval = setInterval(() => {
 			const cutoff = Date.now() - 60000;
 			this.logsLastMinute = this.logsLastMinute.filter((t) => t > cutoff);
 		}, 60000);
+	}
+
+	/**
+	 * Set persistence store after construction
+	 */
+	setPersistence(persistence: PersistenceStore): void {
+		this.persistence = persistence;
+	}
+
+	/**
+	 * Load logs from persistence
+	 */
+	async load(): Promise<void> {
+		if (!this.persistence) return;
+
+		try {
+			const logs = await this.persistence.loadLogs<LogEntry>("activity");
+			// Keep only the most recent logs up to maxLogsInMemory
+			this.logs = logs.slice(-this.options.maxLogsInMemory);
+		} catch {
+			// No logs to load or file doesn't exist
+		}
 	}
 
 	/**
@@ -68,6 +104,21 @@ export class LogManager {
 
 		// Track rate
 		this.logsLastMinute.push(Date.now());
+
+		// Emit events
+		this.emit("log:added", log);
+		if (log.level === "error") {
+			this.emit("log:error", log);
+		} else if (log.level === "warn") {
+			this.emit("log:warning", log);
+		} else if (log.level === "blocked") {
+			this.emit("log:blocked", log);
+		}
+
+		// Persist to JSONL log file
+		if (this.persistence) {
+			await this.persistence.appendLog("activity", log);
+		}
 
 		return log;
 	}
@@ -116,8 +167,8 @@ export class LogManager {
 		if (params?.sort) {
 			const { field, order } = params.sort;
 			filtered.sort((a, b) => {
-				const aVal = (a as any)[field];
-				const bVal = (b as any)[field];
+				const aVal = (a as unknown as Record<string, unknown>)[field];
+				const bVal = (b as unknown as Record<string, unknown>)[field];
 				const cmp = String(aVal).localeCompare(String(bVal));
 				return order === "asc" ? cmp : -cmp;
 			});
@@ -160,6 +211,11 @@ export class LogManager {
 			this.logs = [];
 		}
 
+		// Clear the persistence log file if clearing all
+		if (!filter && this.persistence) {
+			await this.persistence.clearLog("activity");
+		}
+
 		return {
 			success: true,
 			cleared: before - this.logs.length,
@@ -186,8 +242,18 @@ export class LogManager {
 
 	/**
 	 * Flush pending changes to disk
+	 * Note: Logs are already persisted on each add, so this is mostly a no-op
 	 */
 	async flush(): Promise<void> {
-		// TODO: Persist to disk
+		// Logs are appended immediately, nothing to flush
+	}
+
+	/**
+	 * Cleanup resources
+	 */
+	destroy(): void {
+		if (this.cleanupInterval) {
+			clearInterval(this.cleanupInterval);
+		}
 	}
 }

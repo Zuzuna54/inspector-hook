@@ -250,10 +250,10 @@ export class CoreBridge extends EventEmitter {
 	}
 
 	/**
-	 * Get current stats
+	 * Get current stats from core via IPC
 	 */
-	getStats(): Stats | null {
-		return this.stats;
+	async getStats(): Promise<Stats> {
+		return this.sendRequest<Stats>("logs.getStats", {});
 	}
 
 	/**
