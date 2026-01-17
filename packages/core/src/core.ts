@@ -83,7 +83,17 @@ export class InspectorCore {
 	 * Set up event handlers for cross-manager communication
 	 */
 	private setupEventHandlers(): void {
-		// When a session is created, log it
+		// When a new log is added, broadcast to VS Code for live updates
+		this.logManager.on("log:added", (log) => {
+			this.ipcServer.sendNotification("log", log);
+		});
+
+		// Broadcast stats updates periodically (every new log triggers stats update)
+		this.logManager.on("log:added", () => {
+			this.ipcServer.sendNotification("stats", this.getStats());
+		});
+
+		// When a session is created, log it and broadcast
 		this.sessionManager.on("session:created", (session) => {
 			this.logManager.addLog({
 				timestamp: new Date().toISOString(),
@@ -92,9 +102,11 @@ export class InspectorCore {
 				sessionId: session.id,
 				event: "session.start",
 			});
+			// Broadcast session event to VS Code
+			this.ipcServer.sendNotification("session", session);
 		});
 
-		// When a session ends, log it
+		// When a session ends, log it and broadcast
 		this.sessionManager.on("session:ended", (session) => {
 			this.logManager.addLog({
 				timestamp: new Date().toISOString(),
@@ -103,6 +115,8 @@ export class InspectorCore {
 				sessionId: session.id,
 				event: "session.end",
 			});
+			// Broadcast session event to VS Code
+			this.ipcServer.sendNotification("session", session);
 		});
 
 		// When a tool starts, capture file content before changes
@@ -150,36 +164,24 @@ export class InspectorCore {
 
 		// When a file change is tracked, broadcast via IPC
 		this.fileTracker.on("change:tracked", (change) => {
-			this.ipcServer.broadcast("notification", {
-				type: "change:tracked",
-				changeId: change.id,
-				filePath: change.filePath,
-				sessionId: change.sessionId,
-			});
+			// Use "fileChange" method which core-bridge expects
+			this.ipcServer.sendNotification("fileChange", change);
 		});
 
 		// When a change is kept, broadcast
 		this.fileTracker.on("change:kept", (change) => {
-			this.ipcServer.broadcast("notification", {
-				type: "change:kept",
-				changeId: change.id,
-				filePath: change.filePath,
-			});
+			this.ipcServer.sendNotification("fileChange", { ...change, eventType: "kept" });
 		});
 
 		// When a change is reverted, broadcast
 		this.fileTracker.on("change:reverted", (change) => {
-			this.ipcServer.broadcast("notification", {
-				type: "change:reverted",
-				changeId: change.id,
-				filePath: change.filePath,
-			});
+			this.ipcServer.sendNotification("fileChange", { ...change, eventType: "reverted" });
 		});
 
 		// When a version is created, broadcast
 		this.fileTracker.on("version:created", ({ filePath, version }) => {
-			this.ipcServer.broadcast("notification", {
-				type: "version:created",
+			this.ipcServer.sendNotification("fileChange", {
+				eventType: "version:created",
 				filePath,
 				versionNumber: version.versionNumber,
 			});
