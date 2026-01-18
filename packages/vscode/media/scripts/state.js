@@ -34,6 +34,27 @@ const State = {
   },
 
   // ==========================================================================
+  // Session View State
+  // ==========================================================================
+  sessionView: {
+    selectedSession: null,
+    activeTab: 'activity',  // 'activity' | 'tools' | 'logs'
+    autoScroll: true,
+    searchQuery: '',
+    sessionActivity: [],
+    sessionLogs: []
+  },
+
+  // ==========================================================================
+  // File Changes View State
+  // ==========================================================================
+  fileChangesView: {
+    expandedSessions: [],     // Session IDs that are expanded
+    selectedFile: null,       // { sessionId, changeId, filePath }
+    viewMode: 'unified'       // 'unified' | 'split'
+  },
+
+  // ==========================================================================
   // Stats
   // ==========================================================================
   stats: {
@@ -181,6 +202,19 @@ const State = {
       logsPerMinute: 0,
       activeSessions: 0,
       pendingChanges: 0
+    };
+    this.sessionView = {
+      selectedSession: null,
+      activeTab: 'activity',
+      autoScroll: true,
+      searchQuery: '',
+      sessionActivity: [],
+      sessionLogs: []
+    };
+    this.fileChangesView = {
+      expandedSessions: [],
+      selectedFile: null,
+      viewMode: 'unified'
     };
   }
 };

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Post-tool-use hook for Claude Code
-# Captures tool name, full tool input, tool result, and sends to Inspector Hook
+# Captures tool name, full tool input, tool result, cwd, and sends to Inspector Hook
 
 HOOK_NAME="PostToolUse"
 SCRIPT_DIR="$(dirname "$0")"
@@ -12,6 +12,7 @@ input=$(cat)
 # Extract fields using jq
 tool=$(echo "$input" | jq -r '.tool_name // "unknown"')
 session=$(echo "$input" | jq -r '.session_id // "unknown"')
+cwd=$(echo "$input" | jq -r '.cwd // ""')
 file=$(echo "$input" | jq -r '.tool_input.file_path // .tool_input.path // .tool_input.command // ""')
 
 # Extract the full tool_input object
@@ -36,6 +37,7 @@ payload=$(jq -n \
   --arg tool "$tool" \
   --arg file "$file" \
   --arg sessionId "$session" \
+  --arg cwd "$cwd" \
   --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg level "$level" \
   --arg message "Tool completed: $tool" \
@@ -51,6 +53,7 @@ payload=$(jq -n \
     level: $level,
     message: $message,
     details: {
+      cwd: $cwd,
       tool_input: $toolInput,
       tool_result: $toolResult
     }

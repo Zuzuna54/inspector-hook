@@ -1,8 +1,8 @@
 #!/bin/bash
-# Pre-tool-use hook for Claude Code
-# Captures tool name, full tool input, cwd, and sends to Inspector Hook
+# User prompt submit hook for Claude Code
+# Captures user prompts and sends them to Inspector Hook for activity tracking
 
-HOOK_NAME="PreToolUse"
+HOOK_NAME="UserPromptSubmit"
 SCRIPT_DIR="$(dirname "$0")"
 source "$SCRIPT_DIR/lib/http-logger.sh"
 
@@ -10,38 +10,41 @@ source "$SCRIPT_DIR/lib/http-logger.sh"
 input=$(cat)
 
 # Extract fields using jq
-tool=$(echo "$input" | jq -r '.tool_name // "unknown"')
 session=$(echo "$input" | jq -r '.session_id // "unknown"')
+prompt=$(echo "$input" | jq -r '.prompt // ""')
 cwd=$(echo "$input" | jq -r '.cwd // ""')
-file=$(echo "$input" | jq -r '.tool_input.file_path // .tool_input.path // .tool_input.command // ""')
 
-# Extract the full tool_input object as a string
-tool_input=$(echo "$input" | jq -c '.tool_input // {}')
+# Skip if no prompt
+if [ -z "$prompt" ]; then
+  exit 0
+fi
 
-# Build the payload with full tool input in details
+# Truncate very long prompts for logging (keep first 500 chars)
+truncated_prompt="$prompt"
+if [ ${#prompt} -gt 500 ]; then
+  truncated_prompt="${prompt:0:500}..."
+fi
+
+# Build the payload
 payload=$(jq -n \
-  --arg hook "PreToolUse" \
-  --arg event "tool.start" \
-  --arg tool "$tool" \
-  --arg file "$file" \
+  --arg hook "UserPromptSubmit" \
+  --arg event "user.prompt" \
   --arg sessionId "$session" \
   --arg cwd "$cwd" \
   --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg level "info" \
-  --arg message "Tool started: $tool" \
-  --argjson toolInput "$tool_input" \
+  --arg message "User submitted prompt" \
+  --arg prompt "$prompt" \
   '{
     hook: $hook,
     event: $event,
-    tool: $tool,
-    file: $file,
     sessionId: $sessionId,
     timestamp: $timestamp,
     level: $level,
     message: $message,
     details: {
       cwd: $cwd,
-      tool_input: $toolInput
+      prompt: $prompt
     }
   }')
 

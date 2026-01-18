@@ -112,6 +112,19 @@ const Utils = {
   },
 
   /**
+   * Get short path (parent directory + filename)
+   * @param {string} filePath - Full file path
+   * @returns {string} Short path like "parentDir/filename.ext"
+   */
+  getShortPath(filePath) {
+    if (!filePath) return '';
+    const parts = filePath.split('/');
+    if (parts.length <= 2) return filePath;
+    // Return last two parts (parent dir + filename)
+    return parts.slice(-2).join('/');
+  },
+
+  /**
    * Debounce a function
    * @param {Function} fn - Function to debounce
    * @param {number} delay - Delay in milliseconds

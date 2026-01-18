@@ -381,6 +381,29 @@ export class CoreBridge extends EventEmitter {
 	}
 
 	/**
+	 * Get logs for a specific session
+	 */
+	async getSessionLogs(sessionId: string): Promise<{ logs: LogEntry[] }> {
+		return this.sendRequest("logs.getAll", {
+			filter: { sessionId },
+			pagination: { limit: 500 }
+		});
+	}
+
+	/**
+	 * Get activity feed for a session (ordered events: prompts, responses, tools)
+	 */
+	async getSessionActivity(sessionId: string): Promise<{
+		activities: Array<{
+			type: 'user_prompt' | 'ai_response' | 'tool_call' | 'tool_result';
+			timestamp: string;
+			data: unknown;
+		}>;
+	}> {
+		return this.sendRequest("sessions.getActivity", { id: sessionId });
+	}
+
+	/**
 	 * Keep all pending changes
 	 */
 	async keepAllChanges(sessionId?: string): Promise<{ success: boolean; count: number }> {
@@ -392,6 +415,13 @@ export class CoreBridge extends EventEmitter {
 	 */
 	async revertAllChanges(sessionId?: string): Promise<{ success: boolean; count: number }> {
 		return this.sendRequest("fileChanges.revertAll", { sessionId });
+	}
+
+	/**
+	 * Update change content (for inline editing)
+	 */
+	async updateChangeContent(changeId: string, afterContent: string): Promise<{ success: boolean }> {
+		return this.sendRequest("fileChanges.updateContent", { changeId, afterContent });
 	}
 
 	/**

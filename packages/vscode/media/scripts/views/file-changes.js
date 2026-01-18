@@ -1,47 +1,64 @@
 /**
  * File Changes View - Complete Redesign
- * Session > File > Changes accordion structure with per-hunk operations
+ * Sidebar + Full-Width Diff (VS Code Source Control style)
+ * Features: Session accordions, per-hunk operations, inline editing, custom modals
  */
 
 const FileChangesView = {
-  currentDiff: null,
-  selectedChangeId: null,
+  // ==========================================================================
+  // State
+  // ==========================================================================
+
   _subscriptions: [],
 
-  // Accordion state
+  // UI State
   _expandedSessions: new Set(),
-  _expandedFiles: new Set(),
-  _selectedHunks: new Set(),
+  _expandedFiles: new Set(),   // filePath keys for expanded file accordions
+  _selectedFileKey: null,      // "sessionId:filePath" - the currently selected file
+  _selectedFile: null,         // { sessionId, filePath, changes: [...] } - all changes for selected file
+  _viewMode: 'unified',        // 'unified' | 'split'
 
-  // Current hunk navigation
-  _currentHunkIndex: 0,
-  _totalHunks: 0,
+  // Diff State - now tracks multiple diffs for a file
+  _currentDiffs: [],           // Array of diff objects for all changes in selected file
+  _diffCache: new Map(),       // changeId -> diff object
+  _pendingDiffLoads: 0,        // Counter for pending diff loads
 
-  // Search filter
-  _searchQuery: '',
+  // Edit State
+  _editingHunk: null,          // { changeId, hunkIndex } currently being edited
+  _editedContent: new Map(),   // changeId -> modified afterContent
+  _originalContent: new Map(), // changeId -> original afterContent (for reset)
+
+  // Scroll State
+  _pendingScrollToHunk: null,  // { changeId, hunkIndex } to scroll to after diff renders
+
+  // ==========================================================================
+  // Initialization
+  // ==========================================================================
 
   /**
    * Initialize the view
    */
   init() {
-    this.render();
-
-    // Subscribe to state changes
-    if (typeof State !== 'undefined' && State.subscribe) {
-      this._subscriptions.push(
-        State.subscribe('fileChanges', () => this.renderSessionAccordions())
-      );
-      this._subscriptions.push(
-        State.subscribe('currentDiff', (diff) => this.showDiff(diff))
-      );
-      this._subscriptions.push(
-        State.subscribe('filters', () => this.renderSessionAccordions())
-      );
-    }
+    this._setupSubscriptions();
+    this.renderSidebar();
+    this.renderEmptyDiff();
 
     // Request initial data
     if (typeof API !== 'undefined' && API.getFileChanges) {
       API.getFileChanges();
+    }
+  },
+
+  /**
+   * Setup state subscriptions
+   */
+  _setupSubscriptions() {
+    if (typeof State !== 'undefined' && State.subscribe) {
+      this._subscriptions.push(
+        State.subscribe('fileChanges', () => this.renderSidebar()),
+        State.subscribe('sessions', () => this.renderSidebar()),
+        State.subscribe('archivedChanges', () => this._updateArchiveCount())
+      );
     }
   },
 
@@ -53,325 +70,262 @@ const FileChangesView = {
       if (typeof unsub === 'function') unsub();
     });
     this._subscriptions = [];
-    this.currentDiff = null;
-    this.selectedChangeId = null;
     this._expandedSessions.clear();
     this._expandedFiles.clear();
-    this._selectedHunks.clear();
-    this._searchQuery = '';
+    this._selectedFileKey = null;
+    this._selectedFile = null;
+    this._currentDiffs = [];
+    this._diffCache.clear();
+    this._pendingDiffLoads = 0;
+    this._editingHunk = null;
+    this._editedContent.clear();
+    this._originalContent.clear();
+    this._pendingScrollToHunk = null;
   },
 
-  /**
-   * Render the main view structure
-   */
-  render() {
-    const container = document.getElementById('view-file-changes');
-    if (!container) return;
-
-    container.innerHTML = `
-      <div class="file-changes-v2">
-        <div class="fc-header">
-          <div class="fc-header-left">
-            <h3>Pending Changes</h3>
-            <span class="fc-count" id="fc-total-count">0 changes</span>
-          </div>
-          <div class="fc-header-right">
-            <input type="text" class="input fc-search" id="fc-search" placeholder="Filter files..." />
-            <div class="btn-group">
-              <button class="btn btn-sm btn-success" id="fc-keep-all">Keep All</button>
-              <button class="btn btn-sm btn-danger" id="fc-revert-all">Revert All</button>
-            </div>
-          </div>
-        </div>
-        <div class="fc-content">
-          <div class="fc-sessions" id="fc-sessions">
-            <div class="empty-state">Loading changes...</div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    this._setupGlobalHandlers();
-    this.renderSessionAccordions();
-  },
-
-  /**
-   * Set up global event handlers
-   */
-  _setupGlobalHandlers() {
-    // Search input
-    const searchInput = document.getElementById('fc-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', Utils.debounce((e) => {
-        this._searchQuery = e.target.value.toLowerCase().trim();
-        this.renderSessionAccordions();
-      }, 200));
-    }
-
-    // Keep all button
-    const keepAllBtn = document.getElementById('fc-keep-all');
-    if (keepAllBtn) {
-      keepAllBtn.addEventListener('click', () => {
-        const changes = this._getFilteredChanges();
-        if (changes.length === 0) return;
-        if (confirm(`Keep all ${changes.length} pending changes?`)) {
-          API.keepAllChanges();
-        }
-      });
-    }
-
-    // Revert all button
-    const revertAllBtn = document.getElementById('fc-revert-all');
-    if (revertAllBtn) {
-      revertAllBtn.addEventListener('click', () => {
-        const changes = this._getFilteredChanges();
-        if (changes.length === 0) return;
-        if (confirm(`Revert all ${changes.length} pending changes? This cannot be undone.`)) {
-          API.revertAllChanges();
-        }
-      });
-    }
-  },
+  // ==========================================================================
+  // Data Helpers
+  // ==========================================================================
 
   /**
    * Get file changes from state
    */
   _getFileChanges() {
-    if (typeof State !== 'undefined' && State.fileChanges) {
-      return State.fileChanges;
-    }
-    return [];
+    return (typeof State !== 'undefined' && State.fileChanges) ? State.fileChanges : [];
   },
 
   /**
-   * Get filtered changes based on search and session filter
+   * Get sessions from state
    */
-  _getFilteredChanges() {
-    let changes = this._getFileChanges();
-
-    // Apply session filter if set
-    if (typeof State !== 'undefined' && State.filters?.session) {
-      changes = changes.filter(c => c.sessionId === State.filters.session);
-    }
-
-    // Apply search filter
-    if (this._searchQuery) {
-      changes = changes.filter(c => {
-        const fileName = Utils.getFileName(c.filePath).toLowerCase();
-        const filePath = (c.filePath || '').toLowerCase();
-        return fileName.includes(this._searchQuery) || filePath.includes(this._searchQuery);
-      });
-    }
-
-    return changes;
+  _getSessions() {
+    return (typeof State !== 'undefined' && State.sessions) ? State.sessions : [];
   },
 
   /**
-   * Group changes by session
+   * Group changes by session, then by file path
    */
   _groupBySession(changes) {
-    const groups = {};
+    const sessions = this._getSessions();
+    const groups = new Map();
+
     changes.forEach(change => {
       const sessionId = change.sessionId || 'unknown';
-      if (!groups[sessionId]) {
-        groups[sessionId] = [];
+      if (!groups.has(sessionId)) {
+        const session = sessions.find(s => s.id === sessionId) || { id: sessionId };
+        groups.set(sessionId, { session, fileMap: new Map() });
       }
-      groups[sessionId].push(change);
+
+      const group = groups.get(sessionId);
+      const filePath = change.filePath;
+
+      // Group by file path within session
+      if (!group.fileMap.has(filePath)) {
+        group.fileMap.set(filePath, {
+          filePath,
+          changes: [],
+          totalAdditions: 0,
+          totalDeletions: 0,
+          tools: new Set()
+        });
+      }
+
+      const fileGroup = group.fileMap.get(filePath);
+      fileGroup.changes.push(change);
+      fileGroup.totalAdditions += (change.additions || 0);
+      fileGroup.totalDeletions += (change.deletions || 0);
+      if (change.tool) fileGroup.tools.add(change.tool);
     });
-    return groups;
+
+    // Convert to array and sort
+    return Array.from(groups.values())
+      .map(({ session, fileMap }) => ({
+        session,
+        files: Array.from(fileMap.values())
+      }))
+      .sort((a, b) => {
+        const timeA = new Date(a.session.startTime || 0).getTime();
+        const timeB = new Date(b.session.startTime || 0).getTime();
+        return timeB - timeA;
+      });
   },
 
   /**
-   * Group changes by file within a session
+   * Get session display name
    */
-  _groupByFile(changes) {
-    const groups = {};
-    changes.forEach(change => {
-      const filePath = change.filePath || 'unknown';
-      if (!groups[filePath]) {
-        groups[filePath] = [];
-      }
-      groups[filePath].push(change);
-    });
-    return groups;
+  _getSessionName(session) {
+    if (session.name) return session.name;
+    if (session.metadata?.projectName) return session.metadata.projectName;
+    if (session.id) return session.id.slice(0, 8) + '...';
+    return 'Unknown Session';
   },
 
   /**
-   * Render the session accordions
+   * Get tool type for badge styling
    */
-  renderSessionAccordions() {
-    const container = document.getElementById('fc-sessions');
+  _getToolType(tool) {
+    if (!tool) return 'unknown';
+    const toolLower = tool.toLowerCase();
+    if (toolLower.includes('edit')) return 'edit';
+    if (toolLower.includes('write')) return 'write';
+    if (toolLower.includes('bash')) return 'bash';
+    if (toolLower.includes('read')) return 'read';
+    return 'unknown';
+  },
+
+  // ==========================================================================
+  // Sidebar Rendering
+  // ==========================================================================
+
+  /**
+   * Render the sidebar with sessions and files
+   */
+  renderSidebar() {
+    const container = document.getElementById('fc-session-list');
     if (!container) return;
 
-    const changes = this._getFilteredChanges();
+    const changes = this._getFileChanges();
+    const pendingChanges = changes.filter(c => c.status === 'pending');
 
-    // Update count
-    const countEl = document.getElementById('fc-total-count');
+    // Update pending count
+    const countEl = document.getElementById('fc-pending-count');
     if (countEl) {
-      countEl.textContent = `${changes.length} change${changes.length !== 1 ? 's' : ''}`;
+      countEl.textContent = `${pendingChanges.length} pending`;
     }
 
-    if (changes.length === 0) {
+    if (pendingChanges.length === 0) {
       container.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-title">No pending changes</div>
-          <div class="empty-state-description">
-            ${this._searchQuery ? 'Try a different search term' : 'File changes will appear here'}
-          </div>
+          <div class="empty-state-description">File changes will appear here when Claude Code modifies files</div>
         </div>
       `;
       return;
     }
 
-    const sessionGroups = this._groupBySession(changes);
-    const sessions = State.sessions || [];
+    const sessionGroups = this._groupBySession(pendingChanges);
 
-    container.innerHTML = Object.entries(sessionGroups).map(([sessionId, sessionChanges]) => {
-      const session = sessions.find(s => s.id === sessionId) || {};
-      const isExpanded = this._expandedSessions.has(sessionId);
-      const fileGroups = this._groupByFile(sessionChanges);
-      const fileCount = Object.keys(fileGroups).length;
-      const toolCount = session.toolCount || 0;
-      const duration = Utils.formatDuration(session.startTime, session.endTime) || '';
+    container.innerHTML = sessionGroups.map(({ session, files }) => {
+      const isExpanded = this._expandedSessions.has(session.id);
+      const duration = session.startTime ? Utils.formatDuration(session.startTime, session.endTime) : '';
+      const projectName = session.metadata?.projectName || session.metadata?.cwd || '';
+      const totalChanges = files.reduce((sum, f) => sum + f.changes.length, 0);
 
       return `
-        <div class="fc-session ${isExpanded ? 'expanded' : ''}" data-session-id="${sessionId}">
-          <div class="fc-session-header" data-session-id="${sessionId}">
+        <div class="fc-session ${isExpanded ? 'expanded' : ''}" data-session-id="${session.id}">
+          <div class="fc-session-header" data-session-id="${session.id}">
             <span class="fc-expand-icon">${isExpanded ? '&#9660;' : '&#9654;'}</span>
-            <span class="fc-session-name">${Utils.escapeHtml(session.name || sessionId.slice(0, 8))}</span>
-            <span class="fc-session-meta">${duration ? duration + ' ago' : ''}</span>
-            <span class="fc-session-stats">${toolCount} tools | ${fileCount} files</span>
+            <div class="fc-session-info">
+              <span class="fc-session-name">${Utils.escapeHtml(this._getSessionName(session))}</span>
+              <span class="fc-session-meta">${duration ? duration + ' ago' : ''} &bull; ${files.length} file${files.length !== 1 ? 's' : ''} &bull; ${totalChanges} change${totalChanges !== 1 ? 's' : ''}</span>
+              ${projectName ? `<span class="fc-session-project">${Utils.escapeHtml(projectName)}</span>` : ''}
+            </div>
             <div class="fc-session-actions">
-              <button class="btn btn-xs btn-success fc-session-keep" data-session-id="${sessionId}">Keep All</button>
-              <button class="btn btn-xs btn-danger fc-session-revert" data-session-id="${sessionId}">Revert All</button>
+              <button class="btn btn-xs btn-success fc-session-keep" data-session-id="${session.id}" title="Keep all changes in this session">Keep All</button>
+              <button class="btn btn-xs btn-danger fc-session-revert" data-session-id="${session.id}" title="Revert all changes in this session">Revert All</button>
             </div>
           </div>
-          <div class="fc-session-content ${isExpanded ? '' : 'hidden'}">
-            ${this._renderFileAccordions(fileGroups, sessionId)}
-          </div>
+          ${isExpanded ? `
+            <div class="fc-session-content">
+              ${files.map(fileGroup => this._renderFileAccordion(fileGroup, session.id)).join('')}
+            </div>
+          ` : ''}
         </div>
       `;
     }).join('');
 
-    this._setupSessionHandlers(container);
+    this._setupSidebarHandlers(container);
+    this._updateArchiveCount();
   },
 
   /**
-   * Render file accordions within a session
+   * Render a file accordion with hunk list
    */
-  _renderFileAccordions(fileGroups, sessionId) {
-    return Object.entries(fileGroups).map(([filePath, fileChanges]) => {
-      const fileKey = `${sessionId}:${filePath}`;
-      const isExpanded = this._expandedFiles.has(fileKey);
-      const fileName = Utils.getFileName(filePath);
-      const changeCount = fileChanges.length;
-
-      // Get the first change to display diff
-      const primaryChange = fileChanges[0];
-
-      return `
-        <div class="fc-file ${isExpanded ? 'expanded' : ''}" data-file-key="${fileKey}">
-          <div class="fc-file-header" data-file-key="${fileKey}" data-change-id="${primaryChange.id}">
-            <span class="fc-expand-icon">${isExpanded ? '&#9660;' : '&#9654;'}</span>
-            <span class="fc-file-name" title="${Utils.escapeHtml(filePath)}">${Utils.escapeHtml(fileName)}</span>
-            <span class="fc-file-path">${Utils.escapeHtml(Utils.getDirectory(filePath))}</span>
-            <span class="fc-change-count">${changeCount} hunk${changeCount !== 1 ? 's' : ''}</span>
-            <div class="fc-file-actions">
-              <button class="btn btn-xs btn-success fc-file-keep" data-change-id="${primaryChange.id}">Keep</button>
-              <button class="btn btn-xs btn-danger fc-file-revert" data-change-id="${primaryChange.id}">Revert</button>
-            </div>
-          </div>
-          <div class="fc-file-content ${isExpanded ? '' : 'hidden'}" data-change-id="${primaryChange.id}">
-            ${isExpanded ? this._renderFileDiff(primaryChange) : '<div class="fc-diff-loading">Loading diff...</div>'}
-          </div>
-        </div>
-      `;
-    }).join('');
-  },
-
-  /**
-   * Render the diff for a file
-   */
-  _renderFileDiff(change) {
-    if (!this.currentDiff || this.selectedChangeId !== change.id) {
-      // Request diff if not loaded
-      API.getDiff(change.id);
-      this.selectedChangeId = change.id;
-      return '<div class="fc-diff-loading">Loading diff...</div>';
-    }
-
-    const diff = this.currentDiff;
-    if (!diff.hunks || diff.hunks.length === 0) {
-      return '<div class="fc-diff-empty">No changes</div>';
-    }
-
-    const language = Utils.detectLanguage(change.filePath, diff.afterContent || '');
-    this._totalHunks = diff.hunks.length;
+  _renderFileAccordion(fileGroup, sessionId) {
+    const { filePath, changes, totalAdditions, totalDeletions, tools } = fileGroup;
+    const fileKey = `${sessionId}:${filePath}`;
+    const isFileExpanded = this._expandedFiles.has(fileKey);
+    const isSelected = this._selectedFileKey === fileKey;
+    const toolsArray = Array.from(tools);
+    const primaryTool = toolsArray[0] || 'unknown';
+    const toolType = this._getToolType(primaryTool);
 
     return `
-      <div class="fc-diff-viewer">
-        <div class="fc-diff-toolbar">
-          <div class="fc-hunk-nav">
-            <button class="btn btn-xs fc-nav-prev" ${this._currentHunkIndex <= 0 ? 'disabled' : ''}>Prev</button>
-            <span class="fc-hunk-position">Hunk ${this._currentHunkIndex + 1}/${this._totalHunks}</span>
-            <button class="btn btn-xs fc-nav-next" ${this._currentHunkIndex >= this._totalHunks - 1 ? 'disabled' : ''}>Next</button>
+      <div class="fc-file-accordion ${isFileExpanded ? 'expanded' : ''} ${isSelected ? 'selected' : ''}"
+           data-file-key="${Utils.escapeHtml(fileKey)}"
+           data-session-id="${sessionId}"
+           data-file-path="${Utils.escapeHtml(filePath)}">
+        <div class="fc-file-header" data-file-key="${Utils.escapeHtml(fileKey)}">
+          <span class="fc-file-expand-icon">${isFileExpanded ? '&#9660;' : '&#9654;'}</span>
+          <div class="fc-file-info">
+            <span class="fc-file-name" title="${Utils.escapeHtml(filePath)}">${Utils.escapeHtml(Utils.getShortPath(filePath))}</span>
+            <span class="fc-file-meta">
+              <span class="fc-file-stats">
+                ${totalAdditions ? `<span class="additions">+${totalAdditions}</span>` : ''}
+                ${totalDeletions ? `<span class="deletions">-${totalDeletions}</span>` : ''}
+              </span>
+              <span class="fc-change-count">${changes.length} hunk${changes.length !== 1 ? 's' : ''}</span>
+              <span class="fc-tool-badge ${toolType}">${Utils.escapeHtml(primaryTool)}</span>
+            </span>
           </div>
-          <div class="fc-diff-stats">
-            <span class="fc-additions">+${diff.additions || 0}</span>
-            <span class="fc-deletions">-${diff.deletions || 0}</span>
+          <div class="fc-file-actions">
+            <button class="btn btn-xs btn-success fc-file-keep-all" data-file-path="${Utils.escapeHtml(filePath)}" data-session-id="${sessionId}" title="Keep all changes to this file">&#10003;</button>
+            <button class="btn btn-xs btn-danger fc-file-revert-all" data-file-path="${Utils.escapeHtml(filePath)}" data-session-id="${sessionId}" title="Revert all changes to this file">&#8617;</button>
           </div>
         </div>
-        <div class="fc-diff-hunks">
-          ${diff.hunks.map((hunk, idx) => this._renderHunk(hunk, idx, change.id, language)).join('')}
+        ${isFileExpanded ? `
+          <div class="fc-file-hunks">
+            ${changes.map((change, idx) => this._renderHunkListItem(change, idx, sessionId, fileKey)).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  },
+
+  /**
+   * Render a hunk list item (for file accordion)
+   */
+  _renderHunkListItem(change, hunkIndex, sessionId, fileKey) {
+    const additions = change.additions || 0;
+    const deletions = change.deletions || 0;
+    const toolType = this._getToolType(change.tool);
+
+    return `
+      <div class="fc-hunk-item"
+           data-change-id="${change.id}"
+           data-hunk-index="${hunkIndex}"
+           data-session-id="${sessionId}"
+           data-file-key="${Utils.escapeHtml(fileKey)}">
+        <span class="fc-hunk-item-index">#${hunkIndex + 1}</span>
+        <span class="fc-hunk-item-stats">
+          ${additions ? `<span class="additions">+${additions}</span>` : ''}
+          ${deletions ? `<span class="deletions">-${deletions}</span>` : ''}
+        </span>
+        <span class="fc-tool-badge ${toolType} small">${Utils.escapeHtml(change.tool || 'unknown')}</span>
+        <span class="fc-hunk-item-time">${Utils.formatTime(change.timestamp)}</span>
+        <div class="fc-hunk-item-actions">
+          <button class="btn btn-xs btn-success fc-hunk-keep" data-change-id="${change.id}" title="Keep">&#10003;</button>
+          <button class="btn btn-xs btn-danger fc-hunk-revert" data-change-id="${change.id}" title="Revert">&#8617;</button>
         </div>
       </div>
     `;
   },
 
   /**
-   * Render a single hunk
+   * Toggle file accordion expansion
    */
-  _renderHunk(hunk, index, changeId, language) {
-    const hunkId = `${changeId}-hunk-${index}`;
-    const isSelected = this._selectedHunks.has(hunkId);
-    const isCurrent = index === this._currentHunkIndex;
-
-    return `
-      <div class="fc-hunk ${isCurrent ? 'current' : ''}" data-hunk-id="${hunkId}" data-hunk-index="${index}">
-        <div class="fc-hunk-header">
-          <label class="fc-hunk-checkbox">
-            <input type="checkbox" ${isSelected ? 'checked' : ''} data-hunk-id="${hunkId}" />
-          </label>
-          <span class="fc-hunk-info">@@ -${hunk.oldStart || 0},${hunk.oldLines || 0} +${hunk.newStart || 0},${hunk.newLines || 0} @@</span>
-          <div class="fc-hunk-actions">
-            <button class="btn btn-xs btn-success fc-hunk-keep" data-hunk-id="${hunkId}">Keep</button>
-            <button class="btn btn-xs btn-danger fc-hunk-revert" data-hunk-id="${hunkId}">Revert</button>
-          </div>
-        </div>
-        <div class="fc-hunk-lines">
-          ${(hunk.lines || []).map(line => {
-            const lineType = line.type || 'context';
-            const prefix = lineType === 'added' ? '+' : lineType === 'removed' ? '-' : ' ';
-            const highlightedContent = Utils.highlightCode(line.content || '', language);
-
-            return `
-              <div class="fc-line ${lineType}">
-                <span class="fc-line-num fc-line-old">${line.oldNumber || ''}</span>
-                <span class="fc-line-num fc-line-new">${line.newNumber || ''}</span>
-                <span class="fc-line-prefix">${prefix}</span>
-                <span class="fc-line-content">${highlightedContent}</span>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
+  toggleFileAccordion(fileKey) {
+    if (this._expandedFiles.has(fileKey)) {
+      this._expandedFiles.delete(fileKey);
+    } else {
+      this._expandedFiles.add(fileKey);
+    }
+    this.renderSidebar();
   },
 
   /**
-   * Set up handlers for session accordions
+   * Setup event handlers for sidebar
    */
-  _setupSessionHandlers(container) {
+  _setupSidebarHandlers(container) {
     // Session header click - toggle expand
     container.querySelectorAll('.fc-session-header').forEach(header => {
       header.addEventListener('click', (e) => {
@@ -386,11 +340,7 @@ const FileChangesView = {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const sessionId = btn.dataset.sessionId;
-        // Keep all changes in this session
-        const changes = this._getFilteredChanges().filter(c => c.sessionId === sessionId);
-        if (changes.length > 0 && confirm(`Keep all ${changes.length} changes in this session?`)) {
-          changes.forEach(c => API.keepChange(c.id));
-        }
+        this.keepAllInSession(sessionId);
       });
     });
 
@@ -399,137 +349,240 @@ const FileChangesView = {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const sessionId = btn.dataset.sessionId;
-        const changes = this._getFilteredChanges().filter(c => c.sessionId === sessionId);
-        if (changes.length > 0 && confirm(`Revert all ${changes.length} changes in this session? This cannot be undone.`)) {
-          changes.forEach(c => API.revertChange(c.id));
-        }
+        this.revertAllInSession(sessionId);
       });
     });
 
-    // File header click - toggle expand
+    // File accordion header click - toggle expand AND select file for viewing
     container.querySelectorAll('.fc-file-header').forEach(header => {
       header.addEventListener('click', (e) => {
         if (e.target.closest('.fc-file-actions')) return;
         const fileKey = header.dataset.fileKey;
-        const changeId = header.dataset.changeId;
-        this.toggleFile(fileKey, changeId);
-      });
-    });
+        const accordion = header.closest('.fc-file-accordion');
+        const sessionId = accordion?.dataset.sessionId;
+        const filePath = accordion?.dataset.filePath;
 
-    // File keep
-    container.querySelectorAll('.fc-file-keep').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        API.keepChange(btn.dataset.changeId);
-      });
-    });
+        // Toggle expansion
+        this.toggleFileAccordion(fileKey);
 
-    // File revert
-    container.querySelectorAll('.fc-file-revert').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (confirm('Revert this change? This cannot be undone.')) {
-          API.revertChange(btn.dataset.changeId);
+        // Select file and load all its diffs
+        if (sessionId && filePath) {
+          this.selectFileForViewing(sessionId, filePath);
         }
       });
     });
 
-    this._setupDiffHandlers(container);
-  },
-
-  /**
-   * Set up handlers for diff viewer
-   */
-  _setupDiffHandlers(container) {
-    // Hunk navigation
-    container.querySelectorAll('.fc-nav-prev').forEach(btn => {
+    // File keep all (for a specific file)
+    container.querySelectorAll('.fc-file-keep-all').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this._currentHunkIndex > 0) {
-          this._currentHunkIndex--;
-          this._scrollToCurrentHunk();
-        }
+        const filePath = btn.dataset.filePath;
+        const sessionId = btn.dataset.sessionId;
+        this.keepAllInFile(filePath, sessionId);
       });
     });
 
-    container.querySelectorAll('.fc-nav-next').forEach(btn => {
+    // File revert all (for a specific file)
+    container.querySelectorAll('.fc-file-revert-all').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this._currentHunkIndex < this._totalHunks - 1) {
-          this._currentHunkIndex++;
-          this._scrollToCurrentHunk();
-        }
+        const filePath = btn.dataset.filePath;
+        const sessionId = btn.dataset.sessionId;
+        this.revertAllInFile(filePath, sessionId);
       });
     });
 
-    // Hunk checkboxes
-    container.querySelectorAll('.fc-hunk-checkbox input').forEach(checkbox => {
-      checkbox.addEventListener('change', (e) => {
-        e.stopPropagation();
-        const hunkId = checkbox.dataset.hunkId;
-        if (checkbox.checked) {
-          this._selectedHunks.add(hunkId);
+    // Hunk item click - scroll to hunk in diff viewer
+    container.querySelectorAll('.fc-hunk-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.fc-hunk-item-actions')) return;
+        const changeId = item.dataset.changeId;
+        const hunkIndex = parseInt(item.dataset.hunkIndex, 10);
+        const fileKey = item.dataset.fileKey;
+
+        // If this file is already selected, just scroll to the hunk
+        if (this._selectedFileKey === fileKey) {
+          this._scrollToHunk(changeId, hunkIndex);
         } else {
-          this._selectedHunks.delete(hunkId);
+          // Otherwise, select the file first and then scroll after diffs load
+          const accordion = item.closest('.fc-file-accordion');
+          const sessionId = accordion?.dataset.sessionId;
+          const filePath = accordion?.dataset.filePath;
+          if (sessionId && filePath) {
+            this._pendingScrollToHunk = { changeId, hunkIndex };
+            this.selectFileForViewing(sessionId, filePath);
+          }
         }
       });
     });
 
-    // Hunk keep/revert buttons (per-hunk operations)
-    container.querySelectorAll('.fc-hunk-keep').forEach(btn => {
+    // Hunk keep (in sidebar)
+    container.querySelectorAll('.fc-hunk-item .fc-hunk-keep').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        // TODO: Implement per-hunk keep when API is available
-        console.log('Keep hunk:', btn.dataset.hunkId);
+        this.keepChange(btn.dataset.changeId);
       });
     });
 
-    container.querySelectorAll('.fc-hunk-revert').forEach(btn => {
+    // Hunk revert (in sidebar)
+    container.querySelectorAll('.fc-hunk-item .fc-hunk-revert').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        // TODO: Implement per-hunk revert when API is available
-        console.log('Revert hunk:', btn.dataset.hunkId);
+        this.revertChange(btn.dataset.changeId);
       });
     });
-  },
 
-  /**
-   * Scroll to current hunk
-   */
-  _scrollToCurrentHunk() {
-    const currentHunk = document.querySelector(`.fc-hunk[data-hunk-index="${this._currentHunkIndex}"]`);
-    if (currentHunk) {
-      // Update visual state
-      document.querySelectorAll('.fc-hunk').forEach(h => h.classList.remove('current'));
-      currentHunk.classList.add('current');
-
-      // Update navigation buttons
-      this._updateHunkNavigation();
-
-      // Scroll into view
-      currentHunk.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Archive toggle
+    const archiveToggle = document.getElementById('fc-archive-toggle');
+    if (archiveToggle) {
+      archiveToggle.addEventListener('click', () => {
+        // Navigate to archived view
+        if (typeof Router !== 'undefined') {
+          Router.navigate('archived');
+        }
+      });
     }
   },
 
   /**
-   * Update hunk navigation UI
+   * Select a file for viewing - loads ALL changes/diffs for that file
    */
-  _updateHunkNavigation() {
-    const position = document.querySelector('.fc-hunk-position');
-    if (position) {
-      position.textContent = `Hunk ${this._currentHunkIndex + 1}/${this._totalHunks}`;
+  selectFileForViewing(sessionId, filePath) {
+    const fileKey = `${sessionId}:${filePath}`;
+
+    // If already selected, don't reload
+    if (this._selectedFileKey === fileKey && this._currentDiffs.length > 0) {
+      return;
     }
 
-    const prevBtn = document.querySelector('.fc-nav-prev');
-    const nextBtn = document.querySelector('.fc-nav-next');
+    // Get all changes for this file
+    const changes = this._getFileChanges().filter(
+      c => c.filePath === filePath && c.sessionId === sessionId && c.status === 'pending'
+    );
 
-    if (prevBtn) {
-      prevBtn.disabled = this._currentHunkIndex <= 0;
+    if (changes.length === 0) {
+      this.renderEmptyDiff();
+      return;
     }
-    if (nextBtn) {
-      nextBtn.disabled = this._currentHunkIndex >= this._totalHunks - 1;
+
+    // Set selected file state
+    this._selectedFileKey = fileKey;
+    this._selectedFile = { sessionId, filePath, changes };
+    this._currentDiffs = [];
+    this._pendingDiffLoads = changes.length;
+
+    // Update sidebar to show selection
+    this.renderSidebar();
+
+    // Show loading state
+    this.renderDiffLoading();
+
+    // Load diffs for all changes
+    changes.forEach(change => {
+      if (this._diffCache.has(change.id)) {
+        // Use cached diff
+        this._currentDiffs.push({
+          changeId: change.id,
+          change: change,
+          diff: this._diffCache.get(change.id)
+        });
+        this._pendingDiffLoads--;
+        this._checkAllDiffsLoaded();
+      } else {
+        // Request diff from backend
+        if (typeof API !== 'undefined' && API.getDiff) {
+          API.getDiff(change.id);
+        }
+      }
+    });
+  },
+
+  /**
+   * Check if all diffs are loaded and render if so
+   */
+  _checkAllDiffsLoaded() {
+    if (this._pendingDiffLoads <= 0) {
+      // Sort diffs by change order (timestamp or index)
+      this._currentDiffs.sort((a, b) => {
+        const timeA = new Date(a.change.timestamp || 0).getTime();
+        const timeB = new Date(b.change.timestamp || 0).getTime();
+        return timeA - timeB;
+      });
+      this.renderDiff();
+
+      // Handle pending scroll if any
+      if (this._pendingScrollToHunk) {
+        const { changeId, hunkIndex } = this._pendingScrollToHunk;
+        this._pendingScrollToHunk = null;
+        setTimeout(() => this._scrollToHunk(changeId, hunkIndex), 100);
+      }
     }
   },
+
+  /**
+   * Keep all changes in a specific file
+   */
+  keepAllInFile(filePath, sessionId) {
+    const changes = this._getFileChanges().filter(
+      c => c.filePath === filePath && c.sessionId === sessionId && c.status === 'pending'
+    );
+
+    if (changes.length === 0) return;
+
+    this._showConfirmModal({
+      title: 'Keep All Changes',
+      message: `Keep all ${changes.length} change${changes.length !== 1 ? 's' : ''} to "${Utils.getFileName(filePath)}"?`,
+      confirmText: 'Keep All',
+      confirmClass: 'btn-success',
+      onConfirm: () => {
+        changes.forEach(c => {
+          if (typeof API !== 'undefined' && API.keepChange) {
+            API.keepChange(c.id);
+          }
+        });
+      }
+    });
+  },
+
+  /**
+   * Revert all changes in a specific file
+   */
+  revertAllInFile(filePath, sessionId) {
+    const changes = this._getFileChanges().filter(
+      c => c.filePath === filePath && c.sessionId === sessionId && c.status === 'pending'
+    );
+
+    if (changes.length === 0) return;
+
+    this._showConfirmModal({
+      title: 'Revert All Changes',
+      message: `Revert all ${changes.length} change${changes.length !== 1 ? 's' : ''} to "${Utils.getFileName(filePath)}"? This will restore the original content.`,
+      confirmText: 'Revert All',
+      confirmClass: 'btn-danger',
+      onConfirm: () => {
+        changes.forEach(c => {
+          if (typeof API !== 'undefined' && API.revertChange) {
+            API.revertChange(c.id);
+          }
+        });
+      }
+    });
+  },
+
+  /**
+   * Update archive count
+   */
+  _updateArchiveCount() {
+    const countEl = document.getElementById('fc-archive-count');
+    if (countEl && typeof State !== 'undefined') {
+      const count = (State.archivedChanges || []).length;
+      countEl.textContent = count.toString();
+    }
+  },
+
+  // ==========================================================================
+  // Session/File Actions
+  // ==========================================================================
 
   /**
    * Toggle session accordion
@@ -540,51 +593,1196 @@ const FileChangesView = {
     } else {
       this._expandedSessions.add(sessionId);
     }
-    this.renderSessionAccordions();
+    this.renderSidebar();
   },
 
   /**
-   * Toggle file accordion
-   */
-  toggleFile(fileKey, changeId) {
-    if (this._expandedFiles.has(fileKey)) {
-      this._expandedFiles.delete(fileKey);
-    } else {
-      this._expandedFiles.add(fileKey);
-      // Request diff for this file
-      this.selectedChangeId = changeId;
-      API.getDiff(changeId);
-    }
-    this.renderSessionAccordions();
-  },
-
-  /**
-   * Handle diff result from API
+   * Handle diff result from API - supports multi-diff loading
    */
   handleDiffResult(payload) {
-    this.currentDiff = payload;
-    this._currentHunkIndex = 0;
+    if (!payload || !payload.changeId) return;
 
-    // Re-render the expanded file with the diff
-    if (this.selectedChangeId) {
-      const fileContent = document.querySelector(`.fc-file-content[data-change-id="${this.selectedChangeId}"]`);
-      if (fileContent) {
-        const changes = this._getFileChanges();
-        const change = changes.find(c => c.id === this.selectedChangeId);
-        if (change) {
-          fileContent.innerHTML = this._renderFileDiff(change);
-          this._setupDiffHandlers(fileContent);
-        }
+    const changeId = payload.changeId;
+
+    // Cache the diff
+    this._diffCache.set(changeId, payload);
+
+    // Store original content for reset capability
+    if (!this._originalContent.has(changeId) && payload.afterContent) {
+      this._originalContent.set(changeId, payload.afterContent);
+    }
+
+    // Check if this diff belongs to the currently selected file
+    if (this._selectedFile) {
+      const change = this._selectedFile.changes?.find(c => c.id === changeId);
+      if (change) {
+        // Add to current diffs
+        this._currentDiffs.push({
+          changeId: changeId,
+          change: change,
+          diff: payload
+        });
+        this._pendingDiffLoads--;
+        this._checkAllDiffsLoaded();
       }
     }
   },
 
+  // ==========================================================================
+  // Diff Rendering
+  // ==========================================================================
+
   /**
-   * Show diff (called from state subscription)
+   * Render empty diff state
    */
-  showDiff(diff) {
-    this.currentDiff = diff;
-    // This is handled by renderSessionAccordions
+  renderEmptyDiff() {
+    const container = document.getElementById('fc-diff-container');
+    const toolbar = document.getElementById('fc-toolbar');
+    if (!container) return;
+
+    toolbar.innerHTML = '';
+    container.innerHTML = `
+      <div class="fc-empty-state">
+        <div class="fc-empty-icon">&#128196;</div>
+        <div class="fc-empty-title">Select a file to view changes</div>
+        <div class="fc-empty-tips">
+          <p><strong>Quick tips:</strong></p>
+          <ul>
+            <li>Click a session to expand and see files</li>
+            <li>Click a file to view its diff</li>
+            <li>Use Keep/Revert to manage changes</li>
+            <li>Edit hunks inline before keeping</li>
+          </ul>
+        </div>
+      </div>
+    `;
+  },
+
+  /**
+   * Render loading state
+   */
+  renderDiffLoading() {
+    const container = document.getElementById('fc-diff-container');
+    if (!container) return;
+
+    container.innerHTML = '<div class="fc-diff-loading">Loading diff...</div>';
+  },
+
+  /**
+   * Render error state with retry button
+   */
+  renderDiffError(message = 'Failed to load diff') {
+    const container = document.getElementById('fc-diff-container');
+    const toolbar = document.getElementById('fc-toolbar');
+    if (!container) return;
+
+    toolbar.innerHTML = '';
+    container.innerHTML = `
+      <div class="fc-diff-error">
+        <div class="fc-diff-error-icon">&#9888;</div>
+        <div class="fc-diff-error-message">${Utils.escapeHtml(message)}</div>
+        <button class="btn btn-sm fc-diff-error-retry">Retry</button>
+      </div>
+    `;
+
+    // Setup retry handler
+    container.querySelector('.fc-diff-error-retry')?.addEventListener('click', () => {
+      if (this._selectedFile) {
+        // Clear cache and reload
+        this._selectedFile.changes?.forEach(c => this._diffCache.delete(c.id));
+        this.selectFileForViewing(this._selectedFile.sessionId, this._selectedFile.filePath);
+      }
+    });
+  },
+
+  /**
+   * Handle diff error from API
+   */
+  handleDiffError(error) {
+    console.error('[FileChanges] Diff error:', error);
+    this._pendingDiffLoads--;
+    // If all pending loads are done but with errors, show error
+    if (this._pendingDiffLoads <= 0 && this._currentDiffs.length === 0) {
+      this.renderDiffError(error?.message || 'Failed to load diff. Please try again.');
+    } else {
+      this._checkAllDiffsLoaded();
+    }
+  },
+
+  /**
+   * Render the diff panel - shows ALL changes/hunks for the selected file
+   */
+  renderDiff() {
+    const container = document.getElementById('fc-diff-container');
+    const toolbar = document.getElementById('fc-toolbar');
+
+    if (!container || !this._selectedFile || this._currentDiffs.length === 0) {
+      this.renderEmptyDiff();
+      return;
+    }
+
+    const { filePath, changes } = this._selectedFile;
+
+    // Calculate total stats across all changes
+    let totalAdditions = 0;
+    let totalDeletions = 0;
+    let totalHunks = 0;
+    this._currentDiffs.forEach(({ diff }) => {
+      totalAdditions += diff.additions || 0;
+      totalDeletions += diff.deletions || 0;
+      totalHunks += (diff.hunks || []).length;
+    });
+
+    // Render toolbar
+    toolbar.innerHTML = `
+      <span class="fc-toolbar-path" title="${Utils.escapeHtml(filePath)}">${Utils.escapeHtml(filePath)}</span>
+      <div class="fc-toolbar-stats">
+        <span class="fc-stat-add">+${totalAdditions}</span>
+        <span class="fc-stat-del">-${totalDeletions}</span>
+        <span class="fc-stat-hunks">${totalHunks} hunk${totalHunks !== 1 ? 's' : ''}</span>
+        <span class="fc-stat-changes">${changes.length} change${changes.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="fc-view-toggle">
+        <button class="${this._viewMode === 'unified' ? 'active' : ''}" data-mode="unified">Unified</button>
+        <button class="${this._viewMode === 'split' ? 'active' : ''}" data-mode="split">Split</button>
+      </div>
+      <div class="fc-toolbar-actions">
+        <button class="btn btn-xs fc-open-file" title="Open in Editor">Open</button>
+        <button class="btn btn-xs btn-success fc-toolbar-keep-all" title="Keep all changes">Keep All</button>
+        <button class="btn btn-xs btn-danger fc-toolbar-revert-all" title="Revert all changes">Revert All</button>
+      </div>
+    `;
+
+    // Render diff content - all changes combined
+    if (totalHunks === 0) {
+      container.innerHTML = '<div class="fc-empty-state"><div class="fc-empty-title">No changes detected</div></div>';
+    } else {
+      container.innerHTML = this._viewMode === 'unified'
+        ? this._renderAllChangesUnified(filePath)
+        : this._renderAllChangesSplit(filePath);
+    }
+
+    this._setupDiffHandlers();
+  },
+
+  /**
+   * Render all changes in unified view
+   */
+  _renderAllChangesUnified(filePath) {
+    const language = Utils.detectLanguage(filePath, '');
+
+    const changesHtml = this._currentDiffs.map(({ changeId, change, diff }, changeIndex) => {
+      const hunks = diff.hunks || [];
+
+      return hunks.map((hunk, hunkIndex) => {
+        const isEditing = this._editingHunk?.changeId === changeId && this._editingHunk?.hunkIndex === hunkIndex;
+
+        return this._renderHunkCard(hunk, changeId, hunkIndex, change, language, isEditing);
+      }).join('');
+    }).join('');
+
+    return `<div class="fc-diff-unified fc-diff-all-changes">${changesHtml}</div>`;
+  },
+
+  /**
+   * Render all changes in split view
+   */
+  _renderAllChangesSplit(filePath) {
+    const language = Utils.detectLanguage(filePath, '');
+
+    const changesHtml = this._currentDiffs.map(({ changeId, change, diff }) => {
+      const hunks = diff.hunks || [];
+
+      return hunks.map((hunk, hunkIndex) => {
+        return this._renderSplitHunkRow(hunk, changeId, hunkIndex, change, language);
+      }).join('');
+    }).join('');
+
+    return `
+      <div class="fc-diff-split">
+        <div class="fc-split-headers">
+          <div class="fc-diff-split-header">Before</div>
+          <div class="fc-diff-split-header">After</div>
+        </div>
+        ${changesHtml}
+      </div>
+    `;
+  },
+
+  /**
+   * Render a single hunk card (unified view)
+   */
+  _renderHunkCard(hunk, changeId, hunkIndex, change, language, isEditing) {
+    const oldStart = hunk.oldStart || 1;
+    const oldLines = hunk.oldLines || 0;
+    const newStart = hunk.newStart || 1;
+    const newLines = hunk.newLines || 0;
+    const toolType = this._getToolType(change.tool);
+
+    // Render lines
+    let oldLineNum = oldStart;
+    let newLineNum = newStart;
+
+    const linesHtml = (hunk.lines || []).map((line, lineIdx) => {
+      const type = line.type || 'context';
+      const isEditable = type === 'added' && isEditing;
+      const content = line.content || '';
+
+      let displayNum;
+      if (type === 'removed') {
+        displayNum = oldLineNum++;
+      } else if (type === 'added') {
+        displayNum = newLineNum++;
+      } else {
+        displayNum = newLineNum;
+        oldLineNum++;
+        newLineNum++;
+      }
+
+      return this._renderDiffLineWithNumbers(content, displayNum, displayNum, type, language, hunkIndex, isEditable, lineIdx);
+    }).join('');
+
+    return `
+      <div class="fc-hunk-card" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">
+        <div class="fc-hunk-header">
+          <span class="fc-hunk-info">@@ -${oldStart},${oldLines} +${newStart},${newLines} @@</span>
+          <span class="fc-tool-badge ${toolType} small">${Utils.escapeHtml(change.tool || 'unknown')}</span>
+          <span class="fc-hunk-time">${Utils.formatTime(change.timestamp)}</span>
+          <div class="fc-hunk-actions">
+            <button class="btn btn-xs fc-hunk-edit" data-change-id="${changeId}" data-hunk-index="${hunkIndex}" title="Edit">Edit</button>
+            <button class="btn btn-xs btn-success fc-hunk-keep" data-change-id="${changeId}" title="Keep">Keep</button>
+            <button class="btn btn-xs btn-danger fc-hunk-revert" data-change-id="${changeId}" title="Revert">Revert</button>
+          </div>
+        </div>
+        <div class="fc-hunk-lines">${linesHtml}</div>
+        ${isEditing ? this._renderEditBar(changeId, hunkIndex) : ''}
+      </div>
+    `;
+  },
+
+  /**
+   * Render a split hunk row
+   */
+  _renderSplitHunkRow(hunk, changeId, hunkIndex, change, language) {
+    const oldStart = hunk.oldStart || 1;
+    const oldLines = hunk.oldLines || 0;
+    const newStart = hunk.newStart || 1;
+    const newLines = hunk.newLines || 0;
+    const toolType = this._getToolType(change.tool);
+
+    return `
+      <div class="fc-split-hunk-row" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">
+        <div class="fc-split-hunk-header">
+          <span class="fc-hunk-info">@@ -${oldStart},${oldLines} +${newStart},${newLines} @@</span>
+          <span class="fc-tool-badge ${toolType} small">${Utils.escapeHtml(change.tool || 'unknown')}</span>
+          <div class="fc-hunk-actions">
+            <button class="btn btn-xs btn-success fc-hunk-keep" data-change-id="${changeId}" title="Keep">Keep</button>
+            <button class="btn btn-xs btn-danger fc-hunk-revert" data-change-id="${changeId}" title="Revert">Revert</button>
+          </div>
+        </div>
+        <div class="fc-split-hunk-content">
+          <div class="fc-diff-split-pane">
+            ${this._renderSplitPane(hunk, 'before', language)}
+          </div>
+          <div class="fc-diff-split-pane">
+            ${this._renderSplitPane(hunk, 'after', language)}
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  /**
+   * Render a split pane (before or after)
+   */
+  _renderSplitPane(hunk, side, language) {
+    const lines = hunk.lines || [];
+    const oldStart = hunk.oldStart || 1;
+    const newStart = hunk.newStart || 1;
+
+    let oldLineNum = oldStart;
+    let newLineNum = newStart;
+
+    const linesHtml = lines.map((line) => {
+      const type = line.type || 'context';
+
+      if (type === 'removed') {
+        if (side === 'before') {
+          const content = line.content || '';
+          const escaped = Utils.escapeHtml(content);
+          const highlighted = this._applySyntaxHighlighting(escaped, language);
+          const result = `<div class="fc-line removed"><span class="fc-line-num">${oldLineNum}</span><span class="fc-line-content">${highlighted}</span></div>`;
+          oldLineNum++;
+          return result;
+        }
+        oldLineNum++;
+        return '';
+      } else if (type === 'added') {
+        if (side === 'after') {
+          const content = line.content || '';
+          const escaped = Utils.escapeHtml(content);
+          const highlighted = this._applySyntaxHighlighting(escaped, language);
+          const result = `<div class="fc-line added"><span class="fc-line-num">${newLineNum}</span><span class="fc-line-content">${highlighted}</span></div>`;
+          newLineNum++;
+          return result;
+        }
+        newLineNum++;
+        return '';
+      } else {
+        // Context line - show on both sides
+        const content = line.content || '';
+        const escaped = Utils.escapeHtml(content);
+        const highlighted = this._applySyntaxHighlighting(escaped, language);
+        const lineNum = side === 'before' ? oldLineNum : newLineNum;
+        const result = `<div class="fc-line context"><span class="fc-line-num">${lineNum}</span><span class="fc-line-content">${highlighted}</span></div>`;
+        oldLineNum++;
+        newLineNum++;
+        return result;
+      }
+    }).join('');
+
+    return `<div class="fc-hunk-lines">${linesHtml}</div>`;
+  },
+
+  /**
+   * Scroll the diff viewer to a specific hunk by changeId and hunkIndex
+   */
+  _scrollToHunk(changeId, hunkIndex) {
+    const container = document.getElementById('fc-diff-container');
+    if (!container) return;
+
+    // Find the hunk element by data attributes (changeId + hunkIndex)
+    const hunkEl = container.querySelector(`[data-change-id="${changeId}"][data-hunk-index="${hunkIndex}"]`) ||
+                   container.querySelector(`.fc-hunk-card[data-change-id="${changeId}"]`) ||
+                   container.querySelector(`.fc-split-hunk-row[data-change-id="${changeId}"]`);
+
+    if (hunkEl) {
+      // Scroll to the hunk with some offset for better visibility
+      hunkEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      // Highlight the hunk briefly
+      hunkEl.classList.add('fc-hunk-highlight');
+      setTimeout(() => {
+        hunkEl.classList.remove('fc-hunk-highlight');
+      }, 2000);
+    }
+  },
+
+  /**
+   * Render unified diff view - shows full file with changes highlighted
+   */
+  _renderUnifiedDiff(diff, filePath) {
+    const language = Utils.detectLanguage(filePath, diff.afterContent || '');
+    const hunks = diff.hunks || [];
+
+    // If we have full file content, render the complete file with hunks highlighted
+    if (diff.beforeContent || diff.afterContent) {
+      return this._renderFullFileDiff(diff, language);
+    }
+
+    // Fallback to hunk-only view
+    return `
+      <div class="fc-diff-unified">
+        ${hunks.map((hunk, idx) => this._renderHunk(hunk, idx, language)).join('')}
+      </div>
+    `;
+  },
+
+  /**
+   * Render full file diff with all lines and changes highlighted
+   */
+  _renderFullFileDiff(diff, language) {
+    const beforeLines = (diff.beforeContent || '').split('\n');
+    const afterLines = (diff.afterContent || '').split('\n');
+    const hunks = diff.hunks || [];
+
+    // Build a map of line changes from hunks for quick lookup
+    const lineChanges = this._buildLineChangeMap(hunks);
+
+    // Render the full "after" file with deletions shown inline
+    let html = '<div class="fc-diff-unified fc-diff-full-file">';
+
+    let oldLineNum = 1;
+    let newLineNum = 1;
+    let hunkIdx = 0;
+
+    // Process hunks in order
+    for (let h = 0; h < hunks.length; h++) {
+      const hunk = hunks[h];
+      const isEditing = this._editingHunk === h;
+
+      // Add context lines before this hunk (from before content)
+      const contextBefore = Math.max(0, (hunk.oldStart || 1) - oldLineNum);
+      for (let i = 0; i < contextBefore && (oldLineNum - 1) < beforeLines.length; i++) {
+        const content = beforeLines[oldLineNum - 1] || '';
+        html += this._renderDiffLineWithNumbers(content, oldLineNum, newLineNum, 'context', language, h, false);
+        oldLineNum++;
+        newLineNum++;
+      }
+
+      // Render hunk header
+      html += `
+        <div class="fc-hunk-header-inline" data-hunk-index="${h}">
+          <span class="fc-hunk-info">@@ -${hunk.oldStart || 0},${hunk.oldLines || 0} +${hunk.newStart || 0},${hunk.newLines || 0} @@</span>
+          <div class="fc-hunk-actions">
+            <button class="btn btn-xs fc-hunk-edit" data-hunk-index="${h}" title="Edit">Edit</button>
+            <button class="btn btn-xs btn-success fc-hunk-keep" data-hunk-index="${h}" title="Keep">Keep</button>
+            <button class="btn btn-xs btn-danger fc-hunk-revert" data-hunk-index="${h}" title="Revert">Revert</button>
+          </div>
+        </div>
+      `;
+
+      // Render hunk lines with proper line numbers
+      const lines = hunk.lines || [];
+      let hunkOldLine = hunk.oldStart || 1;
+      let hunkNewLine = hunk.newStart || 1;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const type = line.type || 'context';
+        const content = line.content || '';
+        const isEditable = type === 'added' && isEditing;
+
+        let displayOld = '';
+        let displayNew = '';
+
+        if (type === 'removed') {
+          displayOld = hunkOldLine;
+          hunkOldLine++;
+        } else if (type === 'added') {
+          displayNew = hunkNewLine;
+          hunkNewLine++;
+        } else {
+          displayOld = hunkOldLine;
+          displayNew = hunkNewLine;
+          hunkOldLine++;
+          hunkNewLine++;
+        }
+
+        html += this._renderDiffLineWithNumbers(content, displayOld, displayNew, type, language, h, isEditable, i);
+      }
+
+      // Edit bar if in edit mode
+      if (isEditing) {
+        html += this._renderEditBar(h);
+      }
+
+      // Update line counters
+      oldLineNum = hunkOldLine;
+      newLineNum = hunkNewLine;
+    }
+
+    // Add remaining context lines after last hunk
+    while ((newLineNum - 1) < afterLines.length) {
+      const content = afterLines[newLineNum - 1] || '';
+      html += this._renderDiffLineWithNumbers(content, oldLineNum, newLineNum, 'context', language, hunks.length, false);
+      oldLineNum++;
+      newLineNum++;
+    }
+
+    html += '</div>';
+    return html;
+  },
+
+  /**
+   * Build a map of line changes from hunks
+   */
+  _buildLineChangeMap(hunks) {
+    const map = new Map();
+    for (const hunk of hunks) {
+      let lineNum = hunk.newStart || 1;
+      for (const line of (hunk.lines || [])) {
+        if (line.type === 'added') {
+          map.set(lineNum, { type: 'added', content: line.content });
+          lineNum++;
+        } else if (line.type === 'context') {
+          lineNum++;
+        }
+      }
+    }
+    return map;
+  },
+
+  /**
+   * Render a diff line with a single line number column (unified view style)
+   */
+  _renderDiffLineWithNumbers(content, oldNum, newNum, type, language, hunkIndex, isEditable, lineIdx = 0) {
+    // Escape HTML in content, then apply syntax highlighting
+    const escapedContent = Utils.escapeHtml(content);
+    const highlightedContent = this._applySyntaxHighlighting(escapedContent, language);
+
+    // For unified view, show single line number based on line type
+    // - removed lines: show old line number
+    // - added lines: show new line number
+    // - context lines: show new line number (both are same in context)
+    const lineNum = type === 'removed' ? oldNum : newNum;
+
+    return `<div class="fc-line ${type} ${isEditable ? 'editing' : ''}" data-line-idx="${lineIdx}" data-hunk-index="${hunkIndex}"><span class="fc-line-num">${lineNum}</span><span class="fc-line-content" ${isEditable ? 'contenteditable="true"' : ''}>${highlightedContent}</span></div>`;
+  },
+
+  /**
+   * Apply syntax highlighting to already-escaped content
+   */
+  _applySyntaxHighlighting(escapedContent, language) {
+    if (!escapedContent || language === 'plaintext') return escapedContent;
+
+    // Simple token-based highlighting for common patterns
+    let result = escapedContent;
+
+    // Keywords (language agnostic common ones)
+    const keywords = /\b(const|let|var|function|class|return|if|else|for|while|import|export|from|default|async|await|try|catch|throw|new|this|true|false|null|undefined)\b/g;
+    result = result.replace(keywords, '<span class="token keyword">$1</span>');
+
+    // Strings (already escaped, so &quot; instead of ")
+    result = result.replace(/(&quot;[^&]*&quot;|&#39;[^&]*&#39;|`[^`]*`)/g, '<span class="token string">$1</span>');
+
+    // Numbers
+    result = result.replace(/\b(\d+\.?\d*)\b/g, '<span class="token number">$1</span>');
+
+    // Comments
+    result = result.replace(/(\/\/.*$)/gm, '<span class="token comment">$1</span>');
+
+    return result;
+  },
+
+  /**
+   * Render split diff view
+   */
+  _renderSplitDiff(diff, filePath) {
+    const language = Utils.detectLanguage(filePath, diff.afterContent || '');
+    const hunks = diff.hunks || [];
+
+    // Render hunks with shared header across both panes
+    const hunkRows = hunks.map((hunk, idx) => {
+      const oldStart = hunk.oldStart || 1;
+      const oldLines = hunk.oldLines || 0;
+      const newStart = hunk.newStart || 1;
+      const newLines = hunk.newLines || 0;
+
+      return `
+        <div class="fc-split-hunk-row" data-hunk-index="${idx}">
+          <div class="fc-split-hunk-header">
+            <span class="fc-hunk-info">@@ -${oldStart},${oldLines} +${newStart},${newLines} @@</span>
+            <div class="fc-hunk-actions">
+              <button class="btn btn-xs fc-hunk-edit" data-hunk-index="${idx}" title="Edit">Edit</button>
+              <button class="btn btn-xs btn-success fc-hunk-keep" data-hunk-index="${idx}" title="Keep">Keep</button>
+              <button class="btn btn-xs btn-danger fc-hunk-revert" data-hunk-index="${idx}" title="Revert">Revert</button>
+            </div>
+          </div>
+          <div class="fc-split-hunk-content">
+            <div class="fc-diff-split-pane">
+              ${this._renderSplitHunkPane(hunk, idx, 'before', language)}
+            </div>
+            <div class="fc-diff-split-pane">
+              ${this._renderSplitHunkPane(hunk, idx, 'after', language)}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="fc-diff-split">
+        <div class="fc-split-headers">
+          <div class="fc-diff-split-header">Before</div>
+          <div class="fc-diff-split-header">After</div>
+        </div>
+        ${hunkRows}
+      </div>
+    `;
+  },
+
+  /**
+   * Render a single hunk (unified) - fallback when no full file content
+   */
+  _renderHunk(hunk, index, language) {
+    const isEditing = this._editingHunk === index;
+    const oldStart = hunk.oldStart || 1;
+    const oldLines = hunk.oldLines || 0;
+    const newStart = hunk.newStart || 1;
+    const newLines = hunk.newLines || 0;
+
+    // Compute line numbers for each line
+    let oldLineNum = oldStart;
+    let newLineNum = newStart;
+
+    const renderedLines = (hunk.lines || []).map((line, lineIdx) => {
+      const type = line.type || 'context';
+      const isEditable = type === 'added' && isEditing;
+      const content = line.content || '';
+
+      let displayOld = '';
+      let displayNew = '';
+
+      if (type === 'removed') {
+        displayOld = oldLineNum++;
+      } else if (type === 'added') {
+        displayNew = newLineNum++;
+      } else {
+        displayOld = oldLineNum++;
+        displayNew = newLineNum++;
+      }
+
+      return this._renderDiffLineWithNumbers(content, displayOld, displayNew, type, language, index, isEditable, lineIdx);
+    }).join('');
+
+    return `
+      <div class="fc-hunk" data-hunk-index="${index}">
+        <div class="fc-hunk-header">
+          <span class="fc-hunk-info">@@ -${oldStart},${oldLines} +${newStart},${newLines} @@</span>
+          <div class="fc-hunk-actions">
+            <button class="btn btn-xs fc-hunk-edit" data-hunk-index="${index}" title="Edit this hunk">Edit</button>
+            <button class="btn btn-xs btn-success fc-hunk-keep" data-hunk-index="${index}" title="Keep this hunk">Keep</button>
+            <button class="btn btn-xs btn-danger fc-hunk-revert" data-hunk-index="${index}" title="Revert this hunk">Revert</button>
+          </div>
+        </div>
+        <div class="fc-hunk-lines">
+          ${renderedLines}
+        </div>
+        ${isEditing ? this._renderEditBar(index) : ''}
+      </div>
+    `;
+  },
+
+  /**
+   * Render a split pane hunk
+   */
+  _renderSplitHunkPane(hunk, index, side, language) {
+    const lines = hunk.lines || [];
+    const oldStart = hunk.oldStart || 1;
+    const newStart = hunk.newStart || 1;
+
+    // Compute line numbers while filtering
+    let oldLineNum = oldStart;
+    let newLineNum = newStart;
+
+    const renderedLines = lines.map((line) => {
+      const type = line.type || 'context';
+
+      if (type === 'removed') {
+        if (side === 'before') {
+          const content = line.content || '';
+          const escapedContent = Utils.escapeHtml(content);
+          const highlighted = this._applySyntaxHighlighting(escapedContent, language);
+          const result = `
+            <div class="fc-line removed">
+              <span class="fc-line-num">${oldLineNum}</span>
+              <span class="fc-line-content">${highlighted}</span>
+            </div>
+          `;
+          oldLineNum++;
+          return result;
+        }
+        oldLineNum++;
+        return '';
+      } else if (type === 'added') {
+        if (side === 'after') {
+          const content = line.content || '';
+          const escapedContent = Utils.escapeHtml(content);
+          const highlighted = this._applySyntaxHighlighting(escapedContent, language);
+          const result = `
+            <div class="fc-line added">
+              <span class="fc-line-num">${newLineNum}</span>
+              <span class="fc-line-content">${highlighted}</span>
+            </div>
+          `;
+          newLineNum++;
+          return result;
+        }
+        newLineNum++;
+        return '';
+      } else {
+        // Context line - show on both sides
+        const content = line.content || '';
+        const escapedContent = Utils.escapeHtml(content);
+        const highlighted = this._applySyntaxHighlighting(escapedContent, language);
+        const lineNum = side === 'before' ? oldLineNum : newLineNum;
+        const result = `
+          <div class="fc-line context">
+            <span class="fc-line-num">${lineNum}</span>
+            <span class="fc-line-content">${highlighted}</span>
+          </div>
+        `;
+        oldLineNum++;
+        newLineNum++;
+        return result;
+      }
+    }).join('');
+
+    return `
+      <div class="fc-hunk" data-hunk-index="${index}">
+        <div class="fc-hunk-lines">
+          ${renderedLines}
+        </div>
+      </div>
+    `;
+  },
+
+  /**
+   * Render edit bar for a hunk
+   */
+  _renderEditBar(changeId, hunkIndex) {
+    return `
+      <div class="fc-hunk-edit-bar">
+        <span>Editing - changes auto-save on blur</span>
+        <button class="btn btn-xs fc-edit-reset" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">Reset to Original</button>
+        <button class="btn btn-xs fc-edit-done" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">Done</button>
+      </div>
+    `;
+  },
+
+  /**
+   * Setup event handlers for diff panel
+   */
+  _setupDiffHandlers() {
+    const toolbar = document.getElementById('fc-toolbar');
+    const container = document.getElementById('fc-diff-container');
+
+    // View toggle
+    toolbar?.querySelectorAll('.fc-view-toggle button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._viewMode = btn.dataset.mode;
+        this.renderDiff();
+      });
+    });
+
+    // Open file in editor
+    toolbar?.querySelector('.fc-open-file')?.addEventListener('click', () => {
+      if (this._selectedFile && typeof API !== 'undefined') {
+        API.openFile(this._selectedFile.filePath);
+      }
+    });
+
+    // Toolbar keep all - keeps all changes for this file
+    toolbar?.querySelector('.fc-toolbar-keep-all')?.addEventListener('click', () => {
+      if (this._selectedFile) {
+        this.keepAllInFile(this._selectedFile.filePath, this._selectedFile.sessionId);
+      }
+    });
+
+    // Toolbar revert all - reverts all changes for this file
+    toolbar?.querySelector('.fc-toolbar-revert-all')?.addEventListener('click', () => {
+      if (this._selectedFile) {
+        this.revertAllInFile(this._selectedFile.filePath, this._selectedFile.sessionId);
+      }
+    });
+
+    // Hunk edit buttons - use changeId
+    container?.querySelectorAll('.fc-hunk-edit').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const changeId = btn.dataset.changeId;
+        const hunkIndex = parseInt(btn.dataset.hunkIndex, 10);
+        this.enterEditMode(changeId, hunkIndex);
+      });
+    });
+
+    // Hunk keep buttons - keep the specific change
+    container?.querySelectorAll('.fc-hunk-keep').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const changeId = btn.dataset.changeId;
+        if (changeId) {
+          this.keepChange(changeId);
+        }
+      });
+    });
+
+    // Hunk revert buttons - revert the specific change
+    container?.querySelectorAll('.fc-hunk-revert').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const changeId = btn.dataset.changeId;
+        if (changeId) {
+          this.revertChange(changeId);
+        }
+      });
+    });
+
+    // Edit reset buttons
+    container?.querySelectorAll('.fc-edit-reset').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const changeId = btn.dataset.changeId;
+        this.resetHunk(changeId);
+      });
+    });
+
+    // Edit done buttons
+    container?.querySelectorAll('.fc-edit-done').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.exitEditMode();
+      });
+    });
+
+    // Contenteditable blur handler for auto-save
+    container?.querySelectorAll('.fc-line.editing .fc-line-content').forEach(el => {
+      el.addEventListener('blur', () => {
+        this._handleLineEdit(el);
+      });
+      // Also handle Enter key to exit editing on that line
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          el.blur();
+          this.exitEditMode();
+        }
+      });
+    });
+
+    // Global Escape key to exit edit mode
+    if (this._editingHunk !== null) {
+      const escHandler = (e) => {
+        if (e.key === 'Escape') {
+          this.exitEditMode();
+          document.removeEventListener('keydown', escHandler);
+        }
+      };
+      document.addEventListener('keydown', escHandler);
+    }
+  },
+
+  // ==========================================================================
+  // Edit Mode
+  // ==========================================================================
+
+  /**
+   * Enter edit mode for a hunk
+   * @param {string} changeId - The change ID
+   * @param {number} hunkIndex - The hunk index within that change
+   */
+  enterEditMode(changeId, hunkIndex) {
+    this._editingHunk = { changeId, hunkIndex };
+    this.renderDiff();
+
+    // Focus first editable line
+    setTimeout(() => {
+      const firstEditable = document.querySelector('.fc-line.editing .fc-line-content');
+      if (firstEditable) {
+        firstEditable.focus();
+      }
+    }, 50);
+  },
+
+  /**
+   * Exit edit mode
+   */
+  exitEditMode() {
+    this._editingHunk = null;
+    this.renderDiff();
+  },
+
+  /**
+   * Handle line edit (auto-save on blur)
+   */
+  _handleLineEdit(lineEl) {
+    if (!this._selectedFile || !this._editingHunk) return;
+
+    const { changeId, hunkIndex: editingHunkIndex } = this._editingHunk;
+
+    // Find the diff data for this change from _currentDiffs
+    const diffEntry = this._currentDiffs.find(d => d.changeId === changeId);
+    if (!diffEntry || !diffEntry.diff) return;
+
+    const diff = diffEntry.diff;
+    const lineHunkIndex = parseInt(lineEl.closest('.fc-line')?.dataset.hunkIndex || '0', 10);
+    const lineIdx = parseInt(lineEl.closest('.fc-line')?.dataset.lineIdx || '0', 10);
+    const newLineContent = lineEl.textContent || '';
+
+    // Get the current after content (edited or original)
+    let afterContent = this._editedContent.get(changeId) ||
+                       diff.afterContent ||
+                       this._originalContent.get(changeId) || '';
+
+    // Parse into lines
+    const lines = afterContent.split('\n');
+    const hunks = diff.hunks || [];
+
+    // Find the actual line number in the file from hunk info
+    if (lineHunkIndex < hunks.length) {
+      const hunk = hunks[lineHunkIndex];
+      let addedLineCount = 0;
+      const hunkLines = hunk.lines || [];
+
+      // Count added lines up to lineIdx to find the line number
+      for (let i = 0; i <= lineIdx && i < hunkLines.length; i++) {
+        const line = hunkLines[i];
+        if (line.type === 'added') {
+          if (i === lineIdx) {
+            // This is the line we edited - compute actual file line number
+            const fileLineNum = (hunk.newStart || 1) + addedLineCount - 1;
+            if (fileLineNum >= 0 && fileLineNum < lines.length) {
+              lines[fileLineNum] = newLineContent;
+            }
+            break;
+          }
+          addedLineCount++;
+        } else if (line.type === 'context') {
+          addedLineCount++;
+        }
+      }
+    }
+
+    // Reconstruct content and save
+    const updatedContent = lines.join('\n');
+    this._editedContent.set(changeId, updatedContent);
+
+    // Send to backend
+    if (typeof API !== 'undefined' && API.updateChangeContent) {
+      API.updateChangeContent(changeId, updatedContent);
+      console.log('[FileChanges] Auto-saved edit to API');
+    }
+  },
+
+  /**
+   * Reset hunk to original content
+   * @param {string} changeId - The change ID to reset
+   */
+  resetHunk(changeId) {
+    if (!this._selectedFile || !changeId) return;
+
+    const original = this._originalContent.get(changeId);
+
+    if (original) {
+      // Clear edited content
+      this._editedContent.delete(changeId);
+
+      // Update the diff entry in _currentDiffs to use original content
+      const diffEntry = this._currentDiffs.find(d => d.changeId === changeId);
+      if (diffEntry && diffEntry.diff) {
+        diffEntry.diff.afterContent = original;
+      }
+
+      // Clear cache so it will be re-fetched if needed
+      this._diffCache.delete(changeId);
+    }
+
+    this._editingHunk = null;
+    this.renderDiff();
+  },
+
+  // ==========================================================================
+  // Change Actions
+  // ==========================================================================
+
+  /**
+   * Keep a single change
+   */
+  keepChange(changeId) {
+    if (typeof API !== 'undefined' && API.keepChange) {
+      API.keepChange(changeId);
+    }
+
+    // Optimistic update - remove from current diffs if present
+    this._removeFromCache(changeId);
+    this._currentDiffs = this._currentDiffs.filter(d => d.changeId !== changeId);
+
+    // If this was the last change for the selected file, clear selection
+    if (this._selectedFile) {
+      this._selectedFile.changes = this._selectedFile.changes.filter(c => c.id !== changeId);
+      if (this._selectedFile.changes.length === 0) {
+        this._selectedFile = null;
+        this._selectedFileKey = null;
+        this._currentDiffs = [];
+        this.renderEmptyDiff();
+        return;
+      }
+    }
+
+    // Re-render if there are still changes
+    if (this._currentDiffs.length > 0) {
+      this.renderDiff();
+    }
+  },
+
+  /**
+   * Revert a single change with confirmation
+   */
+  revertChange(changeId) {
+    const changes = this._getFileChanges();
+    const change = changes.find(c => c.id === changeId);
+    if (!change) return;
+
+    this._showConfirmModal({
+      title: 'Revert Change',
+      message: `Are you sure you want to revert changes to "${Utils.getFileName(change.filePath)}"? This will restore the original file content.`,
+      confirmText: 'Revert',
+      confirmClass: 'btn-danger',
+      onConfirm: () => {
+        if (typeof API !== 'undefined' && API.revertChange) {
+          API.revertChange(changeId);
+        }
+
+        // Optimistic update - remove from current diffs if present
+        this._removeFromCache(changeId);
+        this._currentDiffs = this._currentDiffs.filter(d => d.changeId !== changeId);
+
+        // If this was the last change for the selected file, clear selection
+        if (this._selectedFile) {
+          this._selectedFile.changes = this._selectedFile.changes.filter(c => c.id !== changeId);
+          if (this._selectedFile.changes.length === 0) {
+            this._selectedFile = null;
+            this._selectedFileKey = null;
+            this._currentDiffs = [];
+            this.renderEmptyDiff();
+            return;
+          }
+        }
+
+        // Re-render if there are still changes
+        if (this._currentDiffs.length > 0) {
+          this.renderDiff();
+        }
+      }
+    });
+  },
+
+  /**
+   * Keep all changes in a session
+   */
+  keepAllInSession(sessionId) {
+    const changes = this._getFileChanges().filter(c => c.sessionId === sessionId && c.status === 'pending');
+    if (changes.length === 0) return;
+
+    this._showConfirmModal({
+      title: 'Keep All Changes',
+      message: `Keep all ${changes.length} change${changes.length !== 1 ? 's' : ''} in this session?`,
+      confirmText: 'Keep All',
+      confirmClass: 'btn-success',
+      onConfirm: () => {
+        const changeIds = changes.map(c => c.id);
+
+        changes.forEach(c => {
+          if (typeof API !== 'undefined' && API.keepChange) {
+            API.keepChange(c.id);
+          }
+          this._removeFromCache(c.id);
+        });
+
+        // Clear current diffs if any belong to this session
+        this._currentDiffs = this._currentDiffs.filter(d => !changeIds.includes(d.changeId));
+
+        // If selected file belongs to this session, clear it
+        if (this._selectedFile && this._selectedFile.sessionId === sessionId) {
+          this._selectedFile = null;
+          this._selectedFileKey = null;
+          this._currentDiffs = [];
+          this.renderEmptyDiff();
+        }
+      }
+    });
+  },
+
+  /**
+   * Revert all changes in a session
+   */
+  revertAllInSession(sessionId) {
+    const changes = this._getFileChanges().filter(c => c.sessionId === sessionId && c.status === 'pending');
+    if (changes.length === 0) return;
+
+    this._showConfirmModal({
+      title: 'Revert All Changes',
+      message: `Revert all ${changes.length} change${changes.length !== 1 ? 's' : ''} in this session? This will restore all files to their original content.`,
+      confirmText: 'Revert All',
+      confirmClass: 'btn-danger',
+      onConfirm: () => {
+        const changeIds = changes.map(c => c.id);
+
+        changes.forEach(c => {
+          if (typeof API !== 'undefined' && API.revertChange) {
+            API.revertChange(c.id);
+          }
+          this._removeFromCache(c.id);
+        });
+
+        // Clear current diffs if any belong to this session
+        this._currentDiffs = this._currentDiffs.filter(d => !changeIds.includes(d.changeId));
+
+        // If selected file belongs to this session, clear it
+        if (this._selectedFile && this._selectedFile.sessionId === sessionId) {
+          this._selectedFile = null;
+          this._selectedFileKey = null;
+          this._currentDiffs = [];
+          this.renderEmptyDiff();
+        }
+      }
+    });
+  },
+
+  /**
+   * Remove a change from cache
+   */
+  _removeFromCache(changeId) {
+    this._diffCache.delete(changeId);
+    this._editedContent.delete(changeId);
+    this._originalContent.delete(changeId);
+  },
+
+  // ==========================================================================
+  // Modal Dialog
+  // ==========================================================================
+
+  /**
+   * Show a confirmation modal
+   */
+  _showConfirmModal({ title, message, confirmText, confirmClass, onConfirm }) {
+    // Remove any existing modal
+    const existing = document.querySelector('.fc-modal-overlay');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.className = 'fc-modal-overlay';
+    modal.innerHTML = `
+      <div class="fc-modal">
+        <div class="fc-modal-header">
+          <span class="fc-modal-title">${Utils.escapeHtml(title)}</span>
+        </div>
+        <div class="fc-modal-body">
+          <p>${Utils.escapeHtml(message)}</p>
+        </div>
+        <div class="fc-modal-footer">
+          <button class="btn btn-secondary fc-modal-cancel">Cancel</button>
+          <button class="btn ${confirmClass} fc-modal-confirm">${Utils.escapeHtml(confirmText)}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Animate in
+    requestAnimationFrame(() => modal.classList.add('visible'));
+
+    // Cancel button
+    modal.querySelector('.fc-modal-cancel').addEventListener('click', () => {
+      modal.classList.remove('visible');
+      setTimeout(() => modal.remove(), 200);
+    });
+
+    // Confirm button
+    modal.querySelector('.fc-modal-confirm').addEventListener('click', () => {
+      modal.classList.remove('visible');
+      setTimeout(() => modal.remove(), 200);
+      onConfirm();
+    });
+
+    // Click outside to close
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('visible');
+        setTimeout(() => modal.remove(), 200);
+      }
+    });
+
+    // Escape key to close
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        modal.classList.remove('visible');
+        setTimeout(() => modal.remove(), 200);
+        document.removeEventListener('keydown', handleEscape);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
   }
 };
 

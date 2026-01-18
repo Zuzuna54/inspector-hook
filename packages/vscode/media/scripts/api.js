@@ -72,6 +72,22 @@ const API = {
     this.send('delete-session', { sessionId });
   },
 
+  /**
+   * Get logs for a specific session
+   * @param {string} sessionId - Session ID
+   */
+  getSessionLogs(sessionId) {
+    this.send('get-session-logs', { sessionId });
+  },
+
+  /**
+   * Get activity feed for a session (ordered events: prompts, responses, tools)
+   * @param {string} sessionId - Session ID
+   */
+  getSessionActivity(sessionId) {
+    this.send('get-session-activity', { sessionId });
+  },
+
   // ==========================================================================
   // File Changes API
   // ==========================================================================
@@ -120,6 +136,33 @@ const API = {
    */
   revertAllChanges() {
     this.send('revert-all-changes', {});
+  },
+
+  /**
+   * Update change content (for inline editing)
+   * @param {string} changeId - Change ID
+   * @param {string} afterContent - New content after editing
+   */
+  updateChangeContent(changeId, afterContent) {
+    this.send('update-change-content', { changeId, afterContent });
+  },
+
+  /**
+   * Keep an individual hunk (if supported by backend)
+   * @param {string} changeId - Change ID
+   * @param {number} hunkIndex - Hunk index to keep
+   */
+  keepHunk(changeId, hunkIndex) {
+    this.send('keep-hunk', { changeId, hunkIndex });
+  },
+
+  /**
+   * Revert an individual hunk (if supported by backend)
+   * @param {string} changeId - Change ID
+   * @param {number} hunkIndex - Hunk index to revert
+   */
+  revertHunk(changeId, hunkIndex) {
+    this.send('revert-hunk', { changeId, hunkIndex });
   },
 
   // ==========================================================================
@@ -212,43 +255,20 @@ const API = {
    * @param {MessageEvent} event - Message event
    */
   handleMessage(event) {
-    console.log('========================================');
-    console.log('[API] MESSAGE RECEIVED FROM EXTENSION');
-    console.log('========================================');
-    console.log('[API] event.data:', JSON.stringify(event.data).substring(0, 200));
-
     const { type, payload } = event.data || {};
-    console.log('[API] Message type:', type);
 
     if (!type) {
-      console.log('[API] WARNING: No type in message!');
       return;
-    }
-
-    if (type === 'init') {
-      console.log('[API] INIT received!');
-      console.log('[API] - logs:', payload?.logs?.length);
-      console.log('[API] - sessions:', payload?.sessions?.length);
-      console.log('[API] - changes:', payload?.fileChanges?.length);
-      console.log('[API] - stats:', JSON.stringify(payload?.stats));
-    }
-    if (type === 'log') {
-      console.log('[API] NEW LOG:', payload?.hook, payload?.tool);
-    }
-    if (type === 'ping') {
-      console.log('[API] PING received!');
     }
 
     switch (type) {
       case 'ping':
         // Respond to ping from extension
-        console.log('[API] Received PING from extension, sending PONG');
         this.send('pong', { received: payload?.timestamp, responded: Date.now() });
         break;
 
       case 'init':
         // Initial data load
-        console.log('[API] Processing init - updating State...');
         State.batchUpdate({
           connected: true,
           stats: payload.stats || State.stats,
@@ -262,10 +282,7 @@ const API = {
         // Update tab badges with initial counts
         this._updateTabBadge('logs', (payload.logs || []).length);
         this._updateTabBadge('changes', (payload.fileChanges || []).length);
-        console.log('[API] Init complete! State now has:');
-        console.log('[API] - State.logs:', State.logs.length);
-        console.log('[API] - State.sessions:', State.sessions.length);
-        console.log('[API] - State.fileChanges:', State.fileChanges.length);
+        console.log('[API] Init complete - logs:', State.logs.length, 'sessions:', State.sessions.length);
         break;
 
       case 'stats':
@@ -274,6 +291,10 @@ const API = {
 
       case 'log':
         // Single new log entry
+        // Debug: Log UserPromptSubmit and Stop hooks
+        if (payload?.hook === 'UserPromptSubmit' || payload?.hook === 'Stop' || payload?.hook === 'Notification') {
+          console.log('[Log] Special hook received:', payload.hook, payload.event, payload.details?.prompt?.substring(0, 30) || '');
+        }
         const logs = [payload, ...State.logs].slice(0, State.config.maxLogs);
         State.update('logs', logs);
         // Update tab badge
@@ -300,6 +321,33 @@ const API = {
           sessions.unshift(payload);
         }
         State.update('sessions', sessions);
+        break;
+
+      case 'session-logs':
+        // Session logs response
+        State.update('sessionView', {
+          ...State.sessionView,
+          sessionLogs: payload?.logs || []
+        });
+        break;
+
+      case 'session-activity':
+        // Session activity feed response
+        const activities = payload?.activity || [];
+        // Debug: Log activity types received
+        const typeCounts = activities.reduce((acc, a) => {
+          acc[a.type] = (acc[a.type] || 0) + 1;
+          return acc;
+        }, {});
+        console.log('[Activity] Received:', activities.length, 'items -', JSON.stringify(typeCounts));
+        // Log user prompts specifically
+        activities.filter(a => a.type === 'user_prompt').forEach(a => {
+          console.log('[Activity] User prompt:', a.data?.prompt?.substring(0, 50));
+        });
+        State.update('sessionView', {
+          ...State.sessionView,
+          sessionActivity: activities
+        });
         break;
 
       case 'fileChanges':
@@ -333,6 +381,13 @@ const API = {
         // Diff result - handled by file-changes view
         if (window.FileChangesView?.handleDiffResult) {
           window.FileChangesView.handleDiffResult(payload);
+        }
+        break;
+
+      case 'diff-error':
+        // Diff error - handled by file-changes view
+        if (window.FileChangesView?.handleDiffError) {
+          window.FileChangesView.handleDiffError(payload);
         }
         break;
 

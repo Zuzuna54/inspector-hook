@@ -92,6 +92,168 @@ export class IpcServer {
 			this.sessionManager.getSessionStats((params as any).id),
 		);
 
+		// Session activity - combines logs and tool executions for activity feed
+		this.methods.set("sessions.getActivity", async (params) => {
+			const sessionId = (params as any).id;
+			if (!sessionId) {
+				throw new Error("Session ID required");
+			}
+
+			// Get session data
+			const session = await this.sessionManager.getSession(sessionId);
+
+			// Get all logs for this session
+			const logsResult = await this.logManager.getLogs({
+				filter: { sessionId },
+				pagination: { limit: 1000, offset: 0 },
+				sort: { field: "timestamp", order: "asc" },
+			});
+
+			// Debug: Count logs by hook type
+			const hookCounts: Record<string, number> = {};
+			for (const log of logsResult.logs) {
+				const hook = log.hook || "unknown";
+				hookCounts[hook] = (hookCounts[hook] || 0) + 1;
+			}
+			console.error(`[Activity] Session ${sessionId.slice(0, 8)}: ${logsResult.logs.length} logs, hooks: ${JSON.stringify(hookCounts)}`);
+
+			// Build activity items from logs
+			// Types: user_prompt, ai_response, tool_call, session_start, notification, message
+			const activityItems: Array<{
+				id: string;
+				type: "user_prompt" | "ai_response" | "tool_call" | "session_start" | "notification" | "message";
+				timestamp: string;
+				data: unknown;
+			}> = [];
+
+			for (const log of logsResult.logs) {
+				// User prompts
+				if (log.hook === "UserPromptSubmit" || log.event === "user.prompt") {
+					const promptText = String(log.details?.prompt || log.message || "").substring(0, 30);
+					console.error(`[Activity] Found user prompt: ${promptText}`);
+
+					activityItems.push({
+						id: log.id,
+						type: "user_prompt",
+						timestamp: log.timestamp,
+						data: {
+							prompt: log.details?.prompt || log.message,
+						},
+					});
+				}
+				// AI response completion (Stop hook)
+				else if (log.hook === "Stop" || log.event === "ai.response") {
+					activityItems.push({
+						id: log.id,
+						type: "ai_response",
+						timestamp: log.timestamp,
+						data: {
+							message: log.message || "Claude finished responding",
+							stopReason: log.details?.stopReason,
+						},
+					});
+				}
+				// Notifications
+				else if (log.hook === "Notification" || log.event === "notification") {
+					activityItems.push({
+						id: log.id,
+						type: "notification",
+						timestamp: log.timestamp,
+						data: {
+							message: log.message,
+							notificationType: log.details?.notificationType,
+						},
+					});
+				}
+				// Session start
+				else if (log.hook === "SessionStart" || log.event === "session.start") {
+					activityItems.push({
+						id: log.id,
+						type: "session_start",
+						timestamp: log.timestamp,
+						data: {
+							event: "start",
+							projectName: log.details?.projectName,
+							gitBranch: log.details?.gitBranch,
+							workingDirectory: log.details?.cwd,
+						},
+					});
+				}
+				// Tool calls
+				else if (log.tool && (log.event === "PreToolUse" || log.event === "PostToolUse" || log.event === "tool.start" || log.event === "tool.end")) {
+					// Find existing tool item to update or create new one
+					const existingIdx = activityItems.findIndex(
+						(item) =>
+							item.type === "tool_call" &&
+							(item.data as any).tool === log.tool &&
+							(item.data as any).status === "running",
+					);
+
+					if (log.event === "PreToolUse" || log.event === "tool.start") {
+						activityItems.push({
+							id: log.id,
+							type: "tool_call",
+							timestamp: log.timestamp,
+							data: {
+								tool: log.tool,
+								input: log.details?.tool_input || log.details?.input || log.details,
+								file: log.file,
+								status: "running",
+								startTime: log.timestamp,
+							},
+						});
+					} else if (existingIdx >= 0) {
+						// Update existing tool with result
+						const existing = activityItems[existingIdx];
+						(existing.data as any).status =
+							log.level === "error" ? "failed" : log.level === "blocked" ? "blocked" : "completed";
+						(existing.data as any).result = log.details?.tool_result || log.details?.result || log.details;
+						(existing.data as any).endTime = log.timestamp;
+					} else {
+						// PostToolUse without matching PreToolUse, still add it
+						activityItems.push({
+							id: log.id,
+							type: "tool_call",
+							timestamp: log.timestamp,
+							data: {
+								tool: log.tool,
+								input: log.details?.tool_input || log.details?.input,
+								result: log.details?.tool_result || log.details?.result || log.details,
+								file: log.file,
+								status: log.level === "error" ? "failed" : log.level === "blocked" ? "blocked" : "completed",
+								startTime: log.timestamp,
+							},
+						});
+					}
+				}
+				// Other messages
+				else if (log.message && log.hook !== "unknown") {
+					activityItems.push({
+						id: log.id,
+						type: "message",
+						timestamp: log.timestamp,
+						data: {
+							hook: log.hook,
+							event: log.event,
+							level: log.level,
+							message: log.message,
+							details: log.details,
+						},
+					});
+				}
+			}
+
+			// Sort by timestamp
+			activityItems.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+			return {
+				sessionId,
+				session,
+				activity: activityItems,
+				totalItems: activityItems.length,
+			};
+		});
+
 		// File change operations
 		this.methods.set("fileChanges.getPending", async (params) =>
 			this.fileTracker.getPendingChanges(params as any),

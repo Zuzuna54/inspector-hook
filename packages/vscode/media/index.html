@@ -116,46 +116,79 @@
 
       <!-- Sessions View -->
       <div id="view-sessions" class="view hidden" role="tabpanel" aria-labelledby="tab-sessions">
-        <div id="sessions-list" class="sessions-list">
-          <div class="empty-state">
-            <div class="empty-state-title">Loading sessions...</div>
+        <div class="sv-container">
+          <!-- Sessions Sidebar -->
+          <div class="sv-sidebar">
+            <div class="sv-header">
+              <h3>Sessions</h3>
+              <span class="sv-count" id="sv-session-count">0 sessions</span>
+            </div>
+            <div class="sv-search">
+              <input type="text" id="sv-search" placeholder="Search sessions..." class="input" />
+            </div>
+            <div class="sv-list" id="sv-session-list">
+              <div class="empty-state">
+                <div class="empty-state-title">No sessions yet</div>
+                <div class="empty-state-description">Sessions will appear here when Claude Code is active</div>
+              </div>
+            </div>
+          </div>
+          <!-- Session Detail Panel -->
+          <div class="sv-detail">
+            <div class="sv-detail-header" id="sv-detail-header">
+              <div class="sv-detail-empty">
+                <div class="empty-state">
+                  <div class="empty-state-title">Select a session</div>
+                  <div class="empty-state-description">Click a session to view details</div>
+                </div>
+              </div>
+            </div>
+            <div class="sv-tabs" id="sv-tabs"></div>
+            <div class="sv-content" id="sv-detail-content"></div>
           </div>
         </div>
       </div>
 
       <!-- File Changes View -->
       <div id="view-file-changes" class="view hidden" role="tabpanel" aria-labelledby="tab-file-changes">
-        <div class="split-view">
-          <div class="split-view-left">
-            <div class="split-view-header">
-              <span class="split-view-title">Pending Changes</span>
-              <div class="btn-group">
-                <button id="keep-all-btn" class="btn btn-sm btn-success">Keep All</button>
-                <button id="revert-all-btn" class="btn btn-sm btn-danger">Revert All</button>
+        <div class="fc-container">
+          <!-- Sidebar: Sessions + Files -->
+          <div class="fc-sidebar">
+            <div class="fc-sidebar-header">
+              <h3>File Changes</h3>
+              <span class="fc-count" id="fc-pending-count">0 pending</span>
+            </div>
+            <div class="fc-sessions" id="fc-session-list">
+              <!-- Session accordions rendered here by JS -->
+              <div class="empty-state">
+                <div class="empty-state-title">No pending changes</div>
+                <div class="empty-state-description">File changes will appear here when Claude Code modifies files</div>
               </div>
             </div>
-            <div class="split-view-content">
-              <div id="changes-list" class="changes-list">
-                <div class="empty-state">
-                  <div class="empty-state-title">No pending changes</div>
-                  <div class="empty-state-description">File changes will appear here</div>
-                </div>
-              </div>
+            <div class="fc-archive-toggle" id="fc-archive-toggle">
+              <span class="fc-archive-icon">&#9654;</span>
+              <span>Archive</span>
+              <span class="fc-archive-count" id="fc-archive-count">0</span>
             </div>
           </div>
-          <div class="split-view-right">
-            <div class="split-view-header">
-              <span class="split-view-title" id="diff-title">Diff</span>
-              <div id="diff-actions" class="btn-group hidden">
-                <button id="keep-btn" class="btn btn-sm btn-success">Keep</button>
-                <button id="revert-btn" class="btn btn-sm btn-danger">Revert</button>
-              </div>
+
+          <!-- Main Panel: Diff Viewer -->
+          <div class="fc-main">
+            <div class="fc-toolbar" id="fc-toolbar">
+              <!-- Populated by JS when file is selected -->
             </div>
-            <div class="split-view-content">
-              <div id="diff-viewer" class="diff-viewer">
-                <div class="empty-state">
-                  <div class="empty-state-title">Select a change</div>
-                  <div class="empty-state-description">Click a file to view its diff</div>
+            <div class="fc-diff-container" id="fc-diff-container">
+              <div class="fc-empty-state">
+                <div class="fc-empty-icon">&#128196;</div>
+                <div class="fc-empty-title">Select a file to view changes</div>
+                <div class="fc-empty-tips">
+                  <p><strong>Quick tips:</strong></p>
+                  <ul>
+                    <li>Click a session to expand and see files</li>
+                    <li>Click a file to view its diff</li>
+                    <li>Use Keep/Revert to manage changes</li>
+                    <li>Edit hunks inline before keeping</li>
+                  </ul>
                 </div>
               </div>
             </div>

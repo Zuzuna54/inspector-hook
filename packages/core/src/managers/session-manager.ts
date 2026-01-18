@@ -104,16 +104,62 @@ export class SessionManager extends EventEmitter {
 	}
 
 	/**
+	 * Extract project name from a path
+	 * @param cwd - working directory path
+	 * @returns project name (last segment of path)
+	 */
+	private extractProjectName(cwd: string | undefined): string | undefined {
+		if (!cwd) return undefined;
+		// Get the last non-empty segment of the path
+		const segments = cwd.split(/[/\\]/).filter(s => s);
+		return segments.length > 0 ? segments[segments.length - 1] : undefined;
+	}
+
+	/**
 	 * Track activity from a log entry
 	 */
 	trackActivity(sessionId: string, log: LogEntry): void {
 		let session = this.sessions.get(sessionId);
+		const cwd = log.details?.cwd as string | undefined;
 
 		if (!session) {
-			// Create new session
+			// Create new session with metadata extracted from the log entry
 			session = this.createSession(sessionId, {
-				workingDirectory: log.details?.cwd as string | undefined,
+				workingDirectory: cwd,
+				projectName: (log.details?.projectName as string) || this.extractProjectName(cwd),
+				gitBranch: log.details?.gitBranch as string | undefined,
+				gitRemote: log.details?.gitRemote as string | undefined,
 			});
+		}
+
+		// Handle session.start event from SessionStart hook - update metadata if needed
+		if (log.event === "session.start" || log.hook === "SessionStart") {
+			// Update session metadata with richer info from SessionStart hook
+			if (log.details?.projectName && !session.metadata?.projectName) {
+				session.metadata = {
+					...session.metadata,
+					projectName: log.details.projectName as string,
+				};
+			}
+			if (log.details?.gitBranch && !session.metadata?.gitBranch) {
+				session.metadata = {
+					...session.metadata,
+					gitBranch: log.details.gitBranch as string,
+				};
+			}
+			if (log.details?.gitRemote && !session.metadata?.gitRemote) {
+				session.metadata = {
+					...session.metadata,
+					gitRemote: log.details.gitRemote as string,
+				};
+			}
+			if (cwd && !session.metadata?.workingDirectory) {
+				session.metadata = {
+					...session.metadata,
+					workingDirectory: cwd,
+					projectName: session.metadata?.projectName || this.extractProjectName(cwd),
+				};
+			}
 		}
 
 		// Track tool execution start (supports both tool.start and PreToolUse)

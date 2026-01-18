@@ -28,6 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${SCRIPT_DIR}/claude"
 PRE_HOOK="${CLAUDE_DIR}/pre-tool-use.sh"
 POST_HOOK="${CLAUDE_DIR}/post-tool-use.sh"
+SESSION_HOOK="${CLAUDE_DIR}/session-start.sh"
+USER_PROMPT_HOOK="${CLAUDE_DIR}/user-prompt-submit.sh"
 
 # Claude Code settings location
 CLAUDE_SETTINGS_DIR="${HOME}/.claude"
@@ -96,9 +98,19 @@ check_prerequisites() {
     error "Post-tool-use hook not found at $POST_HOOK"
   fi
 
+  if [[ ! -f "$SESSION_HOOK" ]]; then
+    error "Session-start hook not found at $SESSION_HOOK"
+  fi
+
+  if [[ ! -f "$USER_PROMPT_HOOK" ]]; then
+    error "User-prompt-submit hook not found at $USER_PROMPT_HOOK"
+  fi
+
   # Make sure hook scripts are executable
   chmod +x "$PRE_HOOK"
   chmod +x "$POST_HOOK"
+  chmod +x "$SESSION_HOOK"
+  chmod +x "$USER_PROMPT_HOOK"
   chmod +x "${CLAUDE_DIR}/lib/http-logger.sh" 2>/dev/null || true
   chmod +x "${CLAUDE_DIR}/lib/http_logger.py" 2>/dev/null || true
 }
@@ -162,6 +174,18 @@ install_hooks() {
   # Create hook configuration pointing to the claude/ scripts
   local hook_config=$(cat <<EOF
 {
+  "SessionStart": [
+    {
+      "command": "$SESSION_HOOK",
+      "timeout": 5000
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "command": "$USER_PROMPT_HOOK",
+      "timeout": 5000
+    }
+  ],
   "PreToolUse": [
     {
       "command": "$PRE_HOOK",
@@ -188,12 +212,16 @@ EOF
   info "Inspector Hook installed successfully!"
   echo ""
   echo "Hook scripts location:"
-  echo "  - Pre-tool-use:  $PRE_HOOK"
-  echo "  - Post-tool-use: $POST_HOOK"
+  echo "  - Session-start:       $SESSION_HOOK"
+  echo "  - User-prompt-submit:  $USER_PROMPT_HOOK"
+  echo "  - Pre-tool-use:        $PRE_HOOK"
+  echo "  - Post-tool-use:       $POST_HOOK"
   echo ""
   echo "Settings file: $CLAUDE_SETTINGS_FILE"
   echo ""
   echo "Configuration added for events:"
+  echo "  - SessionStart (captures project name, git branch)"
+  echo "  - UserPromptSubmit (captures user prompts)"
   echo "  - PreToolUse"
   echo "  - PostToolUse"
   echo ""
@@ -219,7 +247,7 @@ uninstall_hooks() {
     .hooks |= (
       if . then
         with_entries(
-          .value |= map(select(.command | (contains("pre-tool-use.sh") or contains("post-tool-use.sh")) | not))
+          .value |= map(select(.command | (contains("pre-tool-use.sh") or contains("post-tool-use.sh") or contains("session-start.sh") or contains("user-prompt-submit.sh")) | not))
         ) |
         with_entries(select(.value | length > 0))
       else
