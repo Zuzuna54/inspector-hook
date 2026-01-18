@@ -24,9 +24,9 @@ const FileChangesView = {
   _pendingDiffLoads: 0,        // Counter for pending diff loads
 
   // Edit State
-  _editingHunk: null,          // { changeId, hunkIndex } currently being edited
+  _isEditMode: false,          // Page-level edit mode (all added lines editable)
   _editedContent: new Map(),   // changeId -> modified afterContent
-  _originalContent: new Map(), // changeId -> original afterContent (for reset)
+  _originalContent: new Map(), // changeId -> original afterContent (for reset/cancel)
 
   // Scroll State
   _pendingScrollToHunk: null,  // { changeId, hunkIndex } to scroll to after diff renders
@@ -77,7 +77,7 @@ const FileChangesView = {
     this._currentDiffs = [];
     this._diffCache.clear();
     this._pendingDiffLoads = 0;
-    this._editingHunk = null;
+    this._isEditMode = false;
     this._editedContent.clear();
     this._originalContent.clear();
     this._pendingScrollToHunk = null;
@@ -733,7 +733,17 @@ const FileChangesView = {
       totalHunks += (diff.hunks || []).length;
     });
 
-    // Render toolbar
+    // Render toolbar - show different actions based on edit mode
+    const editModeActions = this._isEditMode ? `
+      <button class="btn btn-xs btn-secondary fc-edit-cancel" title="Cancel editing and discard changes">Cancel</button>
+      <button class="btn btn-xs btn-primary fc-edit-done" title="Done editing">Done</button>
+    ` : `
+      <button class="btn btn-xs fc-toolbar-edit" title="Edit changes">Edit</button>
+      <button class="btn btn-xs fc-open-file" title="Open in Editor">Open</button>
+      <button class="btn btn-xs btn-success fc-toolbar-keep-all" title="Keep all changes">Keep All</button>
+      <button class="btn btn-xs btn-danger fc-toolbar-revert-all" title="Revert all changes">Revert All</button>
+    `;
+
     toolbar.innerHTML = `
       <span class="fc-toolbar-path" title="${Utils.escapeHtml(filePath)}">${Utils.escapeHtml(filePath)}</span>
       <div class="fc-toolbar-stats">
@@ -742,14 +752,12 @@ const FileChangesView = {
         <span class="fc-stat-hunks">${totalHunks} hunk${totalHunks !== 1 ? 's' : ''}</span>
         <span class="fc-stat-changes">${changes.length} change${changes.length !== 1 ? 's' : ''}</span>
       </div>
-      <div class="fc-view-toggle">
-        <button class="${this._viewMode === 'unified' ? 'active' : ''}" data-mode="unified">Unified</button>
-        <button class="${this._viewMode === 'split' ? 'active' : ''}" data-mode="split">Split</button>
+      <div class="fc-view-toggle ${this._isEditMode ? 'disabled' : ''}">
+        <button class="${this._viewMode === 'unified' ? 'active' : ''}" data-mode="unified" ${this._isEditMode ? 'disabled' : ''}>Unified</button>
+        <button class="${this._viewMode === 'split' ? 'active' : ''}" data-mode="split" ${this._isEditMode ? 'disabled' : ''}>Split</button>
       </div>
       <div class="fc-toolbar-actions">
-        <button class="btn btn-xs fc-open-file" title="Open in Editor">Open</button>
-        <button class="btn btn-xs btn-success fc-toolbar-keep-all" title="Keep all changes">Keep All</button>
-        <button class="btn btn-xs btn-danger fc-toolbar-revert-all" title="Revert all changes">Revert All</button>
+        ${editModeActions}
       </div>
     `;
 
@@ -775,13 +783,12 @@ const FileChangesView = {
       const hunks = diff.hunks || [];
 
       return hunks.map((hunk, hunkIndex) => {
-        const isEditing = this._editingHunk?.changeId === changeId && this._editingHunk?.hunkIndex === hunkIndex;
-
-        return this._renderHunkCard(hunk, changeId, hunkIndex, change, language, isEditing);
+        // Page-level edit mode - all hunks editable when _isEditMode is true
+        return this._renderHunkCard(hunk, changeId, hunkIndex, change, language, this._isEditMode);
       }).join('');
     }).join('');
 
-    return `<div class="fc-diff-unified fc-diff-all-changes">${changesHtml}</div>`;
+    return `<div class="fc-diff-unified fc-diff-all-changes ${this._isEditMode ? 'edit-mode' : ''}">${changesHtml}</div>`;
   },
 
   /**
@@ -843,19 +850,17 @@ const FileChangesView = {
     }).join('');
 
     return `
-      <div class="fc-hunk-card" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">
+      <div class="fc-hunk-card ${isEditing ? 'editing' : ''}" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">
         <div class="fc-hunk-header">
           <span class="fc-hunk-info">@@ -${oldStart},${oldLines} +${newStart},${newLines} @@</span>
           <span class="fc-tool-badge ${toolType} small">${Utils.escapeHtml(change.tool || 'unknown')}</span>
           <span class="fc-hunk-time">${Utils.formatTime(change.timestamp)}</span>
           <div class="fc-hunk-actions">
-            <button class="btn btn-xs fc-hunk-edit" data-change-id="${changeId}" data-hunk-index="${hunkIndex}" title="Edit">Edit</button>
             <button class="btn btn-xs btn-success fc-hunk-keep" data-change-id="${changeId}" title="Keep">Keep</button>
             <button class="btn btn-xs btn-danger fc-hunk-revert" data-change-id="${changeId}" title="Revert">Revert</button>
           </div>
         </div>
         <div class="fc-hunk-lines">${linesHtml}</div>
-        ${isEditing ? this._renderEditBar(changeId, hunkIndex) : ''}
       </div>
     `;
   },
@@ -1009,7 +1014,7 @@ const FileChangesView = {
     // Process hunks in order
     for (let h = 0; h < hunks.length; h++) {
       const hunk = hunks[h];
-      const isEditing = this._editingHunk === h;
+      const isEditing = this._isEditMode;
 
       // Add context lines before this hunk (from before content)
       const contextBefore = Math.max(0, (hunk.oldStart || 1) - oldLineNum);
@@ -1025,7 +1030,6 @@ const FileChangesView = {
         <div class="fc-hunk-header-inline" data-hunk-index="${h}">
           <span class="fc-hunk-info">@@ -${hunk.oldStart || 0},${hunk.oldLines || 0} +${hunk.newStart || 0},${hunk.newLines || 0} @@</span>
           <div class="fc-hunk-actions">
-            <button class="btn btn-xs fc-hunk-edit" data-hunk-index="${h}" title="Edit">Edit</button>
             <button class="btn btn-xs btn-success fc-hunk-keep" data-hunk-index="${h}" title="Keep">Keep</button>
             <button class="btn btn-xs btn-danger fc-hunk-revert" data-hunk-index="${h}" title="Revert">Revert</button>
           </div>
@@ -1060,11 +1064,6 @@ const FileChangesView = {
         }
 
         html += this._renderDiffLineWithNumbers(content, displayOld, displayNew, type, language, h, isEditable, i);
-      }
-
-      // Edit bar if in edit mode
-      if (isEditing) {
-        html += this._renderEditBar(h);
       }
 
       // Update line counters
@@ -1196,7 +1195,7 @@ const FileChangesView = {
    * Render a single hunk (unified) - fallback when no full file content
    */
   _renderHunk(hunk, index, language) {
-    const isEditing = this._editingHunk === index;
+    const isEditing = this._isEditMode;
     const oldStart = hunk.oldStart || 1;
     const oldLines = hunk.oldLines || 0;
     const newStart = hunk.newStart || 1;
@@ -1231,7 +1230,6 @@ const FileChangesView = {
         <div class="fc-hunk-header">
           <span class="fc-hunk-info">@@ -${oldStart},${oldLines} +${newStart},${newLines} @@</span>
           <div class="fc-hunk-actions">
-            <button class="btn btn-xs fc-hunk-edit" data-hunk-index="${index}" title="Edit this hunk">Edit</button>
             <button class="btn btn-xs btn-success fc-hunk-keep" data-hunk-index="${index}" title="Keep this hunk">Keep</button>
             <button class="btn btn-xs btn-danger fc-hunk-revert" data-hunk-index="${index}" title="Revert this hunk">Revert</button>
           </div>
@@ -1239,7 +1237,6 @@ const FileChangesView = {
         <div class="fc-hunk-lines">
           ${renderedLines}
         </div>
-        ${isEditing ? this._renderEditBar(index) : ''}
       </div>
     `;
   },
@@ -1319,31 +1316,34 @@ const FileChangesView = {
   },
 
   /**
-   * Render edit bar for a hunk
-   */
-  _renderEditBar(changeId, hunkIndex) {
-    return `
-      <div class="fc-hunk-edit-bar">
-        <span>Editing - changes auto-save on blur</span>
-        <button class="btn btn-xs fc-edit-reset" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">Reset to Original</button>
-        <button class="btn btn-xs fc-edit-done" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">Done</button>
-      </div>
-    `;
-  },
-
-  /**
    * Setup event handlers for diff panel
    */
   _setupDiffHandlers() {
     const toolbar = document.getElementById('fc-toolbar');
     const container = document.getElementById('fc-diff-container');
 
-    // View toggle
+    // View toggle (disabled in edit mode)
     toolbar?.querySelectorAll('.fc-view-toggle button').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (this._isEditMode) return; // Don't allow mode switch while editing
         this._viewMode = btn.dataset.mode;
         this.renderDiff();
       });
+    });
+
+    // Toolbar Edit button - enter edit mode
+    toolbar?.querySelector('.fc-toolbar-edit')?.addEventListener('click', () => {
+      this.enterEditMode();
+    });
+
+    // Toolbar Cancel button - cancel editing and discard changes
+    toolbar?.querySelector('.fc-edit-cancel')?.addEventListener('click', () => {
+      this.cancelEditMode();
+    });
+
+    // Toolbar Done button - exit edit mode (changes already auto-saved)
+    toolbar?.querySelector('.fc-edit-done')?.addEventListener('click', () => {
+      this.exitEditMode();
     });
 
     // Open file in editor
@@ -1367,20 +1367,11 @@ const FileChangesView = {
       }
     });
 
-    // Hunk edit buttons - use changeId
-    container?.querySelectorAll('.fc-hunk-edit').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const changeId = btn.dataset.changeId;
-        const hunkIndex = parseInt(btn.dataset.hunkIndex, 10);
-        this.enterEditMode(changeId, hunkIndex);
-      });
-    });
-
     // Hunk keep buttons - keep the specific change
     container?.querySelectorAll('.fc-hunk-keep').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (this._isEditMode) return; // Don't allow keep while editing
         const changeId = btn.dataset.changeId;
         if (changeId) {
           this.keepChange(changeId);
@@ -1392,27 +1383,11 @@ const FileChangesView = {
     container?.querySelectorAll('.fc-hunk-revert').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (this._isEditMode) return; // Don't allow revert while editing
         const changeId = btn.dataset.changeId;
         if (changeId) {
           this.revertChange(changeId);
         }
-      });
-    });
-
-    // Edit reset buttons
-    container?.querySelectorAll('.fc-edit-reset').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const changeId = btn.dataset.changeId;
-        this.resetHunk(changeId);
-      });
-    });
-
-    // Edit done buttons
-    container?.querySelectorAll('.fc-edit-done').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.exitEditMode();
       });
     });
 
@@ -1421,21 +1396,21 @@ const FileChangesView = {
       el.addEventListener('blur', () => {
         this._handleLineEdit(el);
       });
-      // Also handle Enter key to exit editing on that line
+      // Escape key to cancel editing
       el.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           e.preventDefault();
           el.blur();
-          this.exitEditMode();
+          this.cancelEditMode();
         }
       });
     });
 
-    // Global Escape key to exit edit mode
-    if (this._editingHunk !== null) {
+    // Global Escape key to cancel edit mode
+    if (this._isEditMode) {
       const escHandler = (e) => {
         if (e.key === 'Escape') {
-          this.exitEditMode();
+          this.cancelEditMode();
           document.removeEventListener('keydown', escHandler);
         }
       };
@@ -1444,16 +1419,23 @@ const FileChangesView = {
   },
 
   // ==========================================================================
-  // Edit Mode
+  // Edit Mode (Page-level)
   // ==========================================================================
 
   /**
-   * Enter edit mode for a hunk
-   * @param {string} changeId - The change ID
-   * @param {number} hunkIndex - The hunk index within that change
+   * Enter edit mode - makes all added lines editable across all changes
    */
-  enterEditMode(changeId, hunkIndex) {
-    this._editingHunk = { changeId, hunkIndex };
+  enterEditMode() {
+    if (!this._selectedFile) return;
+
+    // Store original content for all current diffs if not already stored
+    for (const diffEntry of this._currentDiffs) {
+      if (diffEntry.diff && !this._originalContent.has(diffEntry.changeId)) {
+        this._originalContent.set(diffEntry.changeId, diffEntry.diff.afterContent || '');
+      }
+    }
+
+    this._isEditMode = true;
     this.renderDiff();
 
     // Focus first editable line
@@ -1466,20 +1448,59 @@ const FileChangesView = {
   },
 
   /**
-   * Exit edit mode
+   * Exit edit mode (keeps changes)
    */
   exitEditMode() {
-    this._editingHunk = null;
+    this._isEditMode = false;
     this.renderDiff();
   },
 
   /**
+   * Cancel edit mode - discards all edits and restores original content
+   */
+  cancelEditMode() {
+    if (!this._selectedFile) return;
+
+    // Restore original content for all changes
+    for (const diffEntry of this._currentDiffs) {
+      const changeId = diffEntry.changeId;
+      const original = this._originalContent.get(changeId);
+
+      if (original && diffEntry.diff) {
+        // Clear edited content
+        this._editedContent.delete(changeId);
+
+        // Restore original
+        diffEntry.diff.afterContent = original;
+
+        // Clear cache so it will be re-fetched if needed
+        this._diffCache.delete(changeId);
+
+        // Send reset to backend
+        if (typeof API !== 'undefined' && API.updateChangeContent) {
+          API.updateChangeContent(changeId, original);
+        }
+      }
+    }
+
+    this._isEditMode = false;
+    this.renderDiff();
+    console.log('[FileChanges] Cancelled edit mode, restored original content');
+  },
+
+  /**
    * Handle line edit (auto-save on blur)
+   * @param {HTMLElement} lineEl - The line content element that was edited
    */
   _handleLineEdit(lineEl) {
-    if (!this._selectedFile || !this._editingHunk) return;
+    if (!this._selectedFile || !this._isEditMode) return;
 
-    const { changeId, hunkIndex: editingHunkIndex } = this._editingHunk;
+    // Get changeId from the hunk card containing this line
+    const hunkCard = lineEl.closest('.fc-hunk-card');
+    if (!hunkCard) return;
+
+    const changeId = hunkCard.dataset.changeId;
+    if (!changeId) return;
 
     // Find the diff data for this change from _currentDiffs
     const diffEntry = this._currentDiffs.find(d => d.changeId === changeId);
@@ -1531,35 +1552,40 @@ const FileChangesView = {
     // Send to backend
     if (typeof API !== 'undefined' && API.updateChangeContent) {
       API.updateChangeContent(changeId, updatedContent);
-      console.log('[FileChanges] Auto-saved edit to API');
+      console.log('[FileChanges] Auto-saved edit to API for change:', changeId);
     }
   },
 
   /**
-   * Reset hunk to original content
-   * @param {string} changeId - The change ID to reset
+   * Reset all edits to original content (while staying in edit mode)
    */
-  resetHunk(changeId) {
-    if (!this._selectedFile || !changeId) return;
+  resetAllEdits() {
+    if (!this._selectedFile) return;
 
-    const original = this._originalContent.get(changeId);
+    // Restore original content for all changes
+    for (const diffEntry of this._currentDiffs) {
+      const changeId = diffEntry.changeId;
+      const original = this._originalContent.get(changeId);
 
-    if (original) {
-      // Clear edited content
-      this._editedContent.delete(changeId);
+      if (original && diffEntry.diff) {
+        // Clear edited content
+        this._editedContent.delete(changeId);
 
-      // Update the diff entry in _currentDiffs to use original content
-      const diffEntry = this._currentDiffs.find(d => d.changeId === changeId);
-      if (diffEntry && diffEntry.diff) {
+        // Restore original
         diffEntry.diff.afterContent = original;
-      }
 
-      // Clear cache so it will be re-fetched if needed
-      this._diffCache.delete(changeId);
+        // Clear cache
+        this._diffCache.delete(changeId);
+
+        // Send reset to backend
+        if (typeof API !== 'undefined' && API.updateChangeContent) {
+          API.updateChangeContent(changeId, original);
+        }
+      }
     }
 
-    this._editingHunk = null;
     this.renderDiff();
+    console.log('[FileChanges] Reset all edits to original content');
   },
 
   // ==========================================================================

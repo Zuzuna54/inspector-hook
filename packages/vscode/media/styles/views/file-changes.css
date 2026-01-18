@@ -701,7 +701,8 @@
   transition: opacity var(--transition-fast);
 }
 
-.fc-hunk:hover .fc-hunk-actions {
+.fc-hunk:hover .fc-hunk-actions,
+.fc-hunk-card:hover .fc-hunk-actions {
   opacity: 1;
 }
 
