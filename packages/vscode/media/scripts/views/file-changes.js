@@ -27,6 +27,7 @@ const FileChangesView = {
 	_isEditMode: false, // Page-level edit mode (all added lines editable)
 	_editedContent: new Map(), // changeId -> modified afterContent
 	_originalContent: new Map(), // changeId -> original afterContent (for reset/cancel)
+	_originalHunks: new Map(), // changeId -> deep copy of original hunks (for reset/cancel)
 
 	// Scroll State
 	_pendingScrollToHunk: null, // { changeId, hunkIndex } to scroll to after diff renders
@@ -80,6 +81,7 @@ const FileChangesView = {
 		this._isEditMode = false;
 		this._editedContent.clear();
 		this._originalContent.clear();
+		this._originalHunks.clear();
 		this._pendingScrollToHunk = null;
 	},
 
@@ -776,6 +778,7 @@ const FileChangesView = {
 		// Render toolbar - show different actions based on edit mode
 		const editModeActions = this._isEditMode
 			? `
+      <button class="btn btn-xs btn-warning fc-edit-reset" title="Reset all edits to original">Reset</button>
       <button class="btn btn-xs btn-secondary fc-edit-cancel" title="Cancel editing and discard changes">Cancel</button>
       <button class="btn btn-xs btn-primary fc-edit-done" title="Done editing">Done</button>
     `
@@ -926,16 +929,22 @@ const FileChangesView = {
 			})
 			.join("");
 
+		// Show Keep/Revert buttons only when NOT in edit mode
+		const actionButtons = isEditing
+			? ""
+			: `
+          <div class="fc-hunk-actions">
+            <button class="btn btn-xs btn-success fc-hunk-keep" data-change-id="${changeId}" title="Keep">Keep</button>
+            <button class="btn btn-xs btn-danger fc-hunk-revert" data-change-id="${changeId}" title="Revert">Revert</button>
+          </div>`;
+
 		return `
       <div class="fc-hunk-card ${isEditing ? "editing" : ""}" data-change-id="${changeId}" data-hunk-index="${hunkIndex}">
         <div class="fc-hunk-header">
           <span class="fc-hunk-info">@@ -${oldStart},${oldLines} +${newStart},${newLines} @@</span>
           <span class="fc-tool-badge ${toolType} small">${Utils.escapeHtml(change.tool || "unknown")}</span>
           <span class="fc-hunk-time">${Utils.formatTime(change.timestamp)}</span>
-          <div class="fc-hunk-actions">
-            <button class="btn btn-xs btn-success fc-hunk-keep" data-change-id="${changeId}" title="Keep">Keep</button>
-            <button class="btn btn-xs btn-danger fc-hunk-revert" data-change-id="${changeId}" title="Revert">Revert</button>
-          </div>
+          ${actionButtons}
         </div>
         <div class="fc-hunk-lines">${linesHtml}</div>
       </div>
@@ -1526,6 +1535,11 @@ const FileChangesView = {
 			this.exitEditMode();
 		});
 
+		// Toolbar Reset button - reset all edits to original (stay in edit mode)
+		toolbar?.querySelector(".fc-edit-reset")?.addEventListener("click", () => {
+			this.resetAllEdits();
+		});
+
 		// Open file in editor
 		toolbar?.querySelector(".fc-open-file")?.addEventListener("click", () => {
 			if (this._selectedFile && typeof API !== "undefined") {
@@ -1620,12 +1634,17 @@ const FileChangesView = {
 	enterEditMode() {
 		if (!this._selectedFile) return;
 
-		// Store original content for all current diffs if not already stored
+		// Store original content and hunks for all current diffs if not already stored
 		for (const diffEntry of this._currentDiffs) {
 			if (diffEntry.diff && !this._originalContent.has(diffEntry.changeId)) {
 				this._originalContent.set(
 					diffEntry.changeId,
 					diffEntry.diff.afterContent || "",
+				);
+				// Deep copy hunks so we can restore them on reset/cancel
+				this._originalHunks.set(
+					diffEntry.changeId,
+					JSON.parse(JSON.stringify(diffEntry.diff.hunks || [])),
 				);
 			}
 		}
@@ -1648,6 +1667,11 @@ const FileChangesView = {
 	 * Exit edit mode (keeps changes)
 	 */
 	exitEditMode() {
+		// Clear stored originals since changes are being kept
+		this._originalContent.clear();
+		this._originalHunks.clear();
+		this._editedContent.clear();
+
 		this._isEditMode = false;
 		this.renderDiff();
 	},
@@ -1658,17 +1682,23 @@ const FileChangesView = {
 	cancelEditMode() {
 		if (!this._selectedFile) return;
 
-		// Restore original content for all changes
+		// Restore original content and hunks for all changes
 		for (const diffEntry of this._currentDiffs) {
 			const changeId = diffEntry.changeId;
 			const original = this._originalContent.get(changeId);
+			const originalHunks = this._originalHunks.get(changeId);
 
 			if (original && diffEntry.diff) {
 				// Clear edited content
 				this._editedContent.delete(changeId);
 
-				// Restore original
+				// Restore original content
 				diffEntry.diff.afterContent = original;
+
+				// Restore original hunks (deep copy to avoid reference issues)
+				if (originalHunks) {
+					diffEntry.diff.hunks = JSON.parse(JSON.stringify(originalHunks));
+				}
 
 				// Clear cache so it will be re-fetched if needed
 				this._diffCache.delete(changeId);
@@ -1679,6 +1709,10 @@ const FileChangesView = {
 				}
 			}
 		}
+
+		// Clear stored originals since we're exiting edit mode
+		this._originalContent.clear();
+		this._originalHunks.clear();
 
 		this._isEditMode = false;
 		this.renderDiff();
@@ -1740,6 +1774,8 @@ const FileChangesView = {
 						if (fileLineNum >= 0 && fileLineNum < lines.length) {
 							lines[fileLineNum] = newLineContent;
 						}
+						// IMPORTANT: Also update the hunk line content so re-renders show the edit
+						hunkLines[i].content = newLineContent;
 						break;
 					}
 					addedLineCount++;
@@ -1774,17 +1810,23 @@ const FileChangesView = {
 	resetAllEdits() {
 		if (!this._selectedFile) return;
 
-		// Restore original content for all changes
+		// Restore original content and hunks for all changes
 		for (const diffEntry of this._currentDiffs) {
 			const changeId = diffEntry.changeId;
 			const original = this._originalContent.get(changeId);
+			const originalHunks = this._originalHunks.get(changeId);
 
 			if (original && diffEntry.diff) {
 				// Clear edited content
 				this._editedContent.delete(changeId);
 
-				// Restore original
+				// Restore original content
 				diffEntry.diff.afterContent = original;
+
+				// Restore original hunks (deep copy to avoid reference issues)
+				if (originalHunks) {
+					diffEntry.diff.hunks = JSON.parse(JSON.stringify(originalHunks));
+				}
 
 				// Clear cache
 				this._diffCache.delete(changeId);
