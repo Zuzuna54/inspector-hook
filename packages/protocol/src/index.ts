@@ -62,7 +62,12 @@ export interface Stats {
 // Session Models
 // =============================================================================
 
-export type SessionStatus = "active" | "completed" | "error" | "terminated";
+export type SessionStatus =
+	| "active"
+	| "idle"
+	| "completed"
+	| "error"
+	| "terminated";
 
 export interface SessionMetadata {
 	/** Working directory */
@@ -87,6 +92,8 @@ export interface Session {
 	startTime: string;
 	/** ISO 8601 end time (if completed) */
 	endTime?: string;
+	/** ISO 8601 timestamp of last activity (for idle detection) */
+	lastActivityTime?: string;
 	/** Tool executions within this session */
 	toolExecutions: ToolExecution[];
 	/** File changes made during this session */

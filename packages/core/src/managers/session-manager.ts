@@ -5,6 +5,7 @@
 
 import { EventEmitter } from "node:events";
 import type {
+	ExecutionStatus,
 	LogEntry,
 	Session,
 	SessionDeleteResult,
@@ -12,13 +13,16 @@ import type {
 	SessionStats,
 	SessionStatus,
 	ToolExecution,
-	ExecutionStatus,
 } from "@inspector-hook/protocol";
 import type { PersistenceStore } from "../persistence/store.js";
 
 export interface SessionManagerOptions {
 	storagePath: string;
 	persistence?: PersistenceStore;
+	/** Time in milliseconds before marking active session as idle (default: 30 minutes) */
+	idleTimeoutMs?: number;
+	/** Time in milliseconds before marking idle session as completed (default: 2 hours) */
+	completedTimeoutMs?: number;
 }
 
 export interface SessionManagerStats {
@@ -29,22 +33,46 @@ export interface SessionManagerStats {
 export interface SessionManagerEvents {
 	"session:created": (session: Session) => void;
 	"session:ended": (session: Session) => void;
+	"session:idle": (session: Session) => void;
 	"session:terminated": (session: Session) => void;
-	"tool:started": (data: { sessionId: string; execution: ToolExecution }) => void;
-	"tool:completed": (data: { sessionId: string; execution: ToolExecution }) => void;
-	"tool:failed": (data: { sessionId: string; execution: ToolExecution }) => void;
-	"tool:blocked": (data: { sessionId: string; execution: ToolExecution }) => void;
+	"tool:started": (data: {
+		sessionId: string;
+		execution: ToolExecution;
+	}) => void;
+	"tool:completed": (data: {
+		sessionId: string;
+		execution: ToolExecution;
+	}) => void;
+	"tool:failed": (data: {
+		sessionId: string;
+		execution: ToolExecution;
+	}) => void;
+	"tool:blocked": (data: {
+		sessionId: string;
+		execution: ToolExecution;
+	}) => void;
 }
+
+// Default timeout values
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_COMPLETED_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
+const STALE_CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
 
 export class SessionManager extends EventEmitter {
 	private sessions: Map<string, Session> = new Map();
 	private options: SessionManagerOptions;
 	private persistence?: PersistenceStore;
+	private staleCheckInterval: NodeJS.Timeout | null = null;
+	private idleTimeoutMs: number;
+	private completedTimeoutMs: number;
 
 	constructor(options: SessionManagerOptions) {
 		super();
 		this.options = options;
 		this.persistence = options.persistence;
+		this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+		this.completedTimeoutMs =
+			options.completedTimeoutMs ?? DEFAULT_COMPLETED_TIMEOUT_MS;
 	}
 
 	/**
@@ -64,19 +92,97 @@ export class SessionManager extends EventEmitter {
 		for (const [id, session] of sessions) {
 			this.sessions.set(id, session);
 		}
+
+		// Start the stale session check interval
+		this.startStaleSessionCheck();
+
+		// Immediately check for stale sessions on load
+		await this.checkStaleSessions();
+	}
+
+	/**
+	 * Start the interval to check for stale sessions
+	 */
+	startStaleSessionCheck(): void {
+		if (this.staleCheckInterval) return;
+
+		this.staleCheckInterval = setInterval(() => {
+			this.checkStaleSessions();
+		}, STALE_CHECK_INTERVAL_MS);
+	}
+
+	/**
+	 * Stop the stale session check interval
+	 */
+	stopStaleSessionCheck(): void {
+		if (this.staleCheckInterval) {
+			clearInterval(this.staleCheckInterval);
+			this.staleCheckInterval = null;
+		}
+	}
+
+	/**
+	 * Check for stale sessions and update their status
+	 * - Active sessions with no activity for idleTimeoutMs become "idle"
+	 * - Idle sessions with no activity for completedTimeoutMs become "completed"
+	 */
+	async checkStaleSessions(): Promise<void> {
+		const now = Date.now();
+
+		for (const session of this.sessions.values()) {
+			// Skip already completed/terminated/error sessions
+			if (
+				session.status === "completed" ||
+				session.status === "terminated" ||
+				session.status === "error"
+			) {
+				continue;
+			}
+
+			// Get the last activity time (or fall back to start time)
+			const lastActivity = session.lastActivityTime || session.startTime;
+			const lastActivityTime = new Date(lastActivity).getTime();
+			const timeSinceActivity = now - lastActivityTime;
+
+			if (session.status === "active") {
+				// Check if active session should become idle
+				if (timeSinceActivity >= this.idleTimeoutMs) {
+					session.status = "idle";
+					this.emit("session:idle", session);
+					await this.persistSession(session);
+				}
+			} else if (session.status === "idle") {
+				// Check if idle session should become completed
+				if (timeSinceActivity >= this.completedTimeoutMs) {
+					session.status = "completed";
+					session.endTime = new Date().toISOString();
+					this.emit("session:ended", session);
+					await this.persistSession(session);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Reactivate an idle session (when new activity is detected)
+	 */
+	private reactivateSession(session: Session): void {
+		if (session.status === "idle") {
+			session.status = "active";
+			// Note: We don't emit session:created here since it's a reactivation
+		}
 	}
 
 	/**
 	 * Create a new session
 	 */
-	createSession(
-		id: string,
-		metadata?: Record<string, unknown>,
-	): Session {
+	createSession(id: string, metadata?: Record<string, unknown>): Session {
+		const now = new Date().toISOString();
 		const session: Session = {
 			id,
 			status: "active",
-			startTime: new Date().toISOString(),
+			startTime: now,
+			lastActivityTime: now,
 			toolExecutions: [],
 			fileChanges: [],
 			metadata,
@@ -92,10 +198,7 @@ export class SessionManager extends EventEmitter {
 	/**
 	 * Get or create a session
 	 */
-	getOrCreateSession(
-		id: string,
-		metadata?: Record<string, unknown>,
-	): Session {
+	getOrCreateSession(id: string, metadata?: Record<string, unknown>): Session {
 		let session = this.sessions.get(id);
 		if (!session) {
 			session = this.createSession(id, metadata);
@@ -111,7 +214,7 @@ export class SessionManager extends EventEmitter {
 	private extractProjectName(cwd: string | undefined): string | undefined {
 		if (!cwd) return undefined;
 		// Get the last non-empty segment of the path
-		const segments = cwd.split(/[/\\]/).filter(s => s);
+		const segments = cwd.split(/[/\\]/).filter((s) => s);
 		return segments.length > 0 ? segments[segments.length - 1] : undefined;
 	}
 
@@ -126,11 +229,16 @@ export class SessionManager extends EventEmitter {
 			// Create new session with metadata extracted from the log entry
 			session = this.createSession(sessionId, {
 				workingDirectory: cwd,
-				projectName: (log.details?.projectName as string) || this.extractProjectName(cwd),
+				projectName:
+					(log.details?.projectName as string) || this.extractProjectName(cwd),
 				gitBranch: log.details?.gitBranch as string | undefined,
 				gitRemote: log.details?.gitRemote as string | undefined,
 			});
 		}
+
+		// Update last activity time and reactivate idle sessions
+		session.lastActivityTime = log.timestamp || new Date().toISOString();
+		this.reactivateSession(session);
 
 		// Handle session.start event from SessionStart hook - update metadata if needed
 		if (log.event === "session.start" || log.hook === "SessionStart") {
@@ -157,17 +265,22 @@ export class SessionManager extends EventEmitter {
 				session.metadata = {
 					...session.metadata,
 					workingDirectory: cwd,
-					projectName: session.metadata?.projectName || this.extractProjectName(cwd),
+					projectName:
+						session.metadata?.projectName || this.extractProjectName(cwd),
 				};
 			}
 		}
 
 		// Track tool execution start (supports both tool.start and PreToolUse)
-		if (log.tool && (log.event === "tool.start" || log.event === "PreToolUse")) {
+		if (
+			log.tool &&
+			(log.event === "tool.start" || log.event === "PreToolUse")
+		) {
 			const execution: ToolExecution = {
 				id: `exec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
 				tool: log.tool,
-				input: (log.details?.input as Record<string, unknown>) || log.details || {},
+				input:
+					(log.details?.input as Record<string, unknown>) || log.details || {},
 				startTime: log.timestamp,
 				status: "running",
 				affectedFiles: log.file ? [log.file] : undefined,
@@ -208,13 +321,20 @@ export class SessionManager extends EventEmitter {
 
 		// Track file changes
 		if (log.file && (log.tool === "Edit" || log.tool === "Write")) {
-			if (log.details?.changeId && !session.fileChanges.includes(log.details.changeId as string)) {
+			if (
+				log.details?.changeId &&
+				!session.fileChanges.includes(log.details.changeId as string)
+			) {
 				session.fileChanges.push(log.details.changeId as string);
 			}
 		}
 
 		// Check for session end
-		if (log.event === "session.end" || log.hook === "SessionEnd" || log.hook === "Stop") {
+		if (
+			log.event === "session.end" ||
+			log.hook === "SessionEnd" ||
+			log.hook === "Stop"
+		) {
 			session.status = "completed";
 			session.endTime = log.timestamp;
 			this.emit("session:ended", session);
@@ -257,7 +377,9 @@ export class SessionManager extends EventEmitter {
 	): void {
 		const session = this.sessions.get(sessionId);
 		if (session) {
-			const execution = session.toolExecutions.find((e) => e.id === executionId);
+			const execution = session.toolExecutions.find(
+				(e) => e.id === executionId,
+			);
 			if (execution) {
 				execution.endTime = new Date().toISOString();
 				execution.status = status;
@@ -281,7 +403,7 @@ export class SessionManager extends EventEmitter {
 	 */
 	endSession(id: string): void {
 		const session = this.sessions.get(id);
-		if (session && session.status === "active") {
+		if (session && (session.status === "active" || session.status === "idle")) {
 			session.status = "completed";
 			session.endTime = new Date().toISOString();
 			this.emit("session:ended", session);
@@ -313,11 +435,11 @@ export class SessionManager extends EventEmitter {
 	}
 
 	/**
-	 * Get all active sessions
+	 * Get all active sessions (includes both "active" and "idle" status)
 	 */
 	getActiveSessions(): Session[] {
 		return Array.from(this.sessions.values()).filter(
-			(s) => s.status === "active",
+			(s) => s.status === "active" || s.status === "idle",
 		);
 	}
 
@@ -459,9 +581,10 @@ export class SessionManager extends EventEmitter {
 	getStats(): SessionManagerStats {
 		const sessions = Array.from(this.sessions.values());
 		const active = sessions.filter((s) => s.status === "active");
+		const idle = sessions.filter((s) => s.status === "idle");
 
 		return {
-			activeSessions: active.length,
+			activeSessions: active.length + idle.length, // Count both active and idle as "active"
 			totalSessions: sessions.length,
 		};
 	}

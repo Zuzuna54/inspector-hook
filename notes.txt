@@ -1,0 +1,12 @@
+session context management,
+all session management, 
+all files history,
+all research history, 
+all session knowledge control, 
+automated workflow management 
+notifications controls,
+intellignet workflow behaviour with AI orchestration and support 
+save exitsing rexzearched and categorize them per project 
+lets make sure to save all session context and have an intelligent system that loads it into new session per user setupt 
+agent orchestration 
+subagent prompt ingestion subagent context passion form one to another 
