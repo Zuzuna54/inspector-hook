@@ -175,11 +175,17 @@ export type HunkStatus = "pending" | "kept" | "reverted";
 
 export interface DiffLine {
 	/** Line change type */
-	type: "added" | "removed" | "context";
+	type: "added" | "removed" | "context" | "moved-from" | "moved-to";
 	/** Line content (without +/- prefix) */
 	content: string;
 	/** Line number in respective file */
 	lineNumber: number;
+	/** Line number in original file (for context and removed lines) */
+	oldLineNumber?: number;
+	/** Line number in modified file (for context and added lines) */
+	newLineNumber?: number;
+	/** Move ID linking moved-from to moved-to blocks */
+	moveId?: string;
 }
 
 /**

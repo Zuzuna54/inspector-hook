@@ -4,10 +4,10 @@
  * With content capture, DiffEngine integration, and persistence
  */
 
-import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile, stat } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import type {
 	ArchiveDeleteResult,
 	ArchivedChange,
@@ -105,13 +105,15 @@ export class FileTracker extends EventEmitter {
 		}
 
 		// Load archived changes
-		const archived = await this.persistence.loadAllJSON<ArchivedChange>("archives");
+		const archived =
+			await this.persistence.loadAllJSON<ArchivedChange>("archives");
 		for (const [id, archive] of archived) {
 			this.archived.set(id, archive);
 		}
 
 		// Load version histories
-		const histories = await this.persistence.loadAllJSON<VersionHistory>("versions");
+		const histories =
+			await this.persistence.loadAllJSON<VersionHistory>("versions");
 		for (const [, history] of histories) {
 			this.history.set(history.filePath, history);
 		}
@@ -164,7 +166,10 @@ export class FileTracker extends EventEmitter {
 	 * Reads the current file content from disk and compares with stored snapshot
 	 * Call this AFTER a tool modifies the file to detect and record the change
 	 */
-	async detectChange(filePath: string, sessionId: string): Promise<FileChange | null> {
+	async detectChange(
+		filePath: string,
+		sessionId: string,
+	): Promise<FileChange | null> {
 		const beforeSnapshot = this.trackedFiles.get(filePath);
 		const afterSnapshot = await this.captureSnapshot(filePath);
 
@@ -271,7 +276,7 @@ export class FileTracker extends EventEmitter {
 		const pending = this.pendingCaptures.get(captureId);
 
 		// Get before content from pending capture or try to read it
-		let beforeContent = pending?.beforeContent || "";
+		const beforeContent = pending?.beforeContent || "";
 
 		// Get after content (current file state)
 		let afterContent = "";
@@ -415,7 +420,9 @@ export class FileTracker extends EventEmitter {
 				filtered = filtered.filter((c) => c.sessionId === f.sessionId);
 			if (f.status) {
 				const statuses = Array.isArray(f.status) ? f.status : [f.status];
-				filtered = filtered.filter((c) => statuses.includes(c.status as FileChangeStatus));
+				filtered = filtered.filter((c) =>
+					statuses.includes(c.status as FileChangeStatus),
+				);
 			}
 			if (f.filePath)
 				filtered = filtered.filter((c) => c.filePath === f.filePath);
@@ -426,8 +433,12 @@ export class FileTracker extends EventEmitter {
 		const sortField = params?.sort?.field || "timestamp";
 		const sortOrder = params?.sort?.order || "desc";
 		filtered.sort((a, b) => {
-			const aVal = (a as unknown as Record<string, unknown>)[sortField] as string;
-			const bVal = (b as unknown as Record<string, unknown>)[sortField] as string;
+			const aVal = (a as unknown as Record<string, unknown>)[
+				sortField
+			] as string;
+			const bVal = (b as unknown as Record<string, unknown>)[
+				sortField
+			] as string;
 			const cmp = String(aVal).localeCompare(String(bVal));
 			return sortOrder === "desc" ? -cmp : cmp;
 		});
@@ -484,7 +495,10 @@ export class FileTracker extends EventEmitter {
 	/**
 	 * Get diff for a change using DiffEngine
 	 */
-	async getDiff(changeId: string, options?: { contextLines?: number }): Promise<DiffResult | null> {
+	async getDiff(
+		changeId: string,
+		options?: { contextLines?: number },
+	): Promise<DiffResult | null> {
 		const change = this.changes.get(changeId);
 		if (!change) return null;
 
@@ -493,6 +507,31 @@ export class FileTracker extends EventEmitter {
 			change.afterContent,
 			{ contextLines: options?.contextLines },
 		);
+	}
+
+	/**
+	 * Update the after content of a change (for inline editing)
+	 */
+	async updateChangeContent(
+		changeId: string,
+		afterContent: string,
+	): Promise<{ success: boolean; change?: FileChange }> {
+		const change = this.changes.get(changeId);
+		if (!change) {
+			return { success: false };
+		}
+
+		// Update the after content and hash
+		change.afterContent = afterContent;
+		change.afterHash = this.diffEngine.computeHash(afterContent);
+
+		// Persist the change
+		await this.persistChange(change);
+
+		// Emit update event
+		this.emit("change:tracked", change);
+
+		return { success: true, change };
 	}
 
 	/**
@@ -696,6 +735,7 @@ export class FileTracker extends EventEmitter {
 
 	/**
 	 * Add a new version for a file
+	 * Only creates a new version if the content has actually changed
 	 */
 	async addVersion(
 		filePath: string,
@@ -708,6 +748,7 @@ export class FileTracker extends EventEmitter {
 	): Promise<FileVersion> {
 		let history = this.history.get(filePath);
 		const timestamp = new Date().toISOString();
+		const contentHash = this.diffEngine.computeHash(content);
 
 		if (!history) {
 			history = {
@@ -720,8 +761,19 @@ export class FileTracker extends EventEmitter {
 			this.history.set(filePath, history);
 		}
 
+		// Check if content is the same as the last version (skip duplicate)
+		if (history.versions.length > 0) {
+			const lastVersion = history.versions[history.versions.length - 1];
+			if (lastVersion.hash === contentHash) {
+				// Content hasn't changed - return the existing version instead of creating a duplicate
+				console.error(
+					`[FileTracker] Skipping duplicate version for ${filePath} - hash matches v${lastVersion.versionNumber}`,
+				);
+				return lastVersion;
+			}
+		}
+
 		const versionNumber = history.versionCount + 1;
-		const contentHash = this.diffEngine.computeHash(content);
 		const versionId = `v${versionNumber}-${contentHash.slice(0, 8)}`;
 		const version: FileVersion = {
 			id: versionId,
@@ -812,35 +864,69 @@ export class FileTracker extends EventEmitter {
 		content: string;
 		timestamp: string;
 	} | null> {
+		console.error(
+			`[FileTracker] getVersionContent: ${filePath} v${versionNumber}`,
+		);
+
 		// Try memory first
 		const history = this.history.get(filePath);
 		if (history) {
+			console.error(
+				`[FileTracker] Found history in memory, ${history.versions.length} versions`,
+			);
 			const version = history.versions.find(
 				(v) => v.versionNumber === versionNumber,
 			);
 			if (version) {
-				return {
-					filePath,
-					versionNumber,
-					content: version.content,
-					timestamp: version.timestamp,
-				};
+				console.error(
+					`[FileTracker] Found version in memory, content length: ${version.content?.length || 0}`,
+				);
+				if (version.content) {
+					return {
+						filePath,
+						versionNumber,
+						content: version.content,
+						timestamp: version.timestamp,
+					};
+				} else {
+					console.error(
+						`[FileTracker] Version found but content is empty, trying persistence`,
+					);
+				}
+			} else {
+				console.error(
+					`[FileTracker] Version ${versionNumber} not found in memory versions`,
+				);
 			}
+		} else {
+			console.error(`[FileTracker] No history in memory for ${filePath}`);
 		}
 
 		// Try persistence
 		if (this.persistence) {
-			const result = await this.persistence.loadVersion(filePath, versionNumber);
+			console.error(
+				`[FileTracker] Trying persistence for ${filePath} v${versionNumber}`,
+			);
+			const result = await this.persistence.loadVersion(
+				filePath,
+				versionNumber,
+			);
 			if (result) {
+				console.error(
+					`[FileTracker] Found in persistence, content length: ${result.content?.length || 0}`,
+				);
 				return {
 					filePath,
 					versionNumber,
 					content: result.content,
 					timestamp: (result.metadata?.timestamp as string) || "",
 				};
+			} else {
+				console.error(`[FileTracker] Not found in persistence`);
 			}
 		}
 
+		console.error(`[FileTracker] getVersionContent returning null`);
 		return null;
 	}
 
@@ -857,14 +943,34 @@ export class FileTracker extends EventEmitter {
 		version2: number;
 		diff: DiffResult;
 	} | null> {
+		console.error(
+			`[FileTracker] compareVersions called: ${filePath} v${v1} -> v${v2}`,
+		);
+
 		const content1 = await this.getVersionContent(filePath, v1);
 		const content2 = await this.getVersionContent(filePath, v2);
 
+		console.error(
+			`[FileTracker] content1: ${content1 ? `${content1.content?.length || 0} chars` : "null"}`,
+		);
+		console.error(
+			`[FileTracker] content2: ${content2 ? `${content2.content?.length || 0} chars` : "null"}`,
+		);
+
 		if (!content1 || !content2) {
+			console.error(
+				`[FileTracker] compareVersions returning null - missing content`,
+			);
 			return null;
 		}
 
-		const diff = this.diffEngine.computeDiff(content1.content, content2.content);
+		const diff = this.diffEngine.computeDiff(
+			content1.content,
+			content2.content,
+		);
+		console.error(
+			`[FileTracker] compareVersions diff: ${diff.hunks?.length || 0} hunks`,
+		);
 
 		return {
 			filePath,
@@ -980,9 +1086,15 @@ export class FileTracker extends EventEmitter {
 				}
 			}
 
-			if (filter?.maxVersionsPerFile && history.versions.length > filter.maxVersionsPerFile) {
+			if (
+				filter?.maxVersionsPerFile &&
+				history.versions.length > filter.maxVersionsPerFile
+			) {
 				// Trim to keep only maxVersionsPerFile versions
-				const toDelete = history.versions.slice(0, history.versions.length - filter.maxVersionsPerFile);
+				const toDelete = history.versions.slice(
+					0,
+					history.versions.length - filter.maxVersionsPerFile,
+				);
 				for (const v of toDelete) {
 					await this.deleteVersion(filePath, v.versionNumber);
 					deletedVersions++;
@@ -1269,7 +1381,7 @@ export class FileTracker extends EventEmitter {
 
 	private sanitizeFilePath(filePath: string): string {
 		return filePath
-			.replace(/[\/\\]/g, "__")
+			.replace(/[/\\]/g, "__")
 			.replace(/[<>:"|?*]/g, "_")
 			.replace(/\.\./g, "__");
 	}

@@ -57,16 +57,12 @@ export class CoreBridge extends EventEmitter {
 	 */
 	async start(): Promise<void> {
 		if (this.running) {
-			console.log("[CoreBridge] Already running, skipping start");
 			return;
 		}
-
-		console.log("[CoreBridge] Starting core process...");
 
 		return new Promise((resolve, reject) => {
 			// Find the core CLI
 			const corePath = this.findCorePath();
-			console.log("[CoreBridge] Core path:", corePath);
 
 			// Spawn the core process
 			this.process = spawn("node", [corePath], {
@@ -92,7 +88,6 @@ export class CoreBridge extends EventEmitter {
 			if (this.process.stderr) {
 				this.process.stderr.on("data", (data: Buffer) => {
 					const msg = data.toString();
-					console.log("[CoreBridge] stderr:", msg.trim());
 					this.emit("stderr", msg);
 				});
 			}
@@ -118,7 +113,6 @@ export class CoreBridge extends EventEmitter {
 							this.httpPort = message.port;
 							this.running = true;
 							this.initializeStats();
-							console.log("[CoreBridge] Core process ready on port", this.httpPort);
 							resolve();
 							return;
 						}
@@ -386,7 +380,7 @@ export class CoreBridge extends EventEmitter {
 	async getSessionLogs(sessionId: string): Promise<{ logs: LogEntry[] }> {
 		return this.sendRequest("logs.getAll", {
 			filter: { sessionId },
-			pagination: { limit: 500 }
+			pagination: { limit: 500 },
 		});
 	}
 
@@ -395,7 +389,7 @@ export class CoreBridge extends EventEmitter {
 	 */
 	async getSessionActivity(sessionId: string): Promise<{
 		activities: Array<{
-			type: 'user_prompt' | 'ai_response' | 'tool_call' | 'tool_result';
+			type: "user_prompt" | "ai_response" | "tool_call" | "tool_result";
 			timestamp: string;
 			data: unknown;
 		}>;
@@ -406,28 +400,54 @@ export class CoreBridge extends EventEmitter {
 	/**
 	 * Keep all pending changes
 	 */
-	async keepAllChanges(sessionId?: string): Promise<{ success: boolean; count: number }> {
+	async keepAllChanges(
+		sessionId?: string,
+	): Promise<{ success: boolean; count: number }> {
 		return this.sendRequest("fileChanges.keepAll", { sessionId });
 	}
 
 	/**
 	 * Revert all pending changes
 	 */
-	async revertAllChanges(sessionId?: string): Promise<{ success: boolean; count: number }> {
+	async revertAllChanges(
+		sessionId?: string,
+	): Promise<{ success: boolean; count: number }> {
 		return this.sendRequest("fileChanges.revertAll", { sessionId });
 	}
 
 	/**
 	 * Update change content (for inline editing)
 	 */
-	async updateChangeContent(changeId: string, afterContent: string): Promise<{ success: boolean }> {
-		return this.sendRequest("fileChanges.updateContent", { changeId, afterContent });
+	async updateChangeContent(
+		changeId: string,
+		afterContent: string,
+	): Promise<{ success: boolean }> {
+		return this.sendRequest("fileChanges.updateContent", {
+			changeId,
+			afterContent,
+		});
+	}
+
+	/**
+	 * Get all tracked files with version history
+	 */
+	async getTrackedFiles(): Promise<{
+		files: Array<{
+			filePath: string;
+			versionCount: number;
+			lastModified: string;
+		}>;
+	}> {
+		return this.sendRequest("history.getTrackedFiles", {});
 	}
 
 	/**
 	 * Get version history for a file
 	 */
-	async getVersionHistory(filePath: string, limit?: number): Promise<{
+	async getVersionHistory(
+		filePath: string,
+		limit?: number,
+	): Promise<{
 		filePath: string;
 		versions: Array<{
 			versionNumber: number;
@@ -443,21 +463,43 @@ export class CoreBridge extends EventEmitter {
 	/**
 	 * Restore a specific version of a file
 	 */
-	async restoreVersion(filePath: string, versionNumber: number): Promise<{ success: boolean }> {
-		return this.sendRequest("history.restoreVersion", { filePath, versionNumber });
+	async restoreVersion(
+		filePath: string,
+		versionNumber: number,
+	): Promise<{ success: boolean }> {
+		return this.sendRequest("history.restoreVersion", {
+			filePath,
+			versionNumber,
+		});
 	}
 
 	/**
 	 * Compare two versions of a file
 	 */
-	async compareVersions(filePath: string, version1: number, version2: number | 'current'): Promise<DiffResult> {
-		return this.sendRequest("history.compareVersions", { filePath, version1, version2 });
+	async compareVersions(
+		filePath: string,
+		version1: number,
+		version2: number | "current",
+	): Promise<{
+		filePath: string;
+		version1: number;
+		version2: number;
+		diff: DiffResult;
+	} | null> {
+		return this.sendRequest("history.compareVersions", {
+			filePath,
+			version1,
+			version2,
+		});
 	}
 
 	/**
 	 * Get archived changes
 	 */
-	async getArchivedChanges(params?: { resolution?: string; limit?: number }): Promise<{ changes: FileChange[] }> {
+	async getArchivedChanges(params?: {
+		resolution?: string;
+		limit?: number;
+	}): Promise<{ changes: FileChange[] }> {
 		return this.sendRequest("archive.getAll", params);
 	}
 

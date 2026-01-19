@@ -115,13 +115,21 @@ export class IpcServer {
 				const hook = log.hook || "unknown";
 				hookCounts[hook] = (hookCounts[hook] || 0) + 1;
 			}
-			console.error(`[Activity] Session ${sessionId.slice(0, 8)}: ${logsResult.logs.length} logs, hooks: ${JSON.stringify(hookCounts)}`);
+			console.error(
+				`[Activity] Session ${sessionId.slice(0, 8)}: ${logsResult.logs.length} logs, hooks: ${JSON.stringify(hookCounts)}`,
+			);
 
 			// Build activity items from logs
 			// Types: user_prompt, ai_response, tool_call, session_start, notification, message
 			const activityItems: Array<{
 				id: string;
-				type: "user_prompt" | "ai_response" | "tool_call" | "session_start" | "notification" | "message";
+				type:
+					| "user_prompt"
+					| "ai_response"
+					| "tool_call"
+					| "session_start"
+					| "notification"
+					| "message";
 				timestamp: string;
 				data: unknown;
 			}> = [];
@@ -129,7 +137,9 @@ export class IpcServer {
 			for (const log of logsResult.logs) {
 				// User prompts
 				if (log.hook === "UserPromptSubmit" || log.event === "user.prompt") {
-					const promptText = String(log.details?.prompt || log.message || "").substring(0, 30);
+					const promptText = String(
+						log.details?.prompt || log.message || "",
+					).substring(0, 30);
 					console.error(`[Activity] Found user prompt: ${promptText}`);
 
 					activityItems.push({
@@ -180,7 +190,13 @@ export class IpcServer {
 					});
 				}
 				// Tool calls
-				else if (log.tool && (log.event === "PreToolUse" || log.event === "PostToolUse" || log.event === "tool.start" || log.event === "tool.end")) {
+				else if (
+					log.tool &&
+					(log.event === "PreToolUse" ||
+						log.event === "PostToolUse" ||
+						log.event === "tool.start" ||
+						log.event === "tool.end")
+				) {
 					// Find existing tool item to update or create new one
 					const existingIdx = activityItems.findIndex(
 						(item) =>
@@ -196,7 +212,8 @@ export class IpcServer {
 							timestamp: log.timestamp,
 							data: {
 								tool: log.tool,
-								input: log.details?.tool_input || log.details?.input || log.details,
+								input:
+									log.details?.tool_input || log.details?.input || log.details,
 								file: log.file,
 								status: "running",
 								startTime: log.timestamp,
@@ -206,8 +223,13 @@ export class IpcServer {
 						// Update existing tool with result
 						const existing = activityItems[existingIdx];
 						(existing.data as any).status =
-							log.level === "error" ? "failed" : log.level === "blocked" ? "blocked" : "completed";
-						(existing.data as any).result = log.details?.tool_result || log.details?.result || log.details;
+							log.level === "error"
+								? "failed"
+								: log.level === "blocked"
+									? "blocked"
+									: "completed";
+						(existing.data as any).result =
+							log.details?.tool_result || log.details?.result || log.details;
 						(existing.data as any).endTime = log.timestamp;
 					} else {
 						// PostToolUse without matching PreToolUse, still add it
@@ -218,9 +240,17 @@ export class IpcServer {
 							data: {
 								tool: log.tool,
 								input: log.details?.tool_input || log.details?.input,
-								result: log.details?.tool_result || log.details?.result || log.details,
+								result:
+									log.details?.tool_result ||
+									log.details?.result ||
+									log.details,
 								file: log.file,
-								status: log.level === "error" ? "failed" : log.level === "blocked" ? "blocked" : "completed",
+								status:
+									log.level === "error"
+										? "failed"
+										: log.level === "blocked"
+											? "blocked"
+											: "completed",
 								startTime: log.timestamp,
 							},
 						});
@@ -284,6 +314,12 @@ export class IpcServer {
 		);
 		this.methods.set("fileChanges.clear", async (params) =>
 			this.fileTracker.clearChanges((params as any).filter),
+		);
+		this.methods.set("fileChanges.updateContent", async (params) =>
+			this.fileTracker.updateChangeContent(
+				(params as any).changeId,
+				(params as any).afterContent,
+			),
 		);
 
 		// History operations (placeholders)

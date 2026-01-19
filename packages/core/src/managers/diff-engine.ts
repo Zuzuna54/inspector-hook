@@ -10,6 +10,20 @@ import type { DiffHunk, DiffLine, DiffResult } from "@inspector-hook/protocol";
 export interface DiffOptions {
 	contextLines?: number; // Number of context lines around changes (default: 3)
 	ignoreWhitespace?: boolean;
+	detectMoves?: boolean; // Detect moved blocks (default: true)
+	moveSimilarityThreshold?: number; // Minimum similarity for move detection (default: 0.8)
+}
+
+/**
+ * Represents a candidate block that may have been moved
+ */
+interface MoveCandidate {
+	deletedStart: number;
+	deletedEnd: number;
+	addedStart: number;
+	addedEnd: number;
+	similarity: number;
+	moveId: string;
 }
 
 export class DiffEngine {
@@ -18,9 +32,15 @@ export class DiffEngine {
 	/**
 	 * Compute diff between two strings
 	 */
-	computeDiff(before: string, after: string, options?: DiffOptions): DiffResult {
+	computeDiff(
+		before: string,
+		after: string,
+		options?: DiffOptions,
+	): DiffResult {
 		const contextLines = options?.contextLines ?? this.defaultContextLines;
 		const ignoreWhitespace = options?.ignoreWhitespace ?? false;
+		const detectMoves = options?.detectMoves ?? true;
+		const moveSimilarityThreshold = options?.moveSimilarityThreshold ?? 0.8;
 
 		const beforeLines = this.splitLines(before);
 		const afterLines = this.splitLines(after);
@@ -32,12 +52,24 @@ export class DiffEngine {
 			ignoreWhitespace,
 		);
 
+		// Detect moved blocks if enabled
+		let moves: MoveCandidate[] = [];
+		if (detectMoves) {
+			moves = this.detectMoves(
+				beforeLines,
+				afterLines,
+				editScript,
+				moveSimilarityThreshold,
+			);
+		}
+
 		// Group edits into hunks with context
 		const hunks = this.createHunks(
 			beforeLines,
 			afterLines,
 			editScript,
 			contextLines,
+			moves,
 		);
 
 		// Calculate totals
@@ -142,6 +174,155 @@ export class DiffEngine {
 	}
 
 	/**
+	 * Detect moved blocks in the diff
+	 * A move is a deleted block that appears as an added block elsewhere with high similarity
+	 */
+	private detectMoves(
+		beforeLines: string[],
+		afterLines: string[],
+		editScript: EditOperation[],
+		similarityThreshold: number,
+	): MoveCandidate[] {
+		// Find consecutive deleted and added blocks
+		const deletedBlocks = this.findConsecutiveBlocks(editScript, "delete");
+		const addedBlocks = this.findConsecutiveBlocks(editScript, "insert");
+
+		const moves: MoveCandidate[] = [];
+		const usedDeletedBlocks = new Set<number>();
+		const usedAddedBlocks = new Set<number>();
+
+		// Compare each deleted block with each added block
+		for (let di = 0; di < deletedBlocks.length; di++) {
+			if (usedDeletedBlocks.has(di)) continue;
+
+			const deleted = deletedBlocks[di];
+			const deletedContent = deleted.indices
+				.map((idx) => beforeLines[idx])
+				.join("\n");
+
+			// Skip small blocks (less than 3 lines)
+			if (deleted.indices.length < 3) continue;
+
+			let bestMatch: { index: number; similarity: number } | null = null;
+
+			for (let ai = 0; ai < addedBlocks.length; ai++) {
+				if (usedAddedBlocks.has(ai)) continue;
+
+				const added = addedBlocks[ai];
+				const addedContent = added.indices
+					.map((idx) => afterLines[idx])
+					.join("\n");
+
+				// Skip if size difference is too large
+				const sizeDiff = Math.abs(
+					deleted.indices.length - added.indices.length,
+				);
+				if (
+					sizeDiff >
+					Math.max(deleted.indices.length, added.indices.length) * 0.3
+				) {
+					continue;
+				}
+
+				const similarity = this.computeBlockSimilarity(
+					deletedContent,
+					addedContent,
+				);
+
+				if (
+					similarity >= similarityThreshold &&
+					(!bestMatch || similarity > bestMatch.similarity)
+				) {
+					bestMatch = { index: ai, similarity };
+				}
+			}
+
+			if (bestMatch) {
+				const added = addedBlocks[bestMatch.index];
+				const moveId = createHash("md5")
+					.update(`move-${deleted.indices[0]}-${added.indices[0]}`)
+					.digest("hex")
+					.slice(0, 8);
+
+				moves.push({
+					deletedStart: deleted.indices[0],
+					deletedEnd: deleted.indices[deleted.indices.length - 1],
+					addedStart: added.indices[0],
+					addedEnd: added.indices[added.indices.length - 1],
+					similarity: bestMatch.similarity,
+					moveId,
+				});
+
+				usedDeletedBlocks.add(di);
+				usedAddedBlocks.add(bestMatch.index);
+			}
+		}
+
+		return moves;
+	}
+
+	/**
+	 * Find consecutive blocks of a specific operation type
+	 */
+	private findConsecutiveBlocks(
+		editScript: EditOperation[],
+		opType: "delete" | "insert",
+	): { indices: number[] }[] {
+		const blocks: { indices: number[] }[] = [];
+		let currentBlock: number[] = [];
+
+		for (const op of editScript) {
+			if (op.type === opType) {
+				const idx = opType === "delete" ? op.beforeIndex! : op.afterIndex!;
+				if (
+					currentBlock.length === 0 ||
+					idx === currentBlock[currentBlock.length - 1] + 1
+				) {
+					currentBlock.push(idx);
+				} else {
+					if (currentBlock.length > 0) {
+						blocks.push({ indices: [...currentBlock] });
+					}
+					currentBlock = [idx];
+				}
+			} else {
+				if (currentBlock.length > 0) {
+					blocks.push({ indices: [...currentBlock] });
+					currentBlock = [];
+				}
+			}
+		}
+
+		if (currentBlock.length > 0) {
+			blocks.push({ indices: currentBlock });
+		}
+
+		return blocks;
+	}
+
+	/**
+	 * Compute similarity between two text blocks using Jaccard similarity
+	 */
+	private computeBlockSimilarity(block1: string, block2: string): number {
+		const normalize = (s: string) =>
+			s.toLowerCase().replace(/\s+/g, " ").trim();
+
+		const tokens1 = new Set(normalize(block1).split(/\s+/));
+		const tokens2 = new Set(normalize(block2).split(/\s+/));
+
+		if (tokens1.size === 0 && tokens2.size === 0) return 1;
+		if (tokens1.size === 0 || tokens2.size === 0) return 0;
+
+		let intersection = 0;
+		for (const token of tokens1) {
+			if (tokens2.has(token)) intersection++;
+		}
+
+		const union = tokens1.size + tokens2.size - intersection;
+		return union > 0 ? intersection / union : 0;
+	}
+
+	/**
 	 * Create hunks from edit script with context lines
 	 */
 	private createHunks(
@@ -149,9 +330,22 @@ export class DiffEngine {
 		afterLines: string[],
 		editScript: EditOperation[],
 		contextLines: number,
+		moves: MoveCandidate[] = [],
 	): DiffHunk[] {
 		if (editScript.length === 0) {
 			return [];
+		}
+
+		// Build move lookup maps for quick access
+		const deletedMoveMap = new Map<number, MoveCandidate>();
+		const addedMoveMap = new Map<number, MoveCandidate>();
+		for (const move of moves) {
+			for (let i = move.deletedStart; i <= move.deletedEnd; i++) {
+				deletedMoveMap.set(i, move);
+			}
+			for (let i = move.addedStart; i <= move.addedEnd; i++) {
+				addedMoveMap.set(i, move);
+			}
 		}
 
 		// Find ranges of changes
@@ -217,33 +411,46 @@ export class DiffEngine {
 				const op = editScript[i];
 
 				if (op.type === "equal") {
-					const lineNum = op.beforeIndex! + 1;
-					if (oldStart === -1) oldStart = lineNum;
-					if (newStart === -1) newStart = op.afterIndex! + 1;
+					const oldLineNum = op.beforeIndex! + 1;
+					const newLineNum = op.afterIndex! + 1;
+					if (oldStart === -1) oldStart = oldLineNum;
+					if (newStart === -1) newStart = newLineNum;
 					lines.push({
 						type: "context",
 						content: beforeLines[op.beforeIndex!],
-						lineNumber: lineNum,
+						lineNumber: oldLineNum,
+						oldLineNumber: oldLineNum,
+						newLineNumber: newLineNum,
 					});
 					oldLines++;
 					newLines++;
 				} else if (op.type === "delete") {
 					const lineNum = op.beforeIndex! + 1;
 					if (oldStart === -1) oldStart = lineNum;
+
+					// Check if this is part of a move
+					const move = deletedMoveMap.get(op.beforeIndex!);
 					lines.push({
-						type: "removed",
+						type: move ? "moved-from" : "removed",
 						content: beforeLines[op.beforeIndex!],
 						lineNumber: lineNum,
+						oldLineNumber: lineNum,
+						moveId: move?.moveId,
 					});
 					deletions++;
 					oldLines++;
 				} else if (op.type === "insert") {
 					const lineNum = op.afterIndex! + 1;
 					if (newStart === -1) newStart = lineNum;
+
+					// Check if this is part of a move
+					const move = addedMoveMap.get(op.afterIndex!);
 					lines.push({
-						type: "added",
+						type: move ? "moved-to" : "added",
 						content: afterLines[op.afterIndex!],
 						lineNumber: lineNum,
+						newLineNumber: lineNum,
+						moveId: move?.moveId,
 					});
 					additions++;
 					newLines++;

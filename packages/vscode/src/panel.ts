@@ -80,23 +80,17 @@ export class InspectorPanel {
 		extensionUri: vscode.Uri,
 		coreBridge: CoreBridge,
 	): InspectorPanel {
-		console.log("[InspectorPanel] createOrShow called");
-		console.log("[InspectorPanel] extensionUri:", extensionUri.fsPath);
-		console.log("[InspectorPanel] coreBridge running:", coreBridge.isRunning());
-
 		const column = vscode.window.activeTextEditor
 			? vscode.window.activeTextEditor.viewColumn
 			: undefined;
 
 		// If panel exists, show it
 		if (InspectorPanel.currentPanel) {
-			console.log("[InspectorPanel] Panel already exists, revealing");
 			InspectorPanel.currentPanel._panel.reveal(column);
 			return InspectorPanel.currentPanel;
 		}
 
 		// Create new panel
-		console.log("[InspectorPanel] Creating new webview panel...");
 		const panel = vscode.window.createWebviewPanel(
 			"inspectorHook",
 			"Inspector Hook",
@@ -107,14 +101,12 @@ export class InspectorPanel {
 				localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
 			},
 		);
-		console.log("[InspectorPanel] Webview panel created");
 
 		InspectorPanel.currentPanel = new InspectorPanel(
 			panel,
 			extensionUri,
 			coreBridge,
 		);
-		console.log("[InspectorPanel] Panel instance created, waiting for webview-ready...");
 		return InspectorPanel.currentPanel;
 	}
 
@@ -157,11 +149,12 @@ export class InspectorPanel {
 	private async _handleMessage(message: WebviewCommand): Promise<void> {
 		switch (message.command) {
 			case "webview-ready": {
-				console.log("[InspectorPanel] Received webview-ready signal");
 				this._webviewReady = true;
 				// Send a ping to verify communication works
-				this._panel.webview.postMessage({ type: "ping", payload: { timestamp: Date.now() } });
-				console.log("[InspectorPanel] Sent ping to webview");
+				this._panel.webview.postMessage({
+					type: "ping",
+					payload: { timestamp: Date.now() },
+				});
 				// Send init data now that webview is ready
 				await this._sendInitData();
 				// Flush any queued messages
@@ -170,7 +163,7 @@ export class InspectorPanel {
 			}
 
 			case "pong": {
-				console.log("[InspectorPanel] Received pong from webview:", message.params);
+				// Pong received from webview - communication verified
 				break;
 			}
 
@@ -185,10 +178,15 @@ export class InspectorPanel {
 				try {
 					const diff = await this._coreBridge.getDiff(changeId);
 					// Include changeId in the response so webview can match it
-					this._sendMessage({ type: "diff-result", payload: { ...diff, changeId } });
+					this._sendMessage({
+						type: "diff-result",
+						payload: { ...diff, changeId },
+					});
 				} catch (error) {
-					console.error("[InspectorPanel] Error getting diff:", error);
-					this._sendMessage({ type: "diff-error", payload: { changeId, message: String(error) } });
+					this._sendMessage({
+						type: "diff-error",
+						payload: { changeId, message: String(error) },
+					});
 				}
 				break;
 			}
@@ -216,14 +214,16 @@ export class InspectorPanel {
 				break;
 
 			case "get-sessions": {
-				const sessions = await this._coreBridge.getSessions(message.params as any);
+				const sessions = await this._coreBridge.getSessions(
+					message.params as any,
+				);
 				this._sendMessage({ type: "sessions", payload: sessions });
 				break;
 			}
 
 			case "get-session": {
 				const session = await this._coreBridge.getSession(
-					(message.params as any).sessionId
+					(message.params as any).sessionId,
 				);
 				this._sendMessage({ type: "session", payload: session });
 				break;
@@ -231,7 +231,7 @@ export class InspectorPanel {
 
 			case "get-session-logs": {
 				const sessionLogs = await this._coreBridge.getSessionLogs(
-					(message.params as any).sessionId
+					(message.params as any).sessionId,
 				);
 				this._sendMessage({ type: "session-logs", payload: sessionLogs });
 				break;
@@ -239,7 +239,7 @@ export class InspectorPanel {
 
 			case "get-session-activity": {
 				const activity = await this._coreBridge.getSessionActivity(
-					(message.params as any).sessionId
+					(message.params as any).sessionId,
 				);
 				this._sendMessage({ type: "session-activity", payload: activity });
 				break;
@@ -247,7 +247,7 @@ export class InspectorPanel {
 
 			case "delete-session": {
 				const result = await this._coreBridge.deleteSession(
-					(message.params as any).sessionId
+					(message.params as any).sessionId,
 				);
 				this._sendMessage({ type: "delete-session-result", payload: result });
 				this.refresh();
@@ -255,14 +255,16 @@ export class InspectorPanel {
 			}
 
 			case "get-file-changes": {
-				const changes = await this._coreBridge.getPendingChanges(message.params as any);
+				const changes = await this._coreBridge.getPendingChanges(
+					message.params as any,
+				);
 				this._sendMessage({ type: "fileChanges", payload: changes });
 				break;
 			}
 
 			case "keep-all-changes": {
 				const result = await this._coreBridge.keepAllChanges(
-					(message.params as any)?.sessionId
+					(message.params as any)?.sessionId,
 				);
 				this._sendMessage({ type: "keep-all-result", payload: result });
 				this.refresh();
@@ -271,7 +273,7 @@ export class InspectorPanel {
 
 			case "revert-all-changes": {
 				const result = await this._coreBridge.revertAllChanges(
-					(message.params as any)?.sessionId
+					(message.params as any)?.sessionId,
 				);
 				this._sendMessage({ type: "revert-all-result", payload: result });
 				this.refresh();
@@ -281,7 +283,7 @@ export class InspectorPanel {
 			case "update-change-content": {
 				const result = await this._coreBridge.updateChangeContent(
 					(message.params as any).changeId,
-					(message.params as any).afterContent
+					(message.params as any).afterContent,
 				);
 				this._sendMessage({ type: "update-content-result", payload: result });
 				break;
@@ -291,7 +293,7 @@ export class InspectorPanel {
 				// Per-hunk operations - for now, keep the whole change
 				// Future: implement per-hunk backend support
 				const result = await this._coreBridge.keepChange(
-					(message.params as any).changeId
+					(message.params as any).changeId,
 				);
 				this._sendMessage({ type: "keep-hunk-result", payload: result });
 				this.refresh();
@@ -302,26 +304,35 @@ export class InspectorPanel {
 				// Per-hunk operations - for now, revert the whole change
 				// Future: implement per-hunk backend support
 				const result = await this._coreBridge.revertChange(
-					(message.params as any).changeId
+					(message.params as any).changeId,
 				);
 				this._sendMessage({ type: "revert-hunk-result", payload: result });
 				this.refresh();
 				break;
 			}
 
+			case "get-tracked-files": {
+				const result = await this._coreBridge.getTrackedFiles();
+				this._sendMessage({ type: "tracked-files", payload: result });
+				break;
+			}
+
 			case "get-version-history": {
+				const filePath = (message.params as any).filePath;
 				const history = await this._coreBridge.getVersionHistory(
-					(message.params as any).filePath,
-					(message.params as any).limit
+					filePath,
+					(message.params as any).limit,
 				);
-				this._sendMessage({ type: "version-history", payload: history });
+				// Handle null response by sending empty versions
+				const payload = history || { filePath, versions: [] };
+				this._sendMessage({ type: "version-history", payload });
 				break;
 			}
 
 			case "restore-version": {
 				const result = await this._coreBridge.restoreVersion(
 					(message.params as any).filePath,
-					(message.params as any).versionNumber
+					(message.params as any).versionNumber,
 				);
 				this._sendMessage({ type: "restore-result", payload: result });
 				this.refresh();
@@ -329,24 +340,39 @@ export class InspectorPanel {
 			}
 
 			case "compare-versions": {
-				const diff = await this._coreBridge.compareVersions(
-					(message.params as any).filePath,
-					(message.params as any).v1,
-					(message.params as any).v2
-				);
-				this._sendMessage({ type: "version-comparison", payload: { diff } });
+				const filePath = (message.params as any).filePath;
+				const v1 = (message.params as any).v1;
+				const v2 = (message.params as any).v2;
+
+				try {
+					const result = await this._coreBridge.compareVersions(
+						filePath,
+						v1,
+						v2,
+					);
+					// Extract just the diff from the result
+					const diff = result?.diff || null;
+					this._sendMessage({ type: "version-comparison", payload: { diff } });
+				} catch (error) {
+					this._sendMessage({
+						type: "version-comparison",
+						payload: { diff: null, error: String(error) },
+					});
+				}
 				break;
 			}
 
 			case "get-archived-changes": {
-				const archived = await this._coreBridge.getArchivedChanges(message.params as any);
+				const archived = await this._coreBridge.getArchivedChanges(
+					message.params as any,
+				);
 				this._sendMessage({ type: "archived", payload: archived });
 				break;
 			}
 
 			case "restore-archived": {
 				const result = await this._coreBridge.restoreArchived(
-					(message.params as any).changeId
+					(message.params as any).changeId,
 				);
 				this._sendMessage({ type: "restore-archived-result", payload: result });
 				this.refresh();
@@ -385,35 +411,21 @@ export class InspectorPanel {
 	 * Send initial data to webview
 	 */
 	private async _sendInitData(): Promise<void> {
-		console.log("[InspectorPanel] _sendInitData called, coreBridge running:", this._coreBridge.isRunning());
-
 		if (!this._coreBridge.isRunning()) {
-			console.error("[InspectorPanel] CoreBridge is NOT running! Trying to start...");
 			try {
 				await this._coreBridge.start();
-				console.log("[InspectorPanel] CoreBridge started successfully");
-			} catch (startError) {
-				console.error("[InspectorPanel] Failed to start CoreBridge:", startError);
+			} catch (_startError) {
 				return;
 			}
 		}
 
 		try {
-			console.log("[InspectorPanel] Fetching stats...");
 			const stats = await this._coreBridge.getStats();
-			console.log("[InspectorPanel] Stats:", stats);
-
-			console.log("[InspectorPanel] Fetching logs...");
-			const logs = await this._coreBridge.getLogs({ pagination: { limit: 100 } });
-			console.log("[InspectorPanel] Logs count:", logs?.logs?.length);
-
-			console.log("[InspectorPanel] Fetching sessions...");
+			const logs = await this._coreBridge.getLogs({
+				pagination: { limit: 100 },
+			});
 			const sessions = await this._coreBridge.getSessions();
-			console.log("[InspectorPanel] Sessions count:", sessions?.sessions?.length);
-
-			console.log("[InspectorPanel] Fetching file changes...");
 			const fileChanges = await this._coreBridge.getPendingChanges();
-			console.log("[InspectorPanel] File changes count:", fileChanges?.changes?.length);
 
 			this._sendMessage({
 				type: "init",
@@ -425,9 +437,8 @@ export class InspectorPanel {
 					config: { autoScroll: true },
 				},
 			});
-			console.log("[InspectorPanel] Init message sent to webview");
-		} catch (error) {
-			console.error("[InspectorPanel] Failed to fetch data:", error);
+		} catch (_error) {
+			// Failed to fetch initial data
 		}
 	}
 
