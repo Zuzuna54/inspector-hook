@@ -544,12 +544,110 @@ const HistoryView = {
 			return `<div class="hv-no-content">No comparison data available</div>`;
 		}
 
-		// Render the diff based on view mode
-		if (this._viewMode === "unified") {
-			return this._renderUnifiedDiff(this._comparisonDiff);
-		} else {
-			return this._renderSplitDiff(this._comparisonDiff);
+		// Always render full file view with highlighted changes
+		// This shows the entire file content with hunks/changes highlighted
+		return this._renderFullFileDiffView(this._comparisonDiff);
+	},
+
+	/**
+	 * Render full file diff view - shows entire file with changes highlighted
+	 * This gives a complete overview of the file with all changes visible in context
+	 */
+	_renderFullFileDiffView(diff) {
+		const beforeContent = diff.beforeContent || "";
+		const afterContent = diff.afterContent || "";
+		const hunks = diff.hunks || [];
+		const language = Utils.detectLanguage(this._selectedFile, afterContent);
+
+		if (!beforeContent && !afterContent) {
+			return `<div class="hv-no-content">No content available</div>`;
 		}
+
+		const beforeLines = beforeContent.split("\n");
+		const afterLines = afterContent.split("\n");
+
+		// Build change maps from hunks
+		const removedLines = new Set(); // old line numbers that were removed
+		const addedLines = new Set(); // new line numbers that were added
+
+		hunks.forEach((hunk) => {
+			let oldLine = hunk.oldStart || 1;
+			let newLine = hunk.newStart || 1;
+			(hunk.lines || []).forEach((line) => {
+				if (line.type === "removed") {
+					removedLines.add(oldLine);
+					oldLine++;
+				} else if (line.type === "added") {
+					addedLines.add(newLine);
+					newLine++;
+				} else {
+					oldLine++;
+					newLine++;
+				}
+			});
+		});
+
+		// Render before side (v1)
+		const beforeHtml = beforeLines
+			.map((content, idx) => {
+				const lineNum = idx + 1;
+				const isRemoved = removedLines.has(lineNum);
+				const lineClass = isRemoved ? "removed" : "context";
+				const escaped = Utils.escapeHtml(content);
+				const highlighted = this._applySyntaxHighlighting(escaped, language);
+				return `
+					<div class="hv-full-line ${lineClass}">
+						<span class="hv-line-num">${lineNum}</span>
+						<span class="hv-line-content">${highlighted || " "}</span>
+					</div>
+				`;
+			})
+			.join("");
+
+		// Render after side (v2)
+		const afterHtml = afterLines
+			.map((content, idx) => {
+				const lineNum = idx + 1;
+				const isAdded = addedLines.has(lineNum);
+				const lineClass = isAdded ? "added" : "context";
+				const escaped = Utils.escapeHtml(content);
+				const highlighted = this._applySyntaxHighlighting(escaped, language);
+				return `
+					<div class="hv-full-line ${lineClass}">
+						<span class="hv-line-num">${lineNum}</span>
+						<span class="hv-line-content">${highlighted || " "}</span>
+					</div>
+				`;
+			})
+			.join("");
+
+		return `
+			<div class="hv-full-file-diff">
+				<div class="hv-diff-stats-bar">
+					<span class="hv-stat-add">+${diff.additions || 0}</span>
+					<span class="hv-stat-del">-${diff.deletions || 0}</span>
+					<span class="hv-stat-hunks">${hunks.length} hunk${hunks.length !== 1 ? "s" : ""}</span>
+				</div>
+				<div class="hv-full-file-headers">
+					<div class="hv-full-file-header">
+						<span class="hv-full-file-label">v${this._comparisonFrom} (Before)</span>
+						<span class="hv-full-file-lines">${beforeLines.length} lines</span>
+					</div>
+					<div class="hv-full-file-header">
+						<span class="hv-full-file-label">v${this._comparisonTo} (After)</span>
+						<span class="hv-full-file-lines">${afterLines.length} lines</span>
+					</div>
+				</div>
+				<div class="hv-full-file-content">
+					<div class="hv-full-file-pane hv-full-file-before">
+						${beforeHtml || '<div class="hv-full-file-empty">Empty file</div>'}
+					</div>
+					<div class="hv-full-file-pane hv-full-file-after">
+						${afterHtml || '<div class="hv-full-file-empty">Empty file</div>'}
+					</div>
+				</div>
+			</div>
+		`;
 	},
 
 	/**

@@ -16,7 +16,7 @@ const FileChangesView = {
 	_expandedFiles: new Set(), // filePath keys for expanded file accordions
 	_selectedFileKey: null, // "sessionId:filePath" - the currently selected file
 	_selectedFile: null, // { sessionId, filePath, changes: [...] } - all changes for selected file
-	_viewMode: "full", // 'unified' | 'split' | 'full' (default to full file view)
+	_viewMode: "unified", // 'unified' (hunks) | 'split'
 
 	// Diff State - now tracks multiple diffs for a file
 	_currentDiffs: [], // Array of diff objects for all changes in selected file
@@ -795,7 +795,6 @@ const FileChangesView = {
         <span class="fc-stat-changes">${changes.length} change${changes.length !== 1 ? "s" : ""}</span>
       </div>
       <div class="fc-view-toggle ${this._isEditMode ? "disabled" : ""}">
-        <button class="${this._viewMode === "full" ? "active" : ""}" data-mode="full" ${this._isEditMode ? "disabled" : ""}>Full</button>
         <button class="${this._viewMode === "unified" ? "active" : ""}" data-mode="unified" ${this._isEditMode ? "disabled" : ""}>Hunks</button>
         <button class="${this._viewMode === "split" ? "active" : ""}" data-mode="split" ${this._isEditMode ? "disabled" : ""}>Split</button>
       </div>
@@ -808,9 +807,6 @@ const FileChangesView = {
 		if (totalHunks === 0) {
 			container.innerHTML =
 				'<div class="fc-empty-state"><div class="fc-empty-title">No changes detected</div></div>';
-		} else if (this._viewMode === "full") {
-			// Full file view - shows entire file content with changes highlighted
-			container.innerHTML = this._renderFullFileView(filePath);
 		} else if (this._viewMode === "unified") {
 			// Unified hunks view - shows only changed hunks
 			container.innerHTML = this._renderAllChangesUnified(filePath);
@@ -820,112 +816,6 @@ const FileChangesView = {
 		}
 
 		this._setupDiffHandlers();
-	},
-
-	/**
-	 * Render full file view - shows entire before and after files side by side
-	 * This gives a complete overview of all file changes
-	 */
-	_renderFullFileView(filePath) {
-		// Combine all diffs to get before and after content
-		// For multiple changes, we use the first change's before and last change's after
-		if (this._currentDiffs.length === 0) {
-			return '<div class="fc-empty-state"><div class="fc-empty-title">No changes to display</div></div>';
-		}
-
-		// Get before content from first diff, after content from edited or last diff
-		const firstDiff = this._currentDiffs[0];
-		const lastDiff = this._currentDiffs[this._currentDiffs.length - 1];
-		const changeId = lastDiff.changeId;
-
-		const beforeContent = firstDiff.diff.beforeContent || "";
-		const afterContent =
-			this._editedContent.get(changeId) || lastDiff.diff.afterContent || "";
-
-		const language = Utils.detectLanguage(filePath, afterContent);
-
-		const beforeLines = beforeContent.split("\n");
-		const afterLines = afterContent.split("\n");
-
-		// Build change maps from all hunks across all diffs
-		const removedLines = new Set(); // old line numbers that were removed
-		const addedLines = new Set(); // new line numbers that were added
-
-		this._currentDiffs.forEach(({ diff }) => {
-			(diff.hunks || []).forEach((hunk) => {
-				let oldLine = hunk.oldStart || 1;
-				let newLine = hunk.newStart || 1;
-				(hunk.lines || []).forEach((line) => {
-					if (line.type === "removed") {
-						removedLines.add(oldLine);
-						oldLine++;
-					} else if (line.type === "added") {
-						addedLines.add(newLine);
-						newLine++;
-					} else {
-						oldLine++;
-						newLine++;
-					}
-				});
-			});
-		});
-
-		// Render before side
-		const beforeHtml = beforeLines
-			.map((content, idx) => {
-				const lineNum = idx + 1;
-				const isRemoved = removedLines.has(lineNum);
-				const lineClass = isRemoved ? "removed" : "context";
-				const escaped = Utils.escapeHtml(content);
-				const highlighted = this._applySyntaxHighlighting(escaped, language);
-				return `
-					<div class="fc-full-line ${lineClass}">
-						<span class="fc-line-num">${lineNum}</span>
-						<span class="fc-line-content">${highlighted}</span>
-					</div>
-				`;
-			})
-			.join("");
-
-		// Render after side
-		const afterHtml = afterLines
-			.map((content, idx) => {
-				const lineNum = idx + 1;
-				const isAdded = addedLines.has(lineNum);
-				const lineClass = isAdded ? "added" : "context";
-				const escaped = Utils.escapeHtml(content);
-				const highlighted = this._applySyntaxHighlighting(escaped, language);
-				return `
-					<div class="fc-full-line ${lineClass}">
-						<span class="fc-line-num">${lineNum}</span>
-						<span class="fc-line-content">${highlighted}</span>
-					</div>
-				`;
-			})
-			.join("");
-
-		return `
-			<div class="fc-full-file-view">
-				<div class="fc-full-file-headers">
-					<div class="fc-full-file-header">
-						<span class="fc-full-file-label">Before</span>
-						<span class="fc-full-file-lines">${beforeLines.length} lines</span>
-					</div>
-					<div class="fc-full-file-header">
-						<span class="fc-full-file-label">After</span>
-						<span class="fc-full-file-lines">${afterLines.length} lines</span>
-					</div>
-				</div>
-				<div class="fc-full-file-content">
-					<div class="fc-full-file-pane fc-full-file-before">
-						${beforeHtml || '<div class="fc-full-file-empty">Empty file</div>'}
-					</div>
-					<div class="fc-full-file-pane fc-full-file-after">
-						${afterHtml || '<div class="fc-full-file-empty">Empty file</div>'}
-					</div>
-				</div>
-			</div>
-		`;
 	},
 
 	/**
