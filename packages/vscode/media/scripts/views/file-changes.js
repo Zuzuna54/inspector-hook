@@ -1753,6 +1753,15 @@ const FileChangesView = {
 		const updatedContent = lines.join("\n");
 		this._editedContent.set(changeId, updatedContent);
 
+		// Also update the diff object so re-renders show the edited content
+		diff.afterContent = updatedContent;
+
+		// Update cache so subsequent views show edited content
+		const cachedDiff = this._diffCache.get(changeId);
+		if (cachedDiff) {
+			cachedDiff.afterContent = updatedContent;
+		}
+
 		// Send to backend
 		if (typeof API !== "undefined" && API.updateChangeContent) {
 			API.updateChangeContent(changeId, updatedContent);

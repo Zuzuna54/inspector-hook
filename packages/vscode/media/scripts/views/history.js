@@ -1592,13 +1592,38 @@ const HistoryView = {
 
 	/**
 	 * Scroll the diff viewer to the first changed line
+	 * Handles both full view and split view modes
 	 */
 	_scrollToFirstChange() {
-		// Find the first added or removed line in the viewer
 		const container = document.querySelector(".hv-viewer-content");
 		if (!container) return;
 
-		// Look for the first changed line (added or removed)
+		// Check if we're in split view mode
+		const splitContainer = container.querySelector(".hv-diff-split");
+		if (splitContainer) {
+			// Split view: scroll both panes to first changed hunk
+			const leftPane = splitContainer.querySelector(".hv-split-left");
+			const rightPane = splitContainer.querySelector(".hv-split-right");
+
+			// Find the first changed line in each pane
+			const leftChange = leftPane?.querySelector(
+				".hv-split-line.removed, .hv-split-line.added",
+			);
+			const rightChange = rightPane?.querySelector(
+				".hv-split-line.added, .hv-split-line.removed",
+			);
+
+			// Scroll both panes to show the first change
+			if (leftChange) {
+				leftChange.scrollIntoView({ behavior: "smooth", block: "center" });
+			}
+			if (rightChange) {
+				rightChange.scrollIntoView({ behavior: "smooth", block: "center" });
+			}
+			return;
+		}
+
+		// Full view: find the first changed line
 		const firstChange = container.querySelector(
 			".hv-full-line.added, .hv-full-line.removed, .hv-line.added, .hv-line.removed",
 		);
