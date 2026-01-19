@@ -12,15 +12,17 @@ const HistoryView = {
 
 	// Comparison state
 	_comparisonFrom: null, // version number
-	_comparisonTo: null, // version number or 'current'
-	_viewMode: "unified", // 'unified' | 'split'
+	_comparisonTo: null, // version number, 'current', or 'disk'
+	_viewMode: "full", // 'full' | 'split' (default to full)
 	_comparisonDiff: null, // cached diff result
+	_diskContent: null, // current on-disk content for comparison
 
 	// Restore preview state
 	_restorePreview: null,
 
 	// Loading state
 	_loadingComparison: false,
+	_shouldScrollToDiff: false, // Scroll to first change after loading
 
 	// Lazy loading state
 	_loadedVersionContent: new Map(), // filePath:versionNumber -> content
@@ -80,9 +82,10 @@ const HistoryView = {
 		this._selectedFile = null;
 		this._comparisonFrom = null;
 		this._comparisonTo = null;
-		this._viewMode = "unified";
+		this._viewMode = "full";
 		this._restorePreview = null;
 		this._comparisonDiff = null;
+		this._diskContent = null;
 		this._loadingComparison = false;
 		this._loadedVersionContent.clear();
 		this._loadingVersions.clear();
@@ -242,25 +245,20 @@ const HistoryView = {
         ${sortedVersions
 					.map((version, idx) => {
 						const isCurrent = idx === 0;
-						const versionLabel = this._formatVersionLabel(
-							version.versionNumber,
-							version.timestamp,
-						);
+						const isSelected =
+							this._selectedFile === filePath &&
+							this._comparisonTo === version.versionNumber;
 
 						return `
-            <div class="hv-version ${isCurrent ? "current" : ""}"
+            <div class="hv-version ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""}"
                  data-file-path="${Utils.escapeHtml(filePath)}"
                  data-version="${version.versionNumber}">
-              <div class="hv-version-info">
-                <span class="hv-version-label">${versionLabel}</span>
-                ${isCurrent ? '<span class="hv-version-badge">current</span>' : ""}
-              </div>
-              <div class="hv-version-meta">
-                <span class="hv-version-tool">${Utils.escapeHtml(version.tool || "Unknown")}</span>
-                ${version.sessionId ? `<span class="hv-version-session">${Utils.escapeHtml(version.sessionId.slice(0, 8))}</span>` : ""}
-              </div>
+              <span class="hv-version-num">v${version.versionNumber}</span>
+              <span class="hv-version-time">${this._formatShortTime(version.timestamp)}</span>
+              ${isCurrent ? '<span class="hv-current-marker">💾</span>' : ""}
               <div class="hv-version-actions">
-                ${!isCurrent ? `<button class="btn btn-xs btn-warning hv-restore-btn" data-file-path="${Utils.escapeHtml(filePath)}" data-version="${version.versionNumber}">Restore</button>` : ""}
+                ${!isCurrent ? `<button class="btn btn-xs btn-warning hv-restore-btn" data-file-path="${Utils.escapeHtml(filePath)}" data-version="${version.versionNumber}" title="Restore">↩</button>` : ""}
+                ${versions.length > 1 ? `<button class="btn btn-xs btn-danger hv-delete-btn" data-file-path="${Utils.escapeHtml(filePath)}" data-version="${version.versionNumber}" title="Delete">🗑</button>` : ""}
               </div>
             </div>
           `;
@@ -329,6 +327,71 @@ const HistoryView = {
 				this.showRestorePreview(filePath, versionNum);
 			});
 		});
+
+		// Delete button
+		container.querySelectorAll(".hv-delete-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				e.stopPropagation();
+				const filePath = btn.dataset.filePath;
+				const versionNum = parseInt(btn.dataset.version, 10);
+				this._confirmDeleteVersion(filePath, versionNum);
+			});
+		});
+
+		// Version row click - select version for viewing
+		container.querySelectorAll(".hv-version").forEach((row) => {
+			row.addEventListener("click", (e) => {
+				// Don't trigger if clicking a button
+				if (e.target.closest("button")) return;
+
+				const filePath = row.dataset.filePath;
+				const versionNum = parseInt(row.dataset.version, 10);
+				this._selectVersion(filePath, versionNum);
+			});
+		});
+	},
+
+	/**
+	 * Select a specific version for viewing
+	 */
+	_selectVersion(filePath, versionNumber) {
+		const versionHistory = this._getVersionHistory();
+		const versions = versionHistory[filePath] || [];
+		const sortedVersions = [...versions].sort(
+			(a, b) => b.versionNumber - a.versionNumber,
+		);
+
+		// Find the version's position and set from/to
+		const versionIdx = sortedVersions.findIndex(
+			(v) => v.versionNumber === versionNumber,
+		);
+
+		if (versionIdx >= 0) {
+			this._comparisonTo = versionNumber;
+			// Set from to the previous version (if exists)
+			if (versionIdx < sortedVersions.length - 1) {
+				this._comparisonFrom = sortedVersions[versionIdx + 1].versionNumber;
+			} else {
+				this._comparisonFrom = versionNumber; // Single version
+			}
+			// Set flag to scroll to first change after loading
+			this._shouldScrollToDiff = true;
+			this._loadComparison(filePath);
+			this.renderFileAccordions();
+		}
+	},
+
+	/**
+	 * Confirm and delete a version
+	 */
+	_confirmDeleteVersion(filePath, versionNumber) {
+		const confirmed = confirm(
+			`Delete version ${versionNumber} of ${Utils.getFileName(filePath)}?\n\nThis action cannot be undone.`,
+		);
+
+		if (confirmed) {
+			API.deleteVersion(filePath, versionNumber);
+		}
 	},
 
 	/**
@@ -473,9 +536,27 @@ const HistoryView = {
 	 */
 	_renderComparisonToolbar(versions) {
 		const hasMultiple = versions.length >= 2;
+		const stats = this._comparisonDiff
+			? `+${this._comparisonDiff.additions || 0} -${this._comparisonDiff.deletions || 0}`
+			: "";
+		const hunkCount = this._comparisonDiff?.hunks?.length || 0;
+
+		// Determine if we can navigate
+		const sortedVersions = [...versions].sort(
+			(a, b) => b.versionNumber - a.versionNumber,
+		);
+		const currentToIdx = sortedVersions.findIndex(
+			(v) => v.versionNumber === this._comparisonTo,
+		);
+		const canGoPrev = currentToIdx < sortedVersions.length - 1;
+		const canGoNext = currentToIdx > 0;
 
 		return `
       <div class="hv-comparison-toolbar">
+        <div class="hv-toolbar-path">
+          <span class="hv-path-text" title="${Utils.escapeHtml(this._selectedFile || "")}">${Utils.escapeHtml(this._selectedFile || "")}</span>
+          <button class="hv-copy-path" title="Copy path">📋</button>
+        </div>
         <div class="hv-comparison-dropdowns">
           <label>From:</label>
           <select class="hv-from-version" ${!hasMultiple ? "disabled" : ""}>
@@ -491,7 +572,7 @@ const HistoryView = {
           </select>
           <span class="hv-arrow">→</span>
           <label>To:</label>
-          <select class="hv-to-version" ${!hasMultiple ? "disabled" : ""}>
+          <select class="hv-to-version">
             ${versions
 							.map(
 								(v) => `
@@ -503,11 +584,17 @@ const HistoryView = {
 							.join("")}
           </select>
         </div>
+        ${stats ? `<div class="hv-toolbar-stats"><span class="hv-stat-add">${stats.split(" ")[0]}</span><span class="hv-stat-del">${stats.split(" ")[1]}</span><span class="hv-stat-hunks">${hunkCount} hunk${hunkCount !== 1 ? "s" : ""}</span></div>` : ""}
         <div class="hv-view-toggle">
-          <button class="btn btn-xs ${this._viewMode === "unified" ? "active" : ""}" data-mode="unified">Unified</button>
+          <button class="btn btn-xs ${this._viewMode === "full" ? "active" : ""}" data-mode="full">Full</button>
           <button class="btn btn-xs ${this._viewMode === "split" ? "active" : ""}" data-mode="split">Split</button>
         </div>
+        <div class="hv-version-nav">
+          <button class="btn btn-xs hv-prev-version" ${!canGoPrev ? "disabled" : ""} title="Previous version">&lt;</button>
+          <button class="btn btn-xs hv-next-version" ${!canGoNext ? "disabled" : ""} title="Next version">&gt;</button>
+        </div>
         <button class="btn btn-xs hv-open-file-btn" title="Open in Editor">Open</button>
+        <button class="btn btn-xs btn-warning hv-restore-toolbar-btn" title="Restore this version">Restore</button>
       </div>
     `;
 	},
@@ -544,9 +631,164 @@ const HistoryView = {
 			return `<div class="hv-no-content">No comparison data available</div>`;
 		}
 
-		// Always render full file view with highlighted changes
-		// This shows the entire file content with hunks/changes highlighted
-		return this._renderFullFileDiffView(this._comparisonDiff);
+		// Route to appropriate view based on mode
+		if (this._viewMode === "full") {
+			// Single file view with highlighted changes
+			return this._renderFullViewSingleFile(this._comparisonDiff);
+		} else {
+			// Side-by-side split view
+			return this._renderFullFileDiffView(this._comparisonDiff);
+		}
+	},
+
+	/**
+	 * Render Full View - Single file with highlighted changes
+	 * Shows the "after" file content with changed lines highlighted
+	 */
+	_renderFullViewSingleFile(diff) {
+		const afterContent = diff.afterContent || "";
+		const hunks = diff.hunks || [];
+		const language = Utils.detectLanguage(this._selectedFile, afterContent);
+
+		if (!afterContent) {
+			return `<div class="hv-no-content">No content available</div>`;
+		}
+
+		const afterLines = afterContent.split("\n");
+
+		// Build set of changed line numbers from hunks
+		const addedLines = new Set(); // new line numbers that were added
+		const removedMarkers = new Map(); // new line number -> array of removed content
+
+		hunks.forEach((hunk) => {
+			let newLine = hunk.newStart || 1;
+			let pendingRemoved = [];
+
+			(hunk.lines || []).forEach((line) => {
+				if (line.type === "removed") {
+					pendingRemoved.push(line.content);
+				} else if (line.type === "added") {
+					addedLines.add(newLine);
+					// Attach any pending removed lines as markers
+					if (pendingRemoved.length > 0) {
+						if (!removedMarkers.has(newLine)) {
+							removedMarkers.set(newLine, []);
+						}
+						removedMarkers.get(newLine).push(...pendingRemoved);
+						pendingRemoved = [];
+					}
+					newLine++;
+				} else {
+					// Context line - flush any pending removed
+					if (pendingRemoved.length > 0) {
+						if (!removedMarkers.has(newLine)) {
+							removedMarkers.set(newLine, []);
+						}
+						removedMarkers.get(newLine).push(...pendingRemoved);
+						pendingRemoved = [];
+					}
+					newLine++;
+				}
+			});
+
+			// Handle trailing removed lines
+			if (pendingRemoved.length > 0) {
+				const markerLine = Math.min(newLine, afterLines.length);
+				if (!removedMarkers.has(markerLine)) {
+					removedMarkers.set(markerLine, []);
+				}
+				removedMarkers.get(markerLine).push(...pendingRemoved);
+			}
+		});
+
+		// Calculate scrollbar markers
+		const scrollbarMarkers = this._renderScrollbarMarkers(
+			addedLines,
+			removedMarkers,
+			afterLines.length,
+		);
+
+		// Render the single file view
+		let html = `
+			<div class="hv-full-view-single">
+				<div class="hv-diff-stats-bar">
+					<span class="hv-stat-add">+${diff.additions || 0}</span>
+					<span class="hv-stat-del">-${diff.deletions || 0}</span>
+					<span class="hv-stat-hunks">${hunks.length} hunk${hunks.length !== 1 ? "s" : ""}</span>
+					<span class="hv-stat-lines">${afterLines.length} lines</span>
+				</div>
+				<div class="hv-full-view-content">
+		`;
+
+		afterLines.forEach((content, idx) => {
+			const lineNum = idx + 1;
+			const isAdded = addedLines.has(lineNum);
+			const hasRemovedMarker = removedMarkers.has(lineNum);
+			const lineClass = isAdded ? "added" : "context";
+
+			const escaped = Utils.escapeHtml(content);
+			const highlighted = this._applySyntaxHighlighting(escaped, language);
+
+			// Show removed lines inline before this line
+			if (hasRemovedMarker) {
+				const removedContent = removedMarkers.get(lineNum);
+				removedContent.forEach((removedLine) => {
+					const escapedRemoved = Utils.escapeHtml(removedLine);
+					const highlightedRemoved = this._applySyntaxHighlighting(
+						escapedRemoved,
+						language,
+					);
+					html += `
+						<div class="hv-full-line removed">
+							<span class="hv-line-num"></span>
+							<span class="hv-line-content">${highlightedRemoved || " "}</span>
+						</div>
+					`;
+				});
+			}
+
+			html += `
+				<div class="hv-full-line ${lineClass}">
+					<span class="hv-line-num">${lineNum}</span>
+					<span class="hv-line-content">${highlighted || " "}</span>
+				</div>
+			`;
+		});
+
+		html += `
+				</div>
+				${scrollbarMarkers}
+			</div>
+		`;
+
+		return html;
+	},
+
+	/**
+	 * Render scrollbar markers for changed lines
+	 */
+	_renderScrollbarMarkers(addedLines, removedMarkers, totalLines) {
+		if (totalLines === 0) return "";
+
+		const markers = [];
+
+		// Add markers for added lines
+		addedLines.forEach((lineNum) => {
+			const percent = ((lineNum - 1) / totalLines) * 100;
+			markers.push(
+				`<div class="hv-scrollbar-marker added" style="top: ${percent}%"></div>`,
+			);
+		});
+
+		// Add markers for removed lines
+		removedMarkers.forEach((_, lineNum) => {
+			const percent = ((lineNum - 1) / totalLines) * 100;
+			markers.push(
+				`<div class="hv-scrollbar-marker removed" style="top: ${percent}%"></div>`,
+			);
+		});
+
+		return `<div class="hv-scrollbar-markers">${markers.join("")}</div>`;
 	},
 
 	/**
@@ -978,7 +1220,8 @@ const HistoryView = {
 		const toSelect = container.querySelector(".hv-to-version");
 		if (toSelect) {
 			toSelect.addEventListener("change", () => {
-				const toVersion = parseInt(toSelect.value, 10);
+				const value = toSelect.value;
+				const toVersion = value === "disk" ? "disk" : parseInt(value, 10);
 				this.onComparisonChange(this._comparisonFrom, toVersion);
 			});
 		}
@@ -991,6 +1234,101 @@ const HistoryView = {
 					API.openFile(this._selectedFile);
 				}
 			});
+		}
+
+		// Copy path button
+		const copyBtn = container.querySelector(".hv-copy-path");
+		if (copyBtn) {
+			copyBtn.addEventListener("click", () => {
+				if (this._selectedFile) {
+					navigator.clipboard.writeText(this._selectedFile).then(() => {
+						copyBtn.textContent = "✓";
+						setTimeout(() => {
+							copyBtn.textContent = "📋";
+						}, 1500);
+					});
+				}
+			});
+		}
+
+		// Version navigation
+		const prevBtn = container.querySelector(".hv-prev-version");
+		if (prevBtn) {
+			prevBtn.addEventListener("click", () => {
+				this._navigateVersion("prev");
+			});
+		}
+
+		const nextBtn = container.querySelector(".hv-next-version");
+		if (nextBtn) {
+			nextBtn.addEventListener("click", () => {
+				this._navigateVersion("next");
+			});
+		}
+
+		// Restore from toolbar
+		const restoreToolbarBtn = container.querySelector(
+			".hv-restore-toolbar-btn",
+		);
+		if (restoreToolbarBtn) {
+			restoreToolbarBtn.addEventListener("click", () => {
+				if (
+					this._selectedFile &&
+					this._comparisonTo &&
+					this._comparisonTo !== "disk"
+				) {
+					this.showRestorePreview(this._selectedFile, this._comparisonTo);
+				}
+			});
+		}
+	},
+
+	/**
+	 * Navigate to previous or next version
+	 */
+	_navigateVersion(direction) {
+		const versionHistory = this._getVersionHistory();
+		const versions = versionHistory[this._selectedFile] || [];
+
+		if (versions.length < 2) return;
+
+		const sortedVersions = [...versions].sort(
+			(a, b) => b.versionNumber - a.versionNumber,
+		);
+
+		// Find current position
+		let currentIdx;
+		if (this._comparisonTo === "disk") {
+			currentIdx = -1; // Disk is "before" all versions
+		} else {
+			currentIdx = sortedVersions.findIndex(
+				(v) => v.versionNumber === this._comparisonTo,
+			);
+		}
+
+		let newIdx;
+		if (direction === "prev") {
+			// Go to older version (higher index)
+			newIdx = Math.min(currentIdx + 1, sortedVersions.length - 1);
+		} else {
+			// Go to newer version (lower index)
+			if (currentIdx === 0) {
+				// Already at newest, can go to disk
+				this._comparisonTo = "disk";
+				this._comparisonFrom = sortedVersions[0].versionNumber;
+				this._loadComparison(this._selectedFile);
+				return;
+			}
+			newIdx = Math.max(currentIdx - 1, 0);
+		}
+
+		if (newIdx !== currentIdx && newIdx >= 0) {
+			this._comparisonTo = sortedVersions[newIdx].versionNumber;
+			// Set from to the version before to
+			if (newIdx < sortedVersions.length - 1) {
+				this._comparisonFrom = sortedVersions[newIdx + 1].versionNumber;
+			}
+			this._loadComparison(this._selectedFile);
 		}
 	},
 
@@ -1243,6 +1581,32 @@ const HistoryView = {
 		}
 
 		this.renderViewer();
+
+		// Scroll to first change if flag is set
+		if (this._shouldScrollToDiff) {
+			this._shouldScrollToDiff = false;
+			// Use setTimeout to ensure DOM is fully rendered
+			setTimeout(() => this._scrollToFirstChange(), 50);
+		}
+	},
+
+	/**
+	 * Scroll the diff viewer to the first changed line
+	 */
+	_scrollToFirstChange() {
+		// Find the first added or removed line in the viewer
+		const container = document.querySelector(".hv-viewer-content");
+		if (!container) return;
+
+		// Look for the first changed line (added or removed)
+		const firstChange = container.querySelector(
+			".hv-full-line.added, .hv-full-line.removed, .hv-line.added, .hv-line.removed",
+		);
+
+		if (firstChange) {
+			// Scroll the container to show the first change
+			firstChange.scrollIntoView({ behavior: "smooth", block: "center" });
+		}
 	},
 
 	/**

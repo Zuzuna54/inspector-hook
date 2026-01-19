@@ -362,6 +362,51 @@ export class InspectorPanel {
 				break;
 			}
 
+			case "compare-version-to-disk": {
+				const filePath = (message.params as any).filePath;
+				const versionNumber = (message.params as any).versionNumber;
+
+				try {
+					// Use compareVersions with "current" to compare to disk
+					const result = await this._coreBridge.compareVersions(
+						filePath,
+						versionNumber,
+						"current",
+					);
+					const diff = result?.diff || null;
+					this._sendMessage({ type: "version-comparison", payload: { diff } });
+				} catch (error) {
+					this._sendMessage({
+						type: "version-comparison",
+						payload: { diff: null, error: String(error) },
+					});
+				}
+				break;
+			}
+
+			case "delete-version": {
+				const filePath = (message.params as any).filePath;
+				const versionNumber = (message.params as any).versionNumber;
+
+				try {
+					const result = await this._coreBridge.deleteVersion(
+						filePath,
+						versionNumber,
+					);
+					this._sendMessage({ type: "delete-version-result", payload: result });
+					// Refresh version history after deletion
+					const history = await this._coreBridge.getVersionHistory(filePath);
+					const payload = history || { filePath, versions: [] };
+					this._sendMessage({ type: "version-history", payload });
+				} catch (error) {
+					this._sendMessage({
+						type: "delete-version-result",
+						payload: { success: false, error: String(error) },
+					});
+				}
+				break;
+			}
+
 			case "get-archived-changes": {
 				const archived = await this._coreBridge.getArchivedChanges(
 					message.params as any,

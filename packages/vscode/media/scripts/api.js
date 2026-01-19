@@ -200,6 +200,24 @@ const API = {
 		this.send("compare-versions", { filePath, v1, v2 });
 	},
 
+	/**
+	 * Compare a version to current disk content
+	 * @param {string} filePath - File path
+	 * @param {number} versionNumber - Version to compare from
+	 */
+	compareVersionToDisk(filePath, versionNumber) {
+		this.send("compare-version-to-disk", { filePath, versionNumber });
+	},
+
+	/**
+	 * Delete a specific version
+	 * @param {string} filePath - File path
+	 * @param {number} versionNumber - Version number to delete
+	 */
+	deleteVersion(filePath, versionNumber) {
+		this.send("delete-version", { filePath, versionNumber });
+	},
+
 	// ==========================================================================
 	// Archived Changes API
 	// ==========================================================================

@@ -494,6 +494,19 @@ export class CoreBridge extends EventEmitter {
 	}
 
 	/**
+	 * Delete a specific version of a file
+	 */
+	async deleteVersion(
+		filePath: string,
+		versionNumber: number,
+	): Promise<{ success: boolean }> {
+		return this.sendRequest("history.deleteVersion", {
+			filePath,
+			versionNumber,
+		});
+	}
+
+	/**
 	 * Get archived changes
 	 */
 	async getArchivedChanges(params?: {
