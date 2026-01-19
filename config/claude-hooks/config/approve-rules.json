@@ -1,0 +1,127 @@
+{
+  "description": "Auto-approve rules for PermissionRequest hook",
+  "version": "1.0",
+
+  "auto_approve": {
+    "description": "Commands and paths that are automatically approved",
+
+    "bash_commands": [
+      "^ls\\b",
+      "^cat\\b",
+      "^head\\b",
+      "^tail\\b",
+      "^grep\\b",
+      "^find\\b",
+      "^wc\\b",
+      "^pwd$",
+      "^echo\\b",
+      "^which\\b",
+      "^type\\b",
+      "^file\\b",
+      "^stat\\b",
+      "^du\\b",
+      "^df\\b",
+
+      "^git\\s+(status|log|diff|branch|show|blame|remote|tag|stash\\s+list)",
+      "^git\\s+ls-",
+
+      "^npm\\s+(test|run\\s+test|run\\s+lint|run\\s+type)",
+      "^yarn\\s+(test|lint)",
+      "^pnpm\\s+(test|lint)",
+      "^bun\\s+test",
+      "^pytest\\b",
+      "^go\\s+test",
+      "^cargo\\s+test",
+      "^jest\\b",
+      "^vitest\\b",
+
+      "^eslint\\b",
+      "^prettier\\s+--check",
+      "^tsc\\s+--noEmit",
+      "^pylint\\b",
+      "^flake8\\b",
+      "^mypy\\b",
+      "^ruff\\b",
+
+      "^npm\\s+run\\s+build",
+      "^yarn\\s+build",
+      "^cargo\\s+build",
+      "^go\\s+build",
+      "^make\\b"
+    ],
+
+    "read_paths": [
+      "\\.md$",
+      "\\.txt$",
+      "\\.json$",
+      "\\.yaml$",
+      "\\.yml$",
+      "\\.toml$",
+      "\\.ts$",
+      "\\.tsx$",
+      "\\.js$",
+      "\\.jsx$",
+      "\\.py$",
+      "\\.go$",
+      "\\.rs$",
+      "\\.css$",
+      "\\.scss$",
+      "\\.html$",
+      "\\.xml$",
+      "\\.sh$",
+      "\\.bash$",
+      "\\.zsh$"
+    ]
+  },
+
+  "require_approval": {
+    "description": "Commands and paths that always require user approval",
+
+    "bash_commands": [
+      "^curl\\b",
+      "^wget\\b",
+      "^nc\\b",
+      "^netcat\\b",
+      "^ssh\\b",
+      "^scp\\b",
+      "^rsync\\b",
+
+      "^npm\\s+install",
+      "^npm\\s+i\\b",
+      "^yarn\\s+add",
+      "^pnpm\\s+add",
+      "^pip\\s+install",
+      "^pip3\\s+install",
+      "^brew\\s+install",
+      "^apt\\s+install",
+      "^apt-get\\s+install",
+      "^cargo\\s+add",
+      "^go\\s+get",
+
+      "^sudo\\b",
+      "^chmod\\b",
+      "^chown\\b",
+      "^rm\\s+-rf",
+      "^mv\\b.*\\s+/",
+      "^cp\\s+-r.*\\s+/"
+    ],
+
+    "write_paths": [
+      "\\.env",
+      "\\.ssh/",
+      "\\.aws/",
+      "\\.gnupg/",
+      "\\.gpg",
+      "credentials",
+      "secrets",
+      "\\.git/config",
+      "\\.gitconfig",
+      "\\.npmrc",
+      "\\.pypirc",
+      "id_rsa",
+      "id_ed25519",
+      "\\.pem$",
+      "\\.key$"
+    ]
+  }
+}

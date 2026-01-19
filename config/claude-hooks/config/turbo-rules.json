@@ -1,0 +1,35 @@
+{
+  "description": "Turbo mode configuration - what to skip for rapid iteration",
+  "skip_when_turbo": {
+    "hooks": [
+      "test-guard.sh",
+      "ai-review.sh"
+    ],
+    "checks": [
+      "full_test_suite",
+      "ai_code_review",
+      "heavy_linting"
+    ]
+  },
+  "always_run": {
+    "hooks": [
+      "biome-format.sh",
+      "ruff-format.sh",
+      "type-check.sh",
+      "security-gate.py",
+      "notify.sh"
+    ],
+    "checks": [
+      "auto_format",
+      "type_check",
+      "security_gate",
+      "notifications"
+    ]
+  },
+  "notes": [
+    "Enable with: ~/.claude/hooks/integration/turbo-mode.sh enable",
+    "Disable with: ~/.claude/hooks/integration/turbo-mode.sh disable",
+    "Check status with: ~/.claude/hooks/integration/turbo-mode.sh status",
+    "State stored in: ~/.claude/hooks/config/.turbo-enabled"
+  ]
+}

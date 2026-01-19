@@ -1,0 +1,240 @@
+{
+  "alwaysThinkingEnabled": true,
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/hook-inspector.sh",
+            "timeout": 1000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/advanced/prompt-context.py",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/hook-inspector.sh",
+            "timeout": 1000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/core/security-gate.py",
+            "timeout": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/quality/commit-gate.sh",
+            "timeout": 60000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/quality/ai-review.sh",
+            "timeout": 30000
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/core/question-notification.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/hook-inspector.sh",
+            "timeout": 1000
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/quality/biome-format.sh",
+            "timeout": 10000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/quality/ruff-format.sh",
+            "timeout": 10000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/quality/rust-check.sh",
+            "timeout": 30000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/quality/type-check.sh",
+            "timeout": 30000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/tool-logger.sh",
+            "timeout": 2000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/tool-logger.sh",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/advanced/auto-approve.py",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/hook-inspector.sh",
+            "timeout": 1000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/core/waiting-notification.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/hook-inspector.sh",
+            "timeout": 1000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/core/notify.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/advanced/subagent-coordinator.py",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/advanced/state-backup.sh",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/hook-inspector.sh",
+            "timeout": 1000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/integration/project-detector.py",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/core/context-loader.sh",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/session-logger.py",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/hook-inspector.sh",
+            "timeout": 1000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/advanced/temp-cleaner.sh",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "/Users/gio/.claude/hooks/logging/session-logger.py",
+            "timeout": 2000
+          }
+        ]
+      }
+    ]
+  }
+}

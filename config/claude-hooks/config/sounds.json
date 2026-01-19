@@ -1,0 +1,37 @@
+{
+  "sounds": {
+    "success": {
+      "file": "/System/Library/Sounds/Glass.aiff",
+      "name": "Glass",
+      "description": "Task completed successfully"
+    },
+    "error": {
+      "file": "/System/Library/Sounds/Basso.aiff",
+      "name": "Basso",
+      "description": "Task blocked or error occurred"
+    },
+    "waiting": {
+      "file": "/System/Library/Sounds/Purr.aiff",
+      "name": "Purr",
+      "description": "Waiting for user input"
+    },
+    "permission": {
+      "file": "/System/Library/Sounds/Blow.aiff",
+      "name": "Blow",
+      "description": "Permission required"
+    },
+    "quality_fail": {
+      "file": "/System/Library/Sounds/Sosumi.aiff",
+      "name": "Sosumi",
+      "description": "Quality check failed"
+    }
+  },
+  "events": {
+    "task_completed": "success",
+    "task_blocked": "error",
+    "idle_prompt": "waiting",
+    "permission_prompt": "permission",
+    "elicitation_dialog": "waiting",
+    "quality_gate_failed": "quality_fail"
+  }
+}
