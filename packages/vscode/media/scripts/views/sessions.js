@@ -149,7 +149,12 @@ const SessionsView = {
 		this.stopAutoRefresh();
 		this._refreshInterval = setInterval(() => {
 			const selectedSession = this.getSelectedSession();
-			if (selectedSession && selectedSession.status === "active") {
+			// Refresh for both active and idle sessions (idle can become active again)
+			if (
+				selectedSession &&
+				(selectedSession.status === "active" ||
+					selectedSession.status === "idle")
+			) {
 				API.getSession(selectedSession.id);
 				API.getSessionActivity(selectedSession.id);
 			}
@@ -201,11 +206,17 @@ const SessionsView = {
 			});
 		}
 
-		// Sort: active first, then by startTime descending
+		// Sort: active/idle first, then by startTime descending
 		return [...filtered].sort((a, b) => {
 			// Active sessions first
 			if (a.status === "active" && b.status !== "active") return -1;
 			if (b.status === "active" && a.status !== "active") return 1;
+
+			// Idle sessions second (before completed/terminated)
+			if (a.status === "idle" && b.status !== "idle" && b.status !== "active")
+				return -1;
+			if (b.status === "idle" && a.status !== "idle" && a.status !== "active")
+				return 1;
 
 			// Then by start time (newest first)
 			const timeA = new Date(a.startTime || 0).getTime();
@@ -484,10 +495,10 @@ const SessionsView = {
 			return;
 		}
 
-		// Track rendered items for incremental updates
+		// Track rendered items for incremental updates using activity.id
 		this._renderedActivityIds.clear();
-		activities.forEach((activity, idx) => {
-			this._renderedActivityIds.add(activity.id || `idx-${idx}`);
+		activities.forEach((activity) => {
+			this._renderedActivityIds.add(activity.id);
 		});
 		this._lastActivityCount = activities.length;
 
@@ -528,9 +539,8 @@ const SessionsView = {
 		}
 
 		// Find new items (items we haven't rendered yet)
-		const newActivities = activities.filter((activity, idx) => {
-			const itemId = activity.id || `idx-${idx}`;
-			return !this._renderedActivityIds.has(itemId);
+		const newActivities = activities.filter((activity) => {
+			return !this._renderedActivityIds.has(activity.id);
 		});
 
 		if (newActivities.length === 0) {
@@ -543,7 +553,6 @@ const SessionsView = {
 		const startIdx = this._lastActivityCount;
 		newActivities.forEach((activity, i) => {
 			const idx = startIdx + i;
-			const itemId = activity.id || `idx-${idx}`;
 
 			// Create new element
 			const tempDiv = document.createElement("div");
@@ -556,7 +565,7 @@ const SessionsView = {
 				feedEl.appendChild(newEl);
 
 				// Track as rendered
-				this._renderedActivityIds.add(itemId);
+				this._renderedActivityIds.add(activity.id);
 			}
 		});
 
@@ -614,6 +623,7 @@ const SessionsView = {
 	 */
 	buildActivityFeed(session) {
 		const activities = [];
+		const seenIds = new Set();
 
 		// Get user prompts from session logs
 		const { sessionLogs, sessionActivity } = State.sessionView;
@@ -621,36 +631,55 @@ const SessionsView = {
 		// Add user prompts from logs with hook === 'UserPromptSubmit'
 		sessionLogs.forEach((log) => {
 			if (log.hook === "UserPromptSubmit" && log.details?.prompt) {
-				activities.push({
-					type: "user_prompt",
-					timestamp: log.timestamp,
-					data: {
-						prompt: log.details.prompt,
-					},
-				});
+				const activityId = log.id || `prompt-${log.timestamp}`;
+				if (!seenIds.has(activityId)) {
+					seenIds.add(activityId);
+					activities.push({
+						id: activityId,
+						type: "user_prompt",
+						timestamp: log.timestamp,
+						data: {
+							prompt: log.details.prompt,
+						},
+					});
+				}
 			}
 		});
 
 		// Add tool executions
 		if (session.toolExecutions) {
-			session.toolExecutions.forEach((tool) => {
-				activities.push({
-					type: "tool_call",
-					timestamp: tool.startTime,
-					data: tool,
-				});
+			session.toolExecutions.forEach((tool, idx) => {
+				const activityId = tool.id || `tool-${idx}-${tool.startTime}`;
+				if (!seenIds.has(activityId)) {
+					seenIds.add(activityId);
+					activities.push({
+						id: activityId,
+						type: "tool_call",
+						timestamp: tool.startTime,
+						data: tool,
+					});
+				}
 			});
 		}
 
 		// Add any activities from the activity API
 		if (sessionActivity && sessionActivity.length > 0) {
 			sessionActivity.forEach((activity) => {
-				// Avoid duplicates by checking timestamp
-				const exists = activities.some(
-					(a) => a.type === activity.type && a.timestamp === activity.timestamp,
-				);
-				if (!exists) {
-					activities.push(activity);
+				const activityId =
+					activity.id || `activity-${activity.type}-${activity.timestamp}`;
+				// Avoid duplicates by checking ID and timestamp
+				if (!seenIds.has(activityId)) {
+					const exists = activities.some(
+						(a) =>
+							a.type === activity.type && a.timestamp === activity.timestamp,
+					);
+					if (!exists) {
+						seenIds.add(activityId);
+						activities.push({
+							...activity,
+							id: activityId,
+						});
+					}
 				}
 			});
 		}
@@ -672,7 +701,7 @@ const SessionsView = {
 	 * @returns {string}
 	 */
 	renderActivityItem(activity, idx) {
-		const itemId = `activity-${idx}`;
+		const itemId = activity.id || `activity-${idx}`;
 		const isExpanded = this._expandedItems.has(itemId);
 		const timestamp = Utils.formatTime(activity.timestamp);
 
@@ -731,7 +760,7 @@ const SessionsView = {
 			}
 
 			case "tool_call":
-				return this.renderToolBubble(activity.data, idx);
+				return this.renderToolBubble(activity.data, idx, itemId);
 
 			case "session_start": {
 				const sessionData = activity.data || {};
@@ -779,10 +808,11 @@ const SessionsView = {
 	 * Render a tool call bubble
 	 * @param {Object} tool
 	 * @param {number} idx
+	 * @param {string} activityId - Optional activity ID for tracking
 	 * @returns {string}
 	 */
-	renderToolBubble(tool, idx) {
-		const itemId = `tool-${idx}`;
+	renderToolBubble(tool, idx, activityId) {
+		const itemId = activityId || tool.id || `tool-${idx}`;
 		const isExpanded = this._expandedItems.has(itemId);
 		const timestamp = Utils.formatTime(tool.startTime);
 		const status = tool.status || "completed";

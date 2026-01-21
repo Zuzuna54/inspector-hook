@@ -651,11 +651,18 @@
 .fc-diff-split {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: var(--spacing-md);
 }
 
 .fc-diff-split-pane {
   background: var(--bg-primary);
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+}
+
+.fc-diff-split-pane .fc-hunk-lines {
+  overflow-x: auto;
 }
 
 .fc-diff-split-header {
@@ -665,6 +672,7 @@
   font-size: var(--font-size-xs);
   color: var(--fg-muted);
   text-align: center;
+  font-weight: var(--font-weight-medium);
 }
 
 /* ==========================================================================
@@ -756,7 +764,7 @@
 .fc-split-headers {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2px;
+  gap: 1px;
   background: var(--border);
   position: sticky;
   top: 0;
@@ -777,6 +785,7 @@
   padding: var(--spacing-xs) var(--spacing-sm);
   background: var(--diff-hunk-header-bg, rgba(0, 122, 204, 0.1));
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 
 .fc-split-hunk-header .fc-hunk-info {
@@ -784,6 +793,7 @@
   font-family: var(--font-family-mono);
   font-size: var(--font-size-xs);
   color: var(--diff-hunk-header-fg, var(--fg-secondary));
+  min-width: 150px;
 }
 
 .fc-split-hunk-header .fc-hunk-actions {
@@ -800,17 +810,34 @@
 .fc-split-hunk-content {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2px;
+  gap: 1px;
   background: var(--border);
+  min-height: 50px;
 }
 
 .fc-split-hunk-content .fc-diff-split-pane {
   background: var(--bg-primary);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fc-split-hunk-content .fc-diff-split-pane .fc-hunk-lines {
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .fc-split-hunk-content .fc-hunk {
   border: none;
   border-radius: 0;
+}
+
+.fc-split-hunk-content .fc-line {
+  min-width: max-content;
+}
+
+.fc-split-hunk-content .fc-line-content {
+  white-space: pre;
+  overflow: visible;
 }
 
 /* ==========================================================================
@@ -1107,6 +1134,23 @@
 
   .fc-toolbar-actions {
     justify-content: center;
+  }
+
+  /* Split view responsive - stack vertically on small screens */
+  .fc-split-headers {
+    grid-template-columns: 1fr;
+  }
+
+  .fc-split-headers .fc-diff-split-header:first-child {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .fc-split-hunk-content {
+    grid-template-columns: 1fr;
+  }
+
+  .fc-split-hunk-content .fc-diff-split-pane:first-child {
+    border-bottom: 1px solid var(--border);
   }
 }
 

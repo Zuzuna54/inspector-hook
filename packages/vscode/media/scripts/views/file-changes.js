@@ -5,226 +5,228 @@
  */
 
 const FileChangesView = {
-        // ==========================================================================
-        // State
-        // ==========================================================================
+	// ==========================================================================
+	// State
+	// ==========================================================================
 
-        _subscriptions: [],
+	_subscriptions: [],
 
-        // UI State
-        _expandedSessions: new Set(),
-        _expandedFiles: new Set(), // filePath keys for expanded file accordions
-        _selectedFileKey: null, // "sessionId:filePath" - the currently selected file
-        _selectedFile: null, // { sessionId, filePath, changes: [...] } - all changes for selected file
-        _viewMode: "unified", // 'unified' (hunks) | 'split'
+	// UI State
+	_expandedSessions: new Set(),
+	_expandedFiles: new Set(), // filePath keys for expanded file accordions
+	_selectedFileKey: null, // "sessionId:filePath" - the currently selected file
+	_selectedFile: null, // { sessionId, filePath, changes: [...] } - all changes for selected file
+	_viewMode: "unified", // 'unified' (hunks) | 'split'
 
-        // Diff State - now tracks multiple diffs for a file
-        _currentDiffs: [], // Array of diff objects for all changes in selected file
-        _diffCache: new Map(), // changeId -> diff object
-        _pendingDiffLoads: 0, // Counter for pending diff loads
+	// Diff State - now tracks multiple diffs for a file
+	_currentDiffs: [], // Array of diff objects for all changes in selected file
+	_diffCache: new Map(), // changeId -> diff object
+	_pendingDiffLoads: 0, // Counter for pending diff loads
 
-        // Edit State
-        _isEditMode: false, // Page-level edit mode (all added lines editable)
-        _editedContent: new Map(), // changeId -> modified afterContent
-        _originalContent: new Map(), // changeId -> original afterContent (for reset/cancel)
-        _originalHunks: new Map(), // changeId -> deep copy of original hunks (for reset/cancel)
+	// Edit State
+	_isEditMode: false, // Page-level edit mode (all added lines editable)
+	_editedContent: new Map(), // changeId -> modified afterContent
+	_originalContent: new Map(), // changeId -> original afterContent (for reset/cancel)
+	_originalHunks: new Map(), // changeId -> deep copy of original hunks (for reset/cancel)
 
-        // Scroll State
-        _pendingScrollToHunk: null, // { changeId, hunkIndex } to scroll to after diff renders
+	// Scroll State
+	_pendingScrollToHunk: null, // { changeId, hunkIndex } to scroll to after diff renders
 
-        // ==========================================================================
-        // Initialization
-        // ==========================================================================
+	// ==========================================================================
+	// Initialization
+	// ==========================================================================
 
-        /**
-         * Initialize the view
-         */
-        init() {
-            this._setupSubscripti
-            ons();
-            this.renderSidebar();
-            this.renderEmptyDiff();
+	/**
+	 * Initialize the view
+	 */
+	init() {
+		this._setupSubscriptions();
+		this.renderSidebar();
+		this.renderEmptyDiff();
 
-            // Request initial data
-            if (typeof API !== "undefined" && API.getFileChanges) {
-                API.getFileChanges();
-            }
-        },
+		// Request initial data
+		if (typeof API !== "undefined" && API.getFileChanges) {
+			API.getFileChanges();
+		}
+	},
 
-        /**
-         * Setup state subscriptions
-         */
-        _setupSubscriptions() {
-            if (typeof State !== "undefined" && State.subscribe) {
-                this._subscriptions.push(
-                    State.subscribe("fileChanges", () => this.renderSidebar()),
-                    State.subscribe("sessions", () => this.renderSidebar()),
-                    State.subscribe("archivedChanges", () => this._updateArchiveCount()),
-                );
-            }
-        },
+	/**
+	 * Setup state subscriptions
+	 */
+	_setupSubscriptions() {
+		if (typeof State !== "undefined" && State.subscribe) {
+			this._subscriptions.push(
+				State.subscribe("fileChanges", () => this.renderSidebar()),
+				State.subscribe("sessions", () => this.renderSidebar()),
+				State.subscribe("archivedChanges", () => this._updateArchiveCount()),
+			);
+		}
+	},
 
-        /**
-         * Cleanup subscriptions when view is deactivated
-         */
-        cleanup() {
-            this._subscriptions.forEach((unsub) => {
-                if (typeof unsub === "function") unsub();
-            });
-            this._subscriptions = [];
-            this._expandedSessions.clear();
-            this._expandedFiles.clear();
-            this._selectedFileKey = null;
-            this._selectedFile = null;
-            this._currentDiffs = [];
-            this._diffCache.clear();
-            this._pendingDiffLoads = 0;
-            this._isEditMode = false;
-            this._editedContent.clear();
-            this._originalContent.clear();
-            this._originalHunks.clear();
-            this._pendingScrollToHunk = null;
-        },
+	/**
+	 * Cleanup subscriptions when view is deactivated
+	 */
+	cleanup() {
+		this._subscriptions.forEach((unsub) => {
+			if (typeof unsub === "function") unsub();
+		});
+		this._subscriptions = [];
+		this._expandedSessions.clear();
+		this._expandedFiles.clear();
+		this._selectedFileKey = null;
+		this._selectedFile = null;
+		this._currentDiffs = [];
+		this._diffCache.clear();
+		this._pendingDiffLoads = 0;
+		this._isEditMode = false;
+		this._editedContent.clear();
+		this._originalContent.clear();
+		this._originalHunks.clear();
+		this._pendingScrollToHunk = null;
+	},
 
-        // ==========================================================================
-        // Data Helpers
-        // ==========================================================================
+	// ==========================================================================
+	// Data Helpers
+	// ==========================================================================
 
-        /**
-         * Get file changes from state
-         */
-        _getFileChanges() {
-            return typeof State !== "undefined" && State.fileChanges ?
-                State.fileChanges :
-                [];
-        },
+	/**
+	 * Get file changes from state
+	 */
+	_getFileChanges() {
+		return typeof State !== "undefined" && State.fileChanges
+			? State.fileChanges
+			: [];
+	},
 
-        /**
-         * Get sessions from state
-         */
-        _getSessions() {
-            return typeof State !== "undefined" && State.sessions ? State.sessions : [];
-        },
+	/**
+	 * Get sessions from state
+	 */
+	_getSessions() {
+		return typeof State !== "undefined" && State.sessions ? State.sessions : [];
+	},
 
-        /**
-         * Group changes by session, then by file path
-         */
-        _groupBySession(changes) {
-            const sessions = this._getSessions();
-            const groups = new Map();
+	/**
+	 * Group changes by session, then by file path
+	 */
+	_groupBySession(changes) {
+		const sessions = this._getSessions();
+		const groups = new Map();
 
-            changes.forEach((change) => {
-                const sessionId = change.sessionId || "unknown";
-                if (!groups.has(sessionId)) {
-                    const session = sessions.find((s) => s.id === sessionId) || {
-                        id: sessionId,
-                    };
-                    groups.set(sessionId, { session, fileMap: new Map() });
-                }
+		changes.forEach((change) => {
+			const sessionId = change.sessionId || "unknown";
+			if (!groups.has(sessionId)) {
+				const session = sessions.find((s) => s.id === sessionId) || {
+					id: sessionId,
+				};
+				groups.set(sessionId, { session, fileMap: new Map() });
+			}
 
-                const group = groups.get(sessionId);
-                const filePath = change.filePath;
+			const group = groups.get(sessionId);
+			const filePath = change.filePath;
 
-                // Group by file path within session
-                if (!group.fileMap.has(filePath)) {
-                    group.fileMap.set(filePath, {
-                        filePath,
-                        changes: [],
-                        totalAdditions: 0,
-                        totalDeletions: 0,
-                        tools: new Set(),
-                    });
-                }
+			// Group by file path within session
+			if (!group.fileMap.has(filePath)) {
+				group.fileMap.set(filePath, {
+					filePath,
+					changes: [],
+					totalAdditions: 0,
+					totalDeletions: 0,
+					tools: new Set(),
+				});
+			}
 
-                const fileGroup = group.fileMap.get(filePath);
-                fileGroup.changes.push(change);
-                fileGroup.totalAdditions += change.additions || 0;
-                fileGroup.totalDeletions += change.deletions || 0;
-                if (change.tool) fileGroup.tools.add(change.tool);
-            });
+			const fileGroup = group.fileMap.get(filePath);
+			fileGroup.changes.push(change);
+			fileGroup.totalAdditions += change.additions || 0;
+			fileGroup.totalDeletions += change.deletions || 0;
+			if (change.tool) fileGroup.tools.add(change.tool);
+		});
 
-            // Convert to array and sort
-            return Array.from(groups.values())
-                .map(({ session, fileMap }) => ({
-                    session,
-                    files: Array.from(fileMap.values()),
-                }))
-                .sort((a, b) => {
-                    const timeA = new Date(a.session.startTime || 0).getTime();
-                    const timeB = new Date(b.session.startTime || 0).getTime();
-                    return timeB - timeA;
-                });
-        },
+		// Convert to array and sort
+		return Array.from(groups.values())
+			.map(({ session, fileMap }) => ({
+				session,
+				files: Array.from(fileMap.values()),
+			}))
+			.sort((a, b) => {
+				const timeA = new Date(a.session.startTime || 0).getTime();
+				const timeB = new Date(b.session.startTime || 0).getTime();
+				return timeB - timeA;
+			});
+	},
 
-        /**
-         * Get session display name
-         */
-        _getSessionName(session) {
-            if (session.name) return session.name;
-            if (session.metadata ? .projectName) return session.metadata.projectName;
-            if (session.id) return session.id.slice(0, 8) + "...";
-            return "Unknown Session";
-        },
+	/**
+	 * Get session display name
+	 */
+	_getSessionName(session) {
+		if (session.name) return session.name;
+		if (session.metadata && session.metadata.projectName)
+			return session.metadata.projectName;
+		if (session.id) return session.id.slice(0, 8) + "...";
+		return "Unknown Session";
+	},
 
-        /**
-         * Get tool type for badge styling
-         */
-        _getToolType(tool) {
-            if (!tool) return "unknown";
-            const toolLower = tool.toLowerCase();
-            if (toolLower.includes("edit")) return "edit";
-            if (toolLower.includes("write")) return "write";
-            if (toolLower.includes("bash")) return "bash";
-            if (toolLower.includes("read")) return "read";
-            return "unknown";
-        },
+	/**
+	 * Get tool type for badge styling
+	 */
+	_getToolType(tool) {
+		if (!tool) return "unknown";
+		const toolLower = tool.toLowerCase();
+		if (toolLower.includes("edit")) return "edit";
+		if (toolLower.includes("write")) return "write";
+		if (toolLower.includes("bash")) return "bash";
+		if (toolLower.includes("read")) return "read";
+		return "unknown";
+	},
 
-        // ==========================================================================
-        // Sidebar Rendering
-        // ==========================================================================
+	// ==========================================================================
+	// Sidebar Rendering
+	// ==========================================================================
 
-        /**
-         * Render the sidebar with sessions and files
-         */
-        renderSidebar() {
-            const container = document.getElementById("fc-session-list");
-            if (!container) return;
+	/**
+	 * Render the sidebar with sessions and files
+	 */
+	renderSidebar() {
+		const container = document.getElementById("fc-session-list");
+		if (!container) return;
 
-            const changes = this._getFileChanges();
-            const pendingChanges = changes.filter((c) => c.status === "pending");
+		const changes = this._getFileChanges();
+		const pendingChanges = changes.filter((c) => c.status === "pending");
 
-            // Update pending count
-            const countEl = document.getElementById("fc-pending-count");
-            if (countEl) {
-                countEl.textContent = `${pendingChanges.length} pending`;
-            }
+		// Update pending count
+		const countEl = document.getElementById("fc-pending-count");
+		if (countEl) {
+			countEl.textContent = `${pendingChanges.length} pending`;
+		}
 
-            if (pendingChanges.length === 0) {
-                container.innerHTML = `
+		if (pendingChanges.length === 0) {
+			container.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-title">No pending changes</div>
           <div class="empty-state-description">File changes will appear here when Claude Code modifies files</div>
         </div>
       `;
-                return;
-            }
+			return;
+		}
 
-            const sessionGroups = this._groupBySession(pendingChanges);
+		const sessionGroups = this._groupBySession(pendingChanges);
 
-            container.innerHTML = sessionGroups
-                .map(({ session, files }) => {
-                        const isExpanded = this._expandedSessions.has(session.id);
-                        const duration = session.startTime ?
-                            Utils.formatDuration(session.startTime, session.endTime) :
-                            "";
-                        const projectName =
-                            session.metadata ? .projectName || session.metadata ? .cwd || "";
-                        const totalChanges = files.reduce(
-                            (sum, f) => sum + f.changes.length,
-                            0,
-                        );
+		container.innerHTML = sessionGroups
+			.map(({ session, files }) => {
+				const isExpanded = this._expandedSessions.has(session.id);
+				const duration = session.startTime
+					? Utils.formatDuration(session.startTime, session.endTime)
+					: "";
+				const projectName =
+					(session.metadata && session.metadata.projectName) ||
+					(session.metadata && session.metadata.cwd) ||
+					"";
+				const totalChanges = files.reduce(
+					(sum, f) => sum + f.changes.length,
+					0,
+				);
 
-                        return `
+				return `
         <div class="fc-session ${isExpanded ? "expanded" : ""}" data-session-id="${session.id}">
           <div class="fc-session-header" data-session-id="${session.id}">
             <span class="fc-expand-icon">${isExpanded ? "&#9660;" : "&#9654;"}</span>
