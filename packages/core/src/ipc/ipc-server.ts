@@ -120,7 +120,7 @@ export class IpcServer {
 			);
 
 			// Build activity items from logs
-			// Types: user_prompt, ai_response, tool_call, session_start, notification, message
+			// Types: user_prompt, ai_response, tool_call, session_start, notification, subagent_complete, message
 			const activityItems: Array<{
 				id: string;
 				type:
@@ -129,6 +129,7 @@ export class IpcServer {
 					| "tool_call"
 					| "session_start"
 					| "notification"
+					| "subagent_complete"
 					| "message";
 				timestamp: string;
 				data: unknown;
@@ -189,6 +190,20 @@ export class IpcServer {
 						},
 					});
 				}
+				// Subagent completion (Task tool)
+				else if (log.hook === "SubagentStop" || log.event === "subagent.stop") {
+					activityItems.push({
+						id: log.id,
+						type: "subagent_complete",
+						timestamp: log.timestamp,
+						data: {
+							subagentType: log.details?.subagent_type,
+							success: log.details?.success,
+							result: log.details?.result,
+							message: log.message,
+						},
+					});
+				}
 				// Tool calls
 				else if (
 					log.tool &&
@@ -197,13 +212,21 @@ export class IpcServer {
 						log.event === "tool.start" ||
 						log.event === "tool.end")
 				) {
-					// Find existing tool item to update or create new one
-					const existingIdx = activityItems.findIndex(
-						(item) =>
-							item.type === "tool_call" &&
-							(item.data as any).tool === log.tool &&
-							(item.data as any).status === "running",
-					);
+					// Find existing tool item to update using executionId for precise matching
+					// Falls back to tool name + status if executionId not available
+					const existingIdx = activityItems.findIndex((item) => {
+						if (item.type !== "tool_call") return false;
+						const data = item.data as any;
+						if (data.status !== "running") return false;
+
+						// Use executionId if available (preferred - precise matching)
+						if (log.executionId && data.executionId) {
+							return data.executionId === log.executionId;
+						}
+
+						// Fallback: match by tool name (legacy behavior)
+						return data.tool === log.tool;
+					});
 
 					if (log.event === "PreToolUse" || log.event === "tool.start") {
 						activityItems.push({
@@ -212,6 +235,7 @@ export class IpcServer {
 							timestamp: log.timestamp,
 							data: {
 								tool: log.tool,
+								executionId: log.executionId,
 								input:
 									log.details?.tool_input || log.details?.input || log.details,
 								file: log.file,
@@ -239,6 +263,7 @@ export class IpcServer {
 							timestamp: log.timestamp,
 							data: {
 								tool: log.tool,
+								executionId: log.executionId,
 								input: log.details?.tool_input || log.details?.input,
 								result:
 									log.details?.tool_result ||

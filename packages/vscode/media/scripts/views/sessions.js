@@ -10,8 +10,11 @@ const SessionsView = {
 	// Expanded items tracking
 	_expandedItems: new Set(),
 
-	// Auto-refresh interval for active sessions
+	// Auto-refresh interval for active sessions (fast - every 2s)
 	_refreshInterval: null,
+
+	// Slower refresh interval for all sessions list (every 30s)
+	_sessionsListRefreshInterval: null,
 
 	// Track rendered activity items to avoid full re-renders
 	_renderedActivityIds: new Set(),
@@ -26,11 +29,15 @@ const SessionsView = {
 	getSessionDisplayInfo(session) {
 		let projectName = "";
 
-		// 1. Try project name from metadata
-		if (session.metadata?.projectName) {
+		// 1. Try session.name (new field - populated by backend)
+		if (session.name) {
+			projectName = session.name;
+		}
+		// 2. Try project name from metadata
+		else if (session.metadata?.projectName) {
 			projectName = session.metadata.projectName;
 		}
-		// 2. Try to extract folder name from working directory
+		// 3. Try to extract folder name from working directory
 		else if (session.metadata?.workingDirectory) {
 			const path = session.metadata.workingDirectory;
 			// Get last non-empty segment of path
@@ -147,6 +154,8 @@ const SessionsView = {
 	 */
 	startAutoRefresh() {
 		this.stopAutoRefresh();
+
+		// Fast refresh for selected session activity (every 2s)
 		this._refreshInterval = setInterval(() => {
 			const selectedSession = this.getSelectedSession();
 			// Refresh for both active and idle sessions (idle can become active again)
@@ -159,6 +168,12 @@ const SessionsView = {
 				API.getSessionActivity(selectedSession.id);
 			}
 		}, 2000);
+
+		// Slower refresh for all sessions list (every 30s)
+		// This ensures sidebar shows up-to-date status for all sessions
+		this._sessionsListRefreshInterval = setInterval(() => {
+			API.getSessions();
+		}, 30000);
 	},
 
 	/**
@@ -168,6 +183,10 @@ const SessionsView = {
 		if (this._refreshInterval) {
 			clearInterval(this._refreshInterval);
 			this._refreshInterval = null;
+		}
+		if (this._sessionsListRefreshInterval) {
+			clearInterval(this._sessionsListRefreshInterval);
+			this._sessionsListRefreshInterval = null;
 		}
 	},
 
@@ -617,39 +636,105 @@ const SessionsView = {
 	},
 
 	/**
+	 * Generate a stable hash for a string (for activity IDs)
+	 * @param {string} str
+	 * @returns {string}
+	 */
+	hashString(str) {
+		let hash = 0;
+		for (let i = 0; i < str.length; i++) {
+			hash = (hash << 5) - hash + str.charCodeAt(i);
+			hash = hash & hash;
+		}
+		return Math.abs(hash).toString(16);
+	},
+
+	/**
+	 * Generate a stable activity ID
+	 * @param {Object} activity
+	 * @param {string} type
+	 * @returns {string}
+	 */
+	generateActivityId(activity, type) {
+		if (activity.id) return activity.id;
+
+		if (type === "tool_call" && activity.tool) {
+			const inputHash = this.hashString(JSON.stringify(activity.input || ""));
+			return `tool-${activity.tool}-${activity.startTime}-${inputHash.slice(0, 8)}`;
+		}
+
+		const contentHash = this.hashString(
+			JSON.stringify(activity.data || activity),
+		);
+		return `${type}-${activity.timestamp}-${contentHash.slice(0, 8)}`;
+	},
+
+	/**
+	 * Safely stringify a value for display
+	 * @param {*} value
+	 * @param {number} maxLength
+	 * @returns {string}
+	 */
+	safeStringify(value, maxLength = 2000) {
+		if (value === null || value === undefined) return "";
+		try {
+			const str =
+				typeof value === "object"
+					? JSON.stringify(value, null, 2)
+					: String(value);
+			return str.slice(0, maxLength);
+		} catch (e) {
+			return "[Unable to display]";
+		}
+	},
+
+	/**
+	 * Safely get an array (returns empty array if not array)
+	 * @param {*} arr
+	 * @returns {Array}
+	 */
+	safeArray(arr) {
+		return Array.isArray(arr) ? arr : [];
+	},
+
+	/**
+	 * Get stop reason from activity data (handles different field names)
+	 * @param {Object} data
+	 * @returns {string}
+	 */
+	getStopReason(data) {
+		if (!data) return "";
+		return data.stopReason || data.stop_reason || data.finish_reason || "";
+	},
+
+	/**
 	 * Build activity feed from session data
+	 * Uses sessionActivity from backend as primary source for activity items
 	 * @param {Object} session
 	 * @returns {Array}
 	 */
 	buildActivityFeed(session) {
 		const activities = [];
 		const seenIds = new Set();
+		const { sessionActivity } = State.sessionView;
 
-		// Get user prompts from session logs
-		const { sessionLogs, sessionActivity } = State.sessionView;
-
-		// Add user prompts from logs with hook === 'UserPromptSubmit'
-		sessionLogs.forEach((log) => {
-			if (log.hook === "UserPromptSubmit" && log.details?.prompt) {
-				const activityId = log.id || `prompt-${log.timestamp}`;
+		// Use sessionActivity from backend as primary source
+		// (already includes user_prompt, ai_response, tool_call, etc.)
+		if (sessionActivity && sessionActivity.length > 0) {
+			sessionActivity.forEach((activity) => {
+				const activityId = this.generateActivityId(activity, activity.type);
 				if (!seenIds.has(activityId)) {
 					seenIds.add(activityId);
-					activities.push({
-						id: activityId,
-						type: "user_prompt",
-						timestamp: log.timestamp,
-						data: {
-							prompt: log.details.prompt,
-						},
-					});
+					activities.push({ ...activity, id: activityId });
 				}
-			}
-		});
+			});
+		}
 
-		// Add tool executions
+		// Add tool executions from session as fallback
+		// (in case they're not in sessionActivity yet)
 		if (session.toolExecutions) {
-			session.toolExecutions.forEach((tool, idx) => {
-				const activityId = tool.id || `tool-${idx}-${tool.startTime}`;
+			session.toolExecutions.forEach((tool) => {
+				const activityId = this.generateActivityId(tool, "tool_call");
 				if (!seenIds.has(activityId)) {
 					seenIds.add(activityId);
 					activities.push({
@@ -658,28 +743,6 @@ const SessionsView = {
 						timestamp: tool.startTime,
 						data: tool,
 					});
-				}
-			});
-		}
-
-		// Add any activities from the activity API
-		if (sessionActivity && sessionActivity.length > 0) {
-			sessionActivity.forEach((activity) => {
-				const activityId =
-					activity.id || `activity-${activity.type}-${activity.timestamp}`;
-				// Avoid duplicates by checking ID and timestamp
-				if (!seenIds.has(activityId)) {
-					const exists = activities.some(
-						(a) =>
-							a.type === activity.type && a.timestamp === activity.timestamp,
-					);
-					if (!exists) {
-						seenIds.add(activityId);
-						activities.push({
-							...activity,
-							id: activityId,
-						});
-					}
 				}
 			});
 		}
@@ -720,8 +783,9 @@ const SessionsView = {
         `;
 
 			case "ai_response": {
-				const aiMessage = activity.data.message || "Claude finished responding";
-				const stopReason = activity.data.stopReason || "";
+				const aiMessage =
+					activity.data?.message || "Claude finished responding";
+				const stopReason = this.getStopReason(activity.data);
 				return `
           <div class="sv-bubble sv-ai" data-item-id="${itemId}">
             <div class="sv-bubble-header">
@@ -778,6 +842,27 @@ const SessionsView = {
         `;
 			}
 
+			case "subagent_complete": {
+				const subagentData = activity.data || {};
+				const success = subagentData.success !== false;
+				const statusIcon = success ? "✅" : "❌";
+				const statusClass = success
+					? "sv-subagent-success"
+					: "sv-subagent-failed";
+				const agentType = subagentData.subagentType || "Task";
+				return `
+          <div class="sv-bubble sv-subagent ${statusClass}" data-item-id="${itemId}">
+            <div class="sv-bubble-header">
+              <span class="sv-bubble-role">${statusIcon} Subagent: ${Utils.escapeHtml(agentType)}</span>
+              <span class="sv-bubble-time">${timestamp}</span>
+            </div>
+            <div class="sv-bubble-content">
+              ${Utils.escapeHtml(subagentData.message || `${agentType} agent ${success ? "completed" : "failed"}`)}
+            </div>
+          </div>
+        `;
+			}
+
 			case "message": {
 				const msgData = activity.data || {};
 				const levelClass =
@@ -799,8 +884,28 @@ const SessionsView = {
         `;
 			}
 
-			default:
-				return "";
+			default: {
+				// Handle unknown activity types gracefully
+				console.warn(
+					`[SessionsView] Unknown activity type: ${activity.type}`,
+					activity,
+				);
+				return `
+          <div class="sv-bubble sv-unknown" data-item-id="${itemId}">
+            <div class="sv-bubble-header">
+              <span class="sv-bubble-role">&#9888; ${Utils.escapeHtml(activity.type || "Unknown")}</span>
+              <span class="sv-bubble-time">${timestamp}</span>
+            </div>
+            <div class="sv-bubble-content">
+              ${
+								activity.data?.message
+									? Utils.escapeHtml(String(activity.data.message))
+									: `<em>Activity type "${Utils.escapeHtml(activity.type || "unknown")}" not recognized</em>`
+							}
+            </div>
+          </div>
+        `;
+			}
 		}
 	},
 
@@ -861,16 +966,9 @@ const SessionsView = {
 	 * @returns {string}
 	 */
 	renderToolDetails(tool) {
-		const inputStr = tool.input
-			? typeof tool.input === "object"
-				? JSON.stringify(tool.input, null, 2)
-				: String(tool.input)
-			: "";
-		const outputStr = tool.result
-			? typeof tool.result === "object"
-				? JSON.stringify(tool.result, null, 2)
-				: String(tool.result).slice(0, 2000)
-			: "";
+		const inputStr = this.safeStringify(tool.input, 5000);
+		const outputStr = this.safeStringify(tool.result, 2000);
+		const affectedFiles = this.safeArray(tool.affectedFiles);
 
 		return `
       <div class="sv-tool-details">
@@ -917,14 +1015,14 @@ const SessionsView = {
 						: ""
 				}
         ${
-					tool.affectedFiles && tool.affectedFiles.length > 0
+					affectedFiles.length > 0
 						? `
           <div class="sv-tool-section">
             <div class="sv-tool-section-header">
               <span>Affected Files</span>
             </div>
             <div class="sv-affected-files">
-              ${tool.affectedFiles
+              ${affectedFiles
 								.map(
 									(f) => `
                 <span class="sv-file-chip">${Utils.escapeHtml(Utils.getFileName(f))}</span>

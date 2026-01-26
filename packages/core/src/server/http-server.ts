@@ -159,11 +159,32 @@ export class HttpServer {
 		const body = await this.readBody(req);
 
 		try {
-			const logData = JSON.parse(body) as Partial<LogEntry>;
+			const logData = JSON.parse(body) as Partial<LogEntry> & {
+				executionId?: string;
+			};
 
 			// Validate required fields
 			if (!logData.hook || !logData.event) {
 				this.sendBadRequest(res, "Missing required fields: hook, event");
+				return;
+			}
+
+			// Validate sessionId for hooks that require it
+			const sessionRequiredHooks = [
+				"PreToolUse",
+				"PostToolUse",
+				"SessionStart",
+				"SessionEnd",
+				"UserPromptSubmit",
+				"Stop",
+				"Notification",
+				"SubagentStop",
+			];
+			if (sessionRequiredHooks.includes(logData.hook) && !logData.sessionId) {
+				this.sendBadRequest(
+					res,
+					`Missing required sessionId for hook: ${logData.hook}`,
+				);
 				return;
 			}
 
@@ -178,7 +199,11 @@ export class HttpServer {
 			// File tracking workflow for Edit/Write tools:
 			// - On PreToolUse: capture BEFORE content from disk
 			// - On PostToolUse: read AFTER content from disk and detect change
-			if (log.file && log.tool && (log.tool === "Edit" || log.tool === "Write")) {
+			if (
+				log.file &&
+				log.tool &&
+				(log.tool === "Edit" || log.tool === "Write")
+			) {
 				if (log.event === "PreToolUse") {
 					// Capture the before content BEFORE the tool modifies the file
 					await this.fileTracker.captureBeforeContent(
@@ -239,7 +264,7 @@ export class HttpServer {
 
 		// Get recent logs with tool info
 		const toolLogs = logsResult.logs.filter(
-			(log) => log.hook === "PreToolUse" || log.hook === "PostToolUse"
+			(log) => log.hook === "PreToolUse" || log.hook === "PostToolUse",
 		);
 
 		this.sendJson(res, {

@@ -18,6 +18,18 @@ file=$(echo "$input" | jq -r '.tool_input.file_path // .tool_input.path // .tool
 # Extract the full tool_input object
 tool_input=$(echo "$input" | jq -c '.tool_input // {}')
 
+# Generate deterministic execution ID (must match pre-tool-use.sh algorithm)
+# Cross-platform: macOS uses md5, Linux uses md5sum
+if command -v md5sum &>/dev/null; then
+    tool_input_hash=$(echo "$tool_input" | md5sum | cut -d' ' -f1 | head -c 12)
+elif command -v md5 &>/dev/null; then
+    tool_input_hash=$(echo "$tool_input" | md5 -r | cut -d' ' -f1 | head -c 12)
+else
+    # Fallback: use first 12 chars of base64-encoded input
+    tool_input_hash=$(echo "$tool_input" | base64 | tr -d '\n' | head -c 12)
+fi
+execution_id="${session}-${tool}-${tool_input_hash}"
+
 # Extract the tool_result - this contains the output from the tool
 # tool_result can be a string, object, or null
 tool_result=$(echo "$input" | jq -c '.tool_result // null')
@@ -37,6 +49,7 @@ payload=$(jq -n \
   --arg tool "$tool" \
   --arg file "$file" \
   --arg sessionId "$session" \
+  --arg executionId "$execution_id" \
   --arg cwd "$cwd" \
   --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg level "$level" \
@@ -49,6 +62,7 @@ payload=$(jq -n \
     tool: $tool,
     file: $file,
     sessionId: $sessionId,
+    executionId: $executionId,
     timestamp: $timestamp,
     level: $level,
     message: $message,

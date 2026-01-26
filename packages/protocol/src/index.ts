@@ -34,6 +34,8 @@ export interface LogEntry {
 	tool?: string;
 	/** File path (if applicable) */
 	file?: string;
+	/** Execution ID for correlating PreToolUse/PostToolUse events */
+	executionId?: string;
 	/** Additional structured data */
 	details?: Record<string, unknown>;
 }
@@ -86,6 +88,8 @@ export interface SessionMetadata {
 export interface Session {
 	/** Unique session identifier */
 	id: string;
+	/** Human-readable session name (derived from project or directory) */
+	name?: string;
 	/** Session status */
 	status: SessionStatus;
 	/** ISO 8601 start time */
@@ -103,6 +107,121 @@ export interface Session {
 }
 
 export type ExecutionStatus = "running" | "completed" | "failed" | "blocked";
+
+// =============================================================================
+// Activity Types (for Session Activity Feed)
+// =============================================================================
+
+/**
+ * Activity type enumeration
+ */
+export type ActivityType =
+	| "user_prompt"
+	| "ai_response"
+	| "tool_call"
+	| "session_start"
+	| "notification"
+	| "subagent_complete"
+	| "message";
+
+/**
+ * Stop reason for AI responses
+ */
+export type StopReason = "complete" | "user_abort" | "error" | "timeout";
+
+/**
+ * Base activity item structure
+ */
+export interface ActivityItemBase {
+	id: string;
+	type: ActivityType;
+	timestamp: string;
+}
+
+/**
+ * User prompt activity data
+ */
+export interface UserPromptActivityData {
+	prompt: string;
+}
+
+/**
+ * AI response activity data
+ */
+export interface AiResponseActivityData {
+	message: string;
+	stopReason?: StopReason;
+}
+
+/**
+ * Tool call activity data
+ */
+export interface ToolCallActivityData {
+	tool: string;
+	executionId?: string;
+	input?: Record<string, unknown>;
+	result?: unknown;
+	file?: string;
+	status: "running" | "completed" | "failed" | "blocked";
+	startTime: string;
+	endTime?: string;
+}
+
+/**
+ * Session start activity data
+ */
+export interface SessionStartActivityData {
+	event: "start";
+	projectName?: string;
+	gitBranch?: string;
+	workingDirectory?: string;
+}
+
+/**
+ * Notification activity data
+ */
+export interface NotificationActivityData {
+	message: string;
+	notificationType?: string;
+}
+
+/**
+ * Subagent complete activity data
+ */
+export interface SubagentCompleteActivityData {
+	subagentType?: string;
+	success: boolean;
+	result?: unknown;
+	message?: string;
+}
+
+/**
+ * Generic message activity data
+ */
+export interface MessageActivityData {
+	hook?: string;
+	event?: string;
+	level?: LogLevel;
+	message: string;
+	details?: Record<string, unknown>;
+}
+
+/**
+ * Activity item with typed data
+ */
+export interface ActivityItem<T = unknown> extends ActivityItemBase {
+	data: T;
+}
+
+/**
+ * Session activity response from API
+ */
+export interface SessionActivityResponse {
+	sessionId: string;
+	session: Session | null;
+	activity: ActivityItem[];
+	totalItems: number;
+}
 
 /**
  * A tool execution within a session

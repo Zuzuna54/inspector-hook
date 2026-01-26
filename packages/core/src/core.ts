@@ -93,27 +93,49 @@ export class InspectorCore {
 			this.ipcServer.sendNotification("stats", this.getStats());
 		});
 
-		// When a session is created, log it and broadcast
+		// When a session is created, broadcast to VS Code
+		// Note: We don't log session.start here - the SessionStart hook already does that
 		this.sessionManager.on("session:created", (session) => {
-			this.logManager.addLog({
-				timestamp: new Date().toISOString(),
-				level: "info",
-				message: `Session created: ${session.id}`,
-				sessionId: session.id,
-				event: "session.start",
-			});
-			// Broadcast session event to VS Code
 			this.ipcServer.sendNotification("session", session);
 		});
 
 		// When a session ends, log it and broadcast
 		this.sessionManager.on("session:ended", (session) => {
 			this.logManager.addLog({
+				hook: "SessionManager",
 				timestamp: new Date().toISOString(),
 				level: "info",
 				message: `Session ended: ${session.id}`,
 				sessionId: session.id,
 				event: "session.end",
+			});
+			// Broadcast session event to VS Code
+			this.ipcServer.sendNotification("session", session);
+		});
+
+		// When a session goes idle, log it and broadcast
+		this.sessionManager.on("session:idle", (session) => {
+			this.logManager.addLog({
+				hook: "SessionManager",
+				timestamp: new Date().toISOString(),
+				level: "info",
+				message: `Session went idle: ${session.id}`,
+				sessionId: session.id,
+				event: "session.idle",
+			});
+			// Broadcast session event to VS Code for real-time status update
+			this.ipcServer.sendNotification("session", session);
+		});
+
+		// When a session is terminated, log it and broadcast
+		this.sessionManager.on("session:terminated", (session) => {
+			this.logManager.addLog({
+				hook: "SessionManager",
+				timestamp: new Date().toISOString(),
+				level: "info",
+				message: `Session terminated: ${session.id}`,
+				sessionId: session.id,
+				event: "session.terminated",
 			});
 			// Broadcast session event to VS Code
 			this.ipcServer.sendNotification("session", session);
@@ -136,31 +158,34 @@ export class InspectorCore {
 		});
 
 		// When a tool completes, track the file change
-		this.sessionManager.on("tool:completed", async ({ sessionId, execution }) => {
-			if (
-				execution.affectedFiles &&
-				(execution.tool === "Edit" || execution.tool === "Write")
-			) {
-				for (const filePath of execution.affectedFiles) {
-					const change = await this.fileTracker.trackFromLog({
-						id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-						timestamp: execution.endTime || new Date().toISOString(),
-						level: "info",
-						hook: "ToolEnd",
-						message: `File modified: ${filePath}`,
-						sessionId,
-						tool: execution.tool,
-						file: filePath,
-						event: "tool.end",
-					});
+		this.sessionManager.on(
+			"tool:completed",
+			async ({ sessionId, execution }) => {
+				if (
+					execution.affectedFiles &&
+					(execution.tool === "Edit" || execution.tool === "Write")
+				) {
+					for (const filePath of execution.affectedFiles) {
+						const change = await this.fileTracker.trackFromLog({
+							id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+							timestamp: execution.endTime || new Date().toISOString(),
+							level: "info",
+							hook: "ToolEnd",
+							message: `File modified: ${filePath}`,
+							sessionId,
+							tool: execution.tool,
+							file: filePath,
+							event: "tool.end",
+						});
 
-					if (change) {
-						// Link the change to the session
-						this.sessionManager.addFileChange(sessionId, change.id);
+						if (change) {
+							// Link the change to the session
+							this.sessionManager.addFileChange(sessionId, change.id);
+						}
 					}
 				}
-			}
-		});
+			},
+		);
 
 		// When a file change is tracked, broadcast via IPC
 		this.fileTracker.on("change:tracked", (change) => {
@@ -170,12 +195,18 @@ export class InspectorCore {
 
 		// When a change is kept, broadcast
 		this.fileTracker.on("change:kept", (change) => {
-			this.ipcServer.sendNotification("fileChange", { ...change, eventType: "kept" });
+			this.ipcServer.sendNotification("fileChange", {
+				...change,
+				eventType: "kept",
+			});
 		});
 
 		// When a change is reverted, broadcast
 		this.fileTracker.on("change:reverted", (change) => {
-			this.ipcServer.sendNotification("fileChange", { ...change, eventType: "reverted" });
+			this.ipcServer.sendNotification("fileChange", {
+				...change,
+				eventType: "reverted",
+			});
 		});
 
 		// When a version is created, broadcast

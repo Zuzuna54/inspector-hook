@@ -164,11 +164,18 @@ export class SessionManager extends EventEmitter {
 	}
 
 	/**
-	 * Reactivate an idle session (when new activity is detected)
+	 * Reactivate a session when new activity is detected
+	 * Handles idle, completed, and terminated sessions
 	 */
 	private reactivateSession(session: Session): void {
-		if (session.status === "idle") {
+		// Reactivate idle or completed sessions (but not error/terminated which are intentional endings)
+		if (session.status === "idle" || session.status === "completed") {
+			const wasCompleted = session.status === "completed";
 			session.status = "active";
+			// Clear endTime since session is active again
+			if (wasCompleted) {
+				session.endTime = undefined;
+			}
 			// Note: We don't emit session:created here since it's a reactivation
 		}
 	}
@@ -180,6 +187,7 @@ export class SessionManager extends EventEmitter {
 		const now = new Date().toISOString();
 		const session: Session = {
 			id,
+			name: this.deriveSessionName(metadata),
 			status: "active",
 			startTime: now,
 			lastActivityTime: now,
@@ -219,6 +227,33 @@ export class SessionManager extends EventEmitter {
 	}
 
 	/**
+	 * Derive session name from metadata
+	 * Priority: projectName > folder from workingDirectory
+	 * @param metadata - session metadata
+	 * @returns derived session name or undefined
+	 */
+	private deriveSessionName(
+		metadata?: Record<string, unknown>,
+	): string | undefined {
+		if (!metadata) return undefined;
+
+		// First try explicit projectName
+		if (metadata.projectName && typeof metadata.projectName === "string") {
+			return metadata.projectName;
+		}
+
+		// Then try to extract from workingDirectory
+		if (
+			metadata.workingDirectory &&
+			typeof metadata.workingDirectory === "string"
+		) {
+			return this.extractProjectName(metadata.workingDirectory);
+		}
+
+		return undefined;
+	}
+
+	/**
 	 * Track activity from a log entry
 	 */
 	trackActivity(sessionId: string, log: LogEntry): void {
@@ -240,35 +275,33 @@ export class SessionManager extends EventEmitter {
 		session.lastActivityTime = log.timestamp || new Date().toISOString();
 		this.reactivateSession(session);
 
-		// Handle session.start event from SessionStart hook - update metadata if needed
+		// Handle session.start event from SessionStart hook - ALWAYS update metadata
+		// SessionStart provides the most accurate session info (project name, git branch, etc.)
 		if (log.event === "session.start" || log.hook === "SessionStart") {
-			// Update session metadata with richer info from SessionStart hook
-			if (log.details?.projectName && !session.metadata?.projectName) {
-				session.metadata = {
-					...session.metadata,
-					projectName: log.details.projectName as string,
-				};
+			// Always update session metadata with SessionStart info (overwrites previous values)
+			const newMetadata: Record<string, unknown> = { ...session.metadata };
+
+			if (log.details?.projectName) {
+				newMetadata.projectName = log.details.projectName as string;
 			}
-			if (log.details?.gitBranch && !session.metadata?.gitBranch) {
-				session.metadata = {
-					...session.metadata,
-					gitBranch: log.details.gitBranch as string,
-				};
+			if (log.details?.gitBranch) {
+				newMetadata.gitBranch = log.details.gitBranch as string;
 			}
-			if (log.details?.gitRemote && !session.metadata?.gitRemote) {
-				session.metadata = {
-					...session.metadata,
-					gitRemote: log.details.gitRemote as string,
-				};
+			if (log.details?.gitRemote) {
+				newMetadata.gitRemote = log.details.gitRemote as string;
 			}
-			if (cwd && !session.metadata?.workingDirectory) {
-				session.metadata = {
-					...session.metadata,
-					workingDirectory: cwd,
-					projectName:
-						session.metadata?.projectName || this.extractProjectName(cwd),
-				};
+			if (cwd) {
+				newMetadata.workingDirectory = cwd;
+				// Only set projectName from cwd if not already set by projectName field
+				if (!log.details?.projectName) {
+					newMetadata.projectName = this.extractProjectName(cwd);
+				}
 			}
+
+			session.metadata = newMetadata;
+
+			// Update session.name based on updated metadata
+			session.name = this.deriveSessionName(newMetadata);
 		}
 
 		// Track tool execution start (supports both tool.start and PreToolUse)

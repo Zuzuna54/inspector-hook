@@ -546,6 +546,32 @@
   border-left: 3px solid var(--color-info);
 }
 
+.sv-bubble.sv-subagent {
+  margin-right: auto;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border: 1px solid var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+.sv-bubble.sv-subagent.sv-subagent-success {
+  border-color: var(--color-success);
+  border-left-color: var(--color-success);
+}
+
+.sv-bubble.sv-subagent.sv-subagent-failed {
+  border-color: var(--color-error);
+  border-left-color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.sv-bubble.sv-unknown {
+  margin-right: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--color-warning);
+  border-left: 3px solid var(--color-warning);
+  opacity: 0.85;
+}
+
 .sv-response-indicator {
   display: inline-block;
   padding: 2px 8px;

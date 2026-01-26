@@ -30,6 +30,9 @@ PRE_HOOK="${CLAUDE_DIR}/pre-tool-use.sh"
 POST_HOOK="${CLAUDE_DIR}/post-tool-use.sh"
 SESSION_HOOK="${CLAUDE_DIR}/session-start.sh"
 USER_PROMPT_HOOK="${CLAUDE_DIR}/user-prompt-submit.sh"
+STOP_HOOK="${CLAUDE_DIR}/stop.sh"
+NOTIFICATION_HOOK="${CLAUDE_DIR}/notification.sh"
+SUBAGENT_STOP_HOOK="${CLAUDE_DIR}/subagent-stop.sh"
 
 # Claude Code settings location
 CLAUDE_SETTINGS_DIR="${HOME}/.claude"
@@ -106,11 +109,26 @@ check_prerequisites() {
     error "User-prompt-submit hook not found at $USER_PROMPT_HOOK"
   fi
 
+  if [[ ! -f "$STOP_HOOK" ]]; then
+    error "Stop hook not found at $STOP_HOOK"
+  fi
+
+  if [[ ! -f "$NOTIFICATION_HOOK" ]]; then
+    error "Notification hook not found at $NOTIFICATION_HOOK"
+  fi
+
+  if [[ ! -f "$SUBAGENT_STOP_HOOK" ]]; then
+    error "Subagent-stop hook not found at $SUBAGENT_STOP_HOOK"
+  fi
+
   # Make sure hook scripts are executable
   chmod +x "$PRE_HOOK"
   chmod +x "$POST_HOOK"
   chmod +x "$SESSION_HOOK"
   chmod +x "$USER_PROMPT_HOOK"
+  chmod +x "$STOP_HOOK"
+  chmod +x "$NOTIFICATION_HOOK"
+  chmod +x "$SUBAGENT_STOP_HOOK"
   chmod +x "${CLAUDE_DIR}/lib/http-logger.sh" 2>/dev/null || true
   chmod +x "${CLAUDE_DIR}/lib/http_logger.py" 2>/dev/null || true
 }
@@ -197,6 +215,24 @@ install_hooks() {
       "command": "$POST_HOOK",
       "timeout": 5000
     }
+  ],
+  "Stop": [
+    {
+      "command": "$STOP_HOOK",
+      "timeout": 5000
+    }
+  ],
+  "Notification": [
+    {
+      "command": "$NOTIFICATION_HOOK",
+      "timeout": 5000
+    }
+  ],
+  "SubagentStop": [
+    {
+      "command": "$SUBAGENT_STOP_HOOK",
+      "timeout": 5000
+    }
   ]
 }
 EOF
@@ -216,14 +252,20 @@ EOF
   echo "  - User-prompt-submit:  $USER_PROMPT_HOOK"
   echo "  - Pre-tool-use:        $PRE_HOOK"
   echo "  - Post-tool-use:       $POST_HOOK"
+  echo "  - Stop:                $STOP_HOOK"
+  echo "  - Notification:        $NOTIFICATION_HOOK"
+  echo "  - Subagent-stop:       $SUBAGENT_STOP_HOOK"
   echo ""
   echo "Settings file: $CLAUDE_SETTINGS_FILE"
   echo ""
   echo "Configuration added for events:"
   echo "  - SessionStart (captures project name, git branch)"
   echo "  - UserPromptSubmit (captures user prompts)"
-  echo "  - PreToolUse"
-  echo "  - PostToolUse"
+  echo "  - PreToolUse (captures tool start)"
+  echo "  - PostToolUse (captures tool completion)"
+  echo "  - Stop (captures AI response completion)"
+  echo "  - Notification (captures permission prompts, waiting)"
+  echo "  - SubagentStop (captures Task tool completion)"
   echo ""
   info "Restart Claude Code for changes to take effect."
 }
@@ -247,7 +289,7 @@ uninstall_hooks() {
     .hooks |= (
       if . then
         with_entries(
-          .value |= map(select(.command | (contains("pre-tool-use.sh") or contains("post-tool-use.sh") or contains("session-start.sh") or contains("user-prompt-submit.sh")) | not))
+          .value |= map(select(.command | (contains("pre-tool-use.sh") or contains("post-tool-use.sh") or contains("session-start.sh") or contains("user-prompt-submit.sh") or contains("stop.sh") or contains("notification.sh") or contains("subagent-stop.sh")) | not))
         ) |
         with_entries(select(.value | length > 0))
       else

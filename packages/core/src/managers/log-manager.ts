@@ -3,8 +3,8 @@
  * Handles log storage, retrieval, and statistics with persistence
  */
 
-import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import type {
 	LogClearResult,
 	LogEntry,
@@ -80,7 +80,9 @@ export class LogManager extends EventEmitter {
 	/**
 	 * Add a new log entry
 	 */
-	async addLog(data: Partial<LogEntry> & Record<string, unknown>): Promise<LogEntry> {
+	async addLog(
+		data: Partial<LogEntry> & Record<string, unknown>,
+	): Promise<LogEntry> {
 		// Build details object, merging existing details with toolInput/toolResponse
 		// The hook script sends toolInput and toolResponse at root level
 		const details: Record<string, unknown> = {};
@@ -105,7 +107,8 @@ export class LogManager extends EventEmitter {
 
 		const log: LogEntry = {
 			id: randomUUID(),
-			timestamp: new Date().toISOString(),
+			// Preserve original timestamp from hooks if provided
+			timestamp: data.timestamp || new Date().toISOString(),
 			hook: data.hook || "unknown",
 			event: data.event || "unknown",
 			level: data.level || "info",
@@ -113,6 +116,10 @@ export class LogManager extends EventEmitter {
 			sessionId: data.sessionId,
 			tool: data.tool,
 			file: data.file,
+			// Preserve executionId for correlating PreToolUse/PostToolUse
+			executionId: (data as Record<string, unknown>).executionId as
+				| string
+				| undefined,
 			details: Object.keys(details).length > 0 ? details : undefined,
 		};
 
