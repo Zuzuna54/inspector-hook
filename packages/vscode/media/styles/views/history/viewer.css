@@ -1,0 +1,488 @@
+/**
+ * history view: viewer.
+ *
+ * Split out of views/history.css. Pure move: no rule changed, added
+ * or removed.
+ */
+
+/* ==========================================================================
+   Content Viewer
+   ========================================================================== */
+
+.hv-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hv-viewer-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.hv-viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.hv-viewer-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.hv-viewer-file {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+}
+
+.hv-viewer-version {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+}
+
+.hv-viewer-content {
+  flex: 1;
+  overflow: auto;
+}
+/* ==========================================================================
+   Comparison Toolbar (matching .fc-toolbar styling)
+   ========================================================================== */
+
+.hv-comparison-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.hv-comparison-toolbar > * {
+  flex-shrink: 0;
+}
+
+.hv-comparison-dropdowns {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.hv-comparison-dropdowns label {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+}
+
+.hv-from-version,
+.hv-to-version {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--fg-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  min-width: 140px;
+}
+
+.hv-from-version:focus,
+.hv-to-version:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.hv-from-version:disabled,
+.hv-to-version:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hv-arrow {
+  color: var(--fg-muted);
+  font-weight: bold;
+  font-size: var(--font-size-sm);
+}
+
+/* View Toggle - matches .fc-view-toggle */
+.hv-view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.hv-view-toggle button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  transition: all var(--transition-fast);
+}
+
+.hv-view-toggle button:hover {
+  background: var(--bg-hover);
+}
+
+.hv-view-toggle button.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.hv-open-file-btn {
+  margin-left: auto;
+}
+/* ==========================================================================
+   Toolbar Path and Stats
+   ========================================================================== */
+
+.hv-toolbar-path {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex: 1;
+  min-width: 0;
+}
+
+.hv-path-text {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hv-copy-path {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.hv-copy-path:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.hv-toolbar-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+}
+/* ==========================================================================
+   Toolbar Actions (matching file-changes.css)
+   ========================================================================== */
+
+.hv-toolbar-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+/* ==========================================================================
+   Loading & Empty States (matching .fc-diff-loading and .fc-empty-state)
+   ========================================================================== */
+
+.hv-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+}
+
+.hv-loading::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  margin-right: var(--spacing-sm);
+  animation: hv-spin 0.8s linear infinite;
+}
+
+@keyframes hv-spin {
+  to { transform: rotate(360deg); }
+}
+
+.hv-loading .spinner {
+  display: none; /* Use ::before instead */
+}
+
+/* No Content / No Changes - matches .fc-empty-state */
+.hv-no-content,
+.hv-no-changes {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--fg-secondary);
+  font-size: var(--font-size-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  margin: var(--spacing-md);
+}
+/* ==========================================================================
+   Error State (matching .fc-diff-error)
+   ========================================================================== */
+
+.hv-diff-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+  color: var(--color-error);
+  text-align: center;
+}
+
+.hv-diff-error-icon {
+  font-size: 32px;
+  margin-bottom: var(--spacing-md);
+}
+
+.hv-diff-error-message {
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-md);
+  max-width: 400px;
+}
+
+.hv-diff-error-retry {
+  margin-top: var(--spacing-sm);
+}
+/* ==========================================================================
+   Code Content (Full File View)
+   ========================================================================== */
+
+.hv-code-content {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.hv-code-line {
+  display: flex;
+  min-height: 20px;
+}
+
+.hv-line-num {
+  width: 50px;
+  padding: 0 var(--spacing-sm);
+  text-align: right;
+  color: var(--fg-muted);
+  background: var(--bg-tertiary);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.hv-line-content {
+  flex: 1;
+  padding-left: var(--spacing-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+/* ==========================================================================
+   Full View Single File
+   ========================================================================== */
+
+.hv-full-view-single {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.hv-full-view-content {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+/* Stats bar in full view */
+.hv-full-view-single .hv-diff-stats-bar {
+  flex-shrink: 0;
+}
+
+.hv-stat-lines {
+  color: var(--fg-muted);
+}
+/* ==========================================================================
+   Scrollbar Change Markers
+   ========================================================================== */
+
+.hv-scrollbar-markers {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.hv-scrollbar-marker {
+  position: absolute;
+  right: 2px;
+  width: 6px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.hv-scrollbar-marker.added {
+  background: rgba(34, 197, 94, 0.8);
+}
+
+.hv-scrollbar-marker.removed {
+  background: rgba(239, 68, 68, 0.8);
+}
+/* ==========================================================================
+   Virtual Scrolling Styles
+   ========================================================================== */
+
+.hv-virtual-scroll {
+  position: relative;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.hv-virtual-scroll-wrapper {
+  position: relative;
+}
+
+.hv-virtual-scroll-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.hv-virtual-scroll .hv-code-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 20px;
+  display: flex;
+  align-items: stretch;
+}
+
+/* Loading placeholder for lazy loaded content */
+.hv-loading-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.hv-loading-content::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  margin-right: var(--spacing-sm);
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+/* ==========================================================================
+   Restore Preview
+   ========================================================================== */
+
+.hv-restore-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hv-restore-header {
+  padding: var(--spacing-md);
+  background: var(--color-warning-bg);
+  border-bottom: 1px solid var(--color-warning);
+}
+
+.hv-restore-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-warning);
+  margin-bottom: var(--spacing-xs);
+}
+
+.hv-restore-icon {
+  font-size: var(--font-size-lg);
+}
+
+.hv-restore-warning {
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.hv-restore-diff {
+  flex: 1;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.hv-restore-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--bg-tertiary);
+}
+/* ==========================================================================
+   Inline Edit Mode (matching file-changes.css)
+   ========================================================================== */
+
+.hv-diff-line.editing .hv-line-content {
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  outline: none;
+  cursor: text;
+  padding: 0 var(--spacing-xs);
+}
+
+.hv-hunk-edit-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(0, 122, 204, 0.1);
+  border-top: 1px solid var(--accent);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+}
+
+.hv-hunk-edit-bar span:first-child {
+  flex: 1;
+}

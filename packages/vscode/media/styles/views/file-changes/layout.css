@@ -1,0 +1,285 @@
+/**
+ * file-changes view: layout.
+ *
+ * Split out of views/file-changes.css. Pure move: no rule changed,
+ * added or removed. Sections are assigned by position, not by title -
+ * two of them are both called "Split Diff View".
+ */
+
+/* ==========================================================================
+   Main Container Layout
+   ========================================================================== */
+
+.fc-container {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+/* ==========================================================================
+   Main Panel
+   ========================================================================== */
+
+.fc-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+/* ==========================================================================
+   Toolbar
+   ========================================================================== */
+
+.fc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.fc-toolbar:empty {
+  display: none;
+}
+
+.fc-toolbar-path {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-toolbar-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+}
+
+.fc-stat-add {
+  color: var(--diff-added-fg);
+}
+
+.fc-stat-del {
+  color: var(--diff-removed-fg);
+}
+
+.fc-stat-hunks {
+  color: var(--fg-secondary);
+}
+
+.fc-view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.fc-view-toggle button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  transition: all var(--transition-fast);
+}
+
+.fc-view-toggle button:hover {
+  background: var(--bg-hover);
+}
+
+.fc-view-toggle button.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.fc-toolbar-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+/* ==========================================================================
+   Loading State
+   ========================================================================== */
+
+.fc-diff-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+}
+
+.fc-diff-loading::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  margin-right: var(--spacing-sm);
+  animation: fc-spin 0.8s linear infinite;
+}
+
+@keyframes fc-spin {
+  to { transform: rotate(360deg); }
+}
+/* ==========================================================================
+   Error State
+   ========================================================================== */
+
+.fc-diff-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+  color: var(--color-error);
+  text-align: center;
+}
+
+.fc-diff-error-icon {
+  font-size: 32px;
+  margin-bottom: var(--spacing-md);
+}
+
+.fc-diff-error-message {
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-md);
+  max-width: 400px;
+}
+
+.fc-diff-error-retry {
+  margin-top: var(--spacing-sm);
+}
+/* ==========================================================================
+   Modal Dialog
+   ========================================================================== */
+
+.fc-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+
+.fc-modal-overlay.visible {
+  opacity: 1;
+}
+
+.fc-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 300px;
+  max-width: 450px;
+  box-shadow: var(--shadow-lg);
+  transform: scale(0.95);
+  transition: transform var(--transition-normal);
+}
+
+.fc-modal-overlay.visible .fc-modal {
+  transform: scale(1);
+}
+
+.fc-modal-header {
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.fc-modal-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.fc-modal-body {
+  padding: var(--spacing-md);
+  color: var(--fg-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.fc-modal-body p {
+  margin: 0;
+}
+
+.fc-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--border);
+}
+/* ==========================================================================
+   Responsive Layout
+   ========================================================================== */
+
+@media (max-width: 800px) {
+  .fc-container {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .fc-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 250px;
+  }
+
+  .fc-sessions {
+    max-height: 150px;
+  }
+
+  .fc-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm);
+  }
+
+  .fc-toolbar-path {
+    text-align: center;
+  }
+
+  .fc-view-toggle {
+    justify-content: center;
+  }
+
+  .fc-toolbar-actions {
+    justify-content: center;
+  }
+
+  /* Split view responsive - stack vertically on small screens */
+  .fc-split-headers {
+    grid-template-columns: 1fr;
+  }
+
+  .fc-split-headers .fc-diff-split-header:first-child {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .fc-split-hunk-content {
+    grid-template-columns: 1fr;
+  }
+
+  .fc-split-hunk-content .fc-diff-split-pane:first-child {
+    border-bottom: 1px solid var(--border);
+  }
+}

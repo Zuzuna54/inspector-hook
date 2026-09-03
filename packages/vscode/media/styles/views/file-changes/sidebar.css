@@ -1,0 +1,473 @@
+/**
+ * file-changes view: sidebar.
+ *
+ * Split out of views/file-changes.css. Pure move: no rule changed,
+ * added or removed. Sections are assigned by position, not by title -
+ * two of them are both called "Split Diff View".
+ */
+
+/* ==========================================================================
+   Sidebar
+   ========================================================================== */
+
+.fc-sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.fc-sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+
+.fc-sidebar-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.fc-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  background: var(--bg-primary);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.fc-sessions {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+}
+/* ==========================================================================
+   Session Accordion
+   ========================================================================== */
+
+.fc-session {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-xs);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.fc-session.expanded {
+  border-color: var(--accent);
+}
+
+.fc-session-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+
+.fc-session-header:hover {
+  background: var(--bg-hover);
+}
+
+.fc-session.expanded .fc-session-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-active);
+}
+
+.fc-expand-icon {
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--fg-muted);
+  font-size: 10px;
+  transition: transform var(--transition-fast);
+}
+
+.fc-session.expanded .fc-expand-icon {
+  color: var(--accent);
+}
+
+.fc-session-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fc-session-name {
+  display: block;
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-session-meta {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  margin-top: 2px;
+}
+
+.fc-session-project {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  font-family: var(--font-family-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-session-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-session-header:hover .fc-session-actions {
+  opacity: 1;
+}
+
+.fc-session-content {
+  padding: var(--spacing-xs);
+}
+
+.fc-session-content.hidden {
+  display: none;
+}
+/* ==========================================================================
+   File Row
+   ========================================================================== */
+
+.fc-file {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+}
+
+.fc-file:hover {
+  background: var(--bg-hover);
+}
+
+.fc-file.selected {
+  background: var(--bg-active);
+  border-left-color: var(--accent);
+}
+
+.fc-file.pending {
+  border-left-color: var(--color-warning);
+}
+
+.fc-file.kept {
+  border-left-color: var(--color-success);
+  opacity: 0.6;
+}
+
+.fc-file.reverted {
+  border-left-color: var(--color-error);
+  opacity: 0.6;
+}
+
+.fc-file-icon {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+}
+
+.fc-file-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-file-stats {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  white-space: nowrap;
+}
+
+.fc-file-stats .additions {
+  color: var(--diff-added-fg);
+}
+
+.fc-file-stats .deletions {
+  color: var(--diff-removed-fg);
+}
+
+/* Tool Badge Colors */
+.fc-tool-badge {
+  display: inline-flex;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  text-transform: lowercase;
+}
+
+.fc-tool-badge.edit {
+  background: rgba(249, 115, 22, 0.15);
+  color: #f97316;
+}
+
+.fc-tool-badge.write {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.fc-tool-badge.bash {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.fc-tool-badge.read {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.fc-tool-badge.unknown {
+  background: var(--bg-primary);
+  color: var(--fg-muted);
+}
+
+.fc-status-badge {
+  font-size: var(--font-size-xs);
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+}
+
+.fc-status-badge.pending {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.fc-status-badge.kept {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.fc-status-badge.reverted {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+/* ==========================================================================
+   File Accordion
+   ========================================================================== */
+
+.fc-file-accordion {
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-xs);
+  border-left: 3px solid var(--color-warning);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.fc-file-accordion.selected {
+  border-left-color: var(--accent);
+  background: var(--bg-active);
+}
+
+.fc-file-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.fc-file-header:hover {
+  background: var(--bg-hover);
+}
+
+.fc-file-expand-icon {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--fg-muted);
+  width: 12px;
+  margin-top: 4px;
+}
+
+.fc-file-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fc-file-name {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg-primary);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.fc-file-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.fc-change-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  padding: 1px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+}
+
+.fc-file-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-file-header:hover .fc-file-actions {
+  opacity: 1;
+}
+
+.fc-file-hunks {
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.fc-hunk-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  padding-left: calc(var(--spacing-sm) + 24px);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.fc-hunk-item:hover {
+  background: var(--bg-hover);
+}
+
+.fc-hunk-item.selected {
+  background: var(--bg-active);
+  border-left-color: var(--accent);
+}
+
+.fc-hunk-item-index {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  color: var(--fg-muted);
+  min-width: 24px;
+}
+
+.fc-hunk-item-stats {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  white-space: nowrap;
+}
+
+.fc-hunk-item-stats .additions {
+  color: var(--diff-added-fg);
+}
+
+.fc-hunk-item-stats .deletions {
+  color: var(--diff-removed-fg);
+}
+
+.fc-hunk-item-time {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  margin-left: auto;
+}
+
+.fc-hunk-item-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-hunk-item:hover .fc-hunk-item-actions {
+  opacity: 1;
+}
+
+.fc-tool-badge.small {
+  font-size: 10px;
+  padding: 0 4px;
+}
+
+/* Hunk highlight animation (when scrolled to) */
+.fc-hunk-highlight,
+.fc-hunk-header-inline.fc-hunk-highlight,
+.fc-split-hunk-row.fc-hunk-highlight {
+  animation: hunk-highlight 2s ease-out;
+}
+
+@keyframes hunk-highlight {
+  0% {
+    background: rgba(0, 122, 204, 0.3);
+  }
+  100% {
+    background: transparent;
+  }
+}
+/* ==========================================================================
+   Archive Toggle
+   ========================================================================== */
+
+.fc-archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  transition: background var(--transition-fast);
+}
+
+.fc-archive-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.fc-archive-icon {
+  font-size: 10px;
+  transition: transform var(--transition-fast);
+}
+
+.fc-archive-toggle.expanded .fc-archive-icon {
+  transform: rotate(90deg);
+}
+
+.fc-archive-count {
+  margin-left: auto;
+  background: var(--bg-primary);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+}

@@ -26,9 +26,24 @@ const COMPONENT_MODULES = [
 	"styles/components/feedback.css",
 ];
 
+const VIEW_MODULES = [
+	"styles/views/archived/layout.css",
+	"styles/views/archived/accordion.css",
+	"styles/views/archived/preview.css",
+	"styles/views/file-changes/layout.css",
+	"styles/views/file-changes/sidebar.css",
+	"styles/views/file-changes/diff.css",
+	"styles/views/file-changes/edit.css",
+	"styles/views/history/layout.css",
+	"styles/views/history/accordion.css",
+	"styles/views/history/viewer.css",
+	"styles/views/history/diff.css",
+];
+
 const VIEW_STYLESHEETS = [
 	...SESSION_MODULES,
 	...COMPONENT_MODULES,
+	...VIEW_MODULES,
 	"styles/views/file-changes.css",
 	"styles/views/history.css",
 	"styles/views/archived.css",
@@ -100,6 +115,41 @@ describe("stylesheet integrity", () => {
 			[],
 			"used with no definition and no fallback - the declaration is dropped",
 		);
+	});
+});
+
+describe("view stylesheet splits", () => {
+	for (const parent of [
+		"styles/views/archived.css",
+		"styles/views/file-changes.css",
+		"styles/views/history.css",
+	]) {
+		it(`${parent} is a pointer, not a duplicate`, () => {
+			assert.ok(
+				!stripComments(readMedia(parent)).includes("{"),
+				"a parent still holding rules defines the same selectors twice",
+			);
+		});
+	}
+
+	it("keeps every view module under the size the splits exist to achieve", () => {
+		for (const relPath of VIEW_MODULES) {
+			const lines = readMedia(relPath).split("\n").length;
+			assert.ok(lines < 600, `${relPath} is ${lines} lines`);
+		}
+	});
+
+	it("leaves no button variant in any view stylesheet", () => {
+		// Buttons belong to the component layer, which the manifest loads before
+		// every view. A .btn-* rule in a view stylesheet reinstates the
+		// load-order dependence that made History govern every view's buttons.
+		for (const relPath of [...VIEW_MODULES, ...SESSION_MODULES]) {
+			const css = stripComments(readMedia(relPath));
+			assert.ok(
+				!/(?<![\w-])\.btn[\w-]*[^{}]*\{/.test(css),
+				`${relPath} declares a button variant`,
+			);
+		}
 	});
 });
 

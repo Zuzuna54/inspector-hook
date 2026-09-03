@@ -1,0 +1,542 @@
+/**
+ * history view: diff.
+ *
+ * Split out of views/history.css. Pure move: no rule changed, added
+ * or removed.
+ */
+
+/* ==========================================================================
+   Diff Stats Bar (matching file-changes.css)
+   ========================================================================== */
+
+.hv-diff-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  margin: var(--spacing-sm);
+}
+
+.hv-stat-add {
+  color: var(--diff-added-fg);
+}
+
+.hv-stat-del {
+  color: var(--diff-removed-fg);
+}
+
+.hv-stat-hunks {
+  color: var(--fg-secondary);
+}
+/* ==========================================================================
+   Diff Container (matching .fc-diff-container)
+   ========================================================================== */
+
+.hv-diff-container {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-md);
+}
+/* ==========================================================================
+   Unified Diff View (matching file-changes.css exactly)
+   ========================================================================== */
+
+.hv-diff-unified {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+}
+
+/* Hunk Card - matches .fc-hunk */
+.hv-hunk {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+/* Hunk Header - matches .fc-hunk-header */
+.hv-hunk-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--diff-hunk-header-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.hv-hunk-info {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--diff-hunk-header-fg);
+}
+
+/* Hunk Lines Container */
+.hv-hunk-lines {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* Diff Line - matches .fc-line */
+.hv-diff-line {
+  display: flex;
+  min-height: 20px;
+}
+
+/* Line Numbers - matches .fc-line-num */
+.hv-diff-line .hv-line-num {
+  width: 45px;
+  padding: 0 var(--spacing-sm);
+  text-align: right;
+  color: var(--fg-muted);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  flex-shrink: 0;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+.hv-diff-line .hv-line-num-old {
+  border-right: none;
+}
+
+.hv-diff-line .hv-line-num-new {
+  border-right: 1px solid var(--border);
+}
+
+/* Line Prefix (+/-/space) */
+.hv-diff-line .hv-line-prefix {
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  user-select: none;
+  font-weight: bold;
+}
+
+/* Line Content */
+.hv-diff-line .hv-line-content {
+  flex: 1;
+  padding-left: var(--spacing-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Subtle color tints for diff lines - matches .fc-line colors exactly */
+.hv-diff-line.added {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.hv-diff-line.added .hv-line-num {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--diff-added-fg);
+}
+
+.hv-diff-line.added .hv-line-prefix {
+  color: var(--diff-added-fg);
+}
+
+.hv-diff-line.removed {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.hv-diff-line.removed .hv-line-num {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--diff-removed-fg);
+}
+
+.hv-diff-line.removed .hv-line-prefix {
+  color: var(--diff-removed-fg);
+}
+
+.hv-diff-line.context {
+  background: var(--bg-primary);
+}
+/* ==========================================================================
+   Split Diff View (matching file-changes.css exactly)
+   ========================================================================== */
+
+.hv-diff-split {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--spacing-md);
+}
+
+/* Split Hunk Row - matches .fc-split-hunk-row */
+.hv-hunk-split {
+  margin-bottom: var(--spacing-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+/* Split Hunk Header - matches .fc-split-hunk-header */
+.hv-hunk-header-split {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--diff-hunk-header-bg, rgba(0, 122, 204, 0.1));
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--diff-hunk-header-fg, var(--fg-secondary));
+}
+
+/* Split Container - matches .fc-split-hunk-content */
+.hv-split-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  background: var(--border);
+}
+
+.hv-split-left,
+.hv-split-right {
+  background: var(--bg-primary);
+}
+
+.hv-split-left {
+  border-right: none;
+}
+
+/* Split Line - matches .fc-line styling */
+.hv-split-line {
+  display: flex;
+  min-height: 20px;
+}
+
+.hv-split-line .hv-line-num {
+  width: 45px;
+  padding: 0 var(--spacing-sm);
+  text-align: right;
+  color: var(--fg-muted);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  flex-shrink: 0;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+.hv-split-line .hv-line-content {
+  flex: 1;
+  padding-left: var(--spacing-sm);
+  white-space: pre;
+  overflow-x: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* Split Line Colors - matching .fc-line colors exactly */
+.hv-split-line.added {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.hv-split-line.added .hv-line-num {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--diff-added-fg);
+}
+
+.hv-split-line.removed {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.hv-split-line.removed .hv-line-num {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--diff-removed-fg);
+}
+
+.hv-split-line.context {
+  background: var(--bg-primary);
+}
+
+.hv-split-line.empty {
+  background: var(--bg-secondary);
+}
+/* ==========================================================================
+   Diff Content (Legacy/Simple Diff)
+   ========================================================================== */
+
+.hv-diff-content {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+/* ==========================================================================
+   Move Detection Styles
+   ========================================================================== */
+
+/* Moved-from lines (purple/violet theme) */
+.hv-diff-line.moved-from {
+  background: rgba(136, 87, 184, 0.15);
+  border-left: 3px solid #8857b8;
+}
+
+.hv-diff-line.moved-from .hv-line-prefix {
+  color: #8857b8;
+}
+
+.hv-split-line.moved-from {
+  background: rgba(136, 87, 184, 0.15);
+  border-left: 3px solid #8857b8;
+}
+
+/* Moved-to lines (blue theme) */
+.hv-diff-line.moved-to {
+  background: rgba(86, 156, 214, 0.15);
+  border-left: 3px solid #569cd6;
+}
+
+.hv-diff-line.moved-to .hv-line-prefix {
+  color: #569cd6;
+}
+
+.hv-split-line.moved-to {
+  background: rgba(86, 156, 214, 0.15);
+  border-left: 3px solid #569cd6;
+}
+
+/* Move indicator badges */
+.hv-move-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: var(--spacing-sm);
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-sm);
+  cursor: help;
+  user-select: none;
+}
+
+.hv-diff-line.moved-from .hv-move-indicator {
+  background: rgba(136, 87, 184, 0.2);
+  color: #8857b8;
+}
+
+.hv-diff-line.moved-to .hv-move-indicator {
+  background: rgba(86, 156, 214, 0.2);
+  color: #569cd6;
+}
+
+.hv-split-line.moved-from .hv-move-indicator {
+  background: rgba(136, 87, 184, 0.2);
+  color: #8857b8;
+}
+
+.hv-split-line.moved-to .hv-move-indicator {
+  background: rgba(86, 156, 214, 0.2);
+  color: #569cd6;
+}
+
+/* Highlight linked moves on hover */
+.hv-diff-line[data-move-id]:hover,
+.hv-split-line[data-move-id]:hover {
+  filter: brightness(1.1);
+}
+/* ==========================================================================
+   Hunk Actions (hover-reveal, matching file-changes.css)
+   ========================================================================== */
+
+.hv-hunk-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.hv-hunk:hover .hv-hunk-actions {
+  opacity: 1;
+}
+/* ==========================================================================
+   Syntax Highlighting Tokens (matching file-changes.css exactly)
+   ========================================================================== */
+
+.hv-line-content .token.keyword { color: #c586c0; }
+.hv-line-content .token.string { color: #ce9178; }
+.hv-line-content .token.number { color: #b5cea8; }
+.hv-line-content .token.boolean { color: #569cd6; }
+.hv-line-content .token.comment { color: #6a9955; font-style: italic; }
+.hv-line-content .token.function { color: #dcdcaa; }
+.hv-line-content .token.property { color: #9cdcfe; }
+.hv-line-content .token.type { color: #4ec9b0; }
+.hv-line-content .token.operator { color: #d4d4d4; }
+.hv-line-content .token.punctuation { color: #808080; }
+/* ==========================================================================
+   Full File Diff View (Before/After Side-by-Side)
+   ========================================================================== */
+
+.hv-full-file-diff {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hv-diff-stats-bar {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+}
+
+.hv-full-file-headers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.hv-full-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-right: 1px solid var(--border);
+}
+
+.hv-full-file-header:last-child {
+  border-right: none;
+}
+
+.hv-full-file-label {
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.hv-full-file-lines {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.hv-full-file-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  overflow: hidden;
+}
+
+.hv-full-file-pane {
+  overflow: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.hv-full-file-before {
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.hv-full-file-after {
+  background: var(--bg-primary);
+}
+
+.hv-full-file-empty {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.hv-full-line {
+  display: flex;
+  min-height: 20px;
+}
+
+.hv-full-line .hv-line-num {
+  width: 50px;
+  padding: 0 var(--spacing-sm);
+  text-align: right;
+  color: var(--fg-muted);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.hv-full-line .hv-line-content {
+  flex: 1;
+  padding-left: var(--spacing-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Context lines */
+.hv-full-line.context {
+  background: var(--bg-primary);
+}
+
+/* Removed lines (in before pane) */
+.hv-full-line.removed {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.hv-full-line.removed .hv-line-num {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-error);
+}
+
+/* Added lines (in after pane) */
+.hv-full-line.added {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.hv-full-line.added .hv-line-num {
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--color-success);
+}
+
+/* Scrollbar styling */
+.hv-full-file-pane::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.hv-full-file-pane::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.hv-full-file-pane::-webkit-scrollbar-thumb {
+  background: var(--fg-muted);
+  border-radius: 4px;
+}
+
+.hv-full-file-pane::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-secondary);
+}
+
+/* Responsive - stack vertically on small screens */
+@media (max-width: 900px) {
+  .hv-full-file-headers {
+    grid-template-columns: 1fr;
+  }
+
+  .hv-full-file-header {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hv-full-file-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .hv-full-file-before {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}

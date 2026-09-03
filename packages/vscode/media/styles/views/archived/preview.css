@@ -1,0 +1,107 @@
+/**
+ * archived view: preview.
+ *
+ * Split out of views/archived.css. Pure move: no rule changed, added
+ * or removed.
+ */
+
+/* ==========================================================================
+   Diff Preview
+   ========================================================================== */
+
+.arc-diff-preview {
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.arc-diff-stats {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.arc-additions {
+  color: var(--diff-added-fg);
+}
+
+.arc-deletions {
+  color: var(--diff-removed-fg);
+}
+
+.arc-diff-content {
+  max-height: 300px;
+  overflow: auto;
+}
+
+.arc-hunk {
+  margin-bottom: var(--spacing-xs);
+}
+
+.arc-hunk:last-child {
+  margin-bottom: 0;
+}
+
+.arc-hunk-header {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--diff-hunk-header-fg);
+  background: var(--diff-hunk-header-bg);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.arc-hunk-lines {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.arc-line {
+  display: flex;
+  min-height: 20px;
+}
+
+.arc-line.added {
+  background: var(--diff-added-bg);
+}
+
+.arc-line.removed {
+  background: var(--diff-removed-bg);
+}
+
+.arc-line.context {
+  background: var(--diff-context-bg);
+}
+
+.arc-line-prefix {
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.arc-line.added .arc-line-prefix {
+  color: var(--diff-added-fg);
+}
+
+.arc-line.removed .arc-line-prefix {
+  color: var(--diff-removed-fg);
+}
+
+.arc-line-content {
+  flex: 1;
+  padding-left: var(--spacing-xs);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.arc-line-more {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-style: italic;
+  color: var(--fg-muted);
+  text-align: center;
+}
