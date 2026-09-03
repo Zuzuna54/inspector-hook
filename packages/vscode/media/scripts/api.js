@@ -300,6 +300,40 @@ const API = {
 	},
 
 	// ==========================================================================
+	// Memory API (M3 - native auto memory)
+	// ==========================================================================
+
+	/** Every project's memory. `includeEmpty` keeps projects with no files. */
+	memoryGetProjects(params = {}) {
+		this.send("memory-get-projects", params);
+	},
+
+	/** Reference an existing file from MEMORY.md without rewriting the file. */
+	memoryAddToIndex(params) {
+		this.send("memory-add-to-index", params);
+	},
+
+	/** Drop a file's index line, leaving the file in place. */
+	memoryRemoveFromIndex(params) {
+		this.send("memory-remove-from-index", params);
+	},
+
+	/**
+	 * Create or update a memory entry.
+	 *
+	 * `userInitiated` is what allows editing a note the tool did not author, and
+	 * is set only from an explicit save in the curation UI.
+	 */
+	memoryWrite(params) {
+		this.send("memory-write", params);
+	},
+
+	/** Delete a memory entry. `force` is required for anything we did not author. */
+	memoryDelete(params) {
+		this.send("memory-delete", params);
+	},
+
+	// ==========================================================================
 	// File Operations
 	// ==========================================================================
 
@@ -560,6 +594,27 @@ const API = {
 					window.HistoryView.handleVersionComparison(payload);
 				}
 				break;
+
+			case "memory-projects":
+				State.update("contextView", {
+					...State.contextView,
+					projects: payload?.projects || payload || [],
+				});
+				break;
+
+			// One shape for every curation result. The backend answers a refusal
+			// with a human-readable `reason`, and the view renders it verbatim -
+			// paraphrasing would lose the detail that makes it actionable.
+			case "memory-result": {
+				State.update("contextView", {
+					...State.contextView,
+					lastResult: payload || null,
+				});
+				// Re-read rather than patching local state: the index, the file and
+				// its orphan status can all have changed together.
+				this.memoryGetProjects({ includeEmpty: true });
+				break;
+			}
 
 			case "archived":
 				State.update("archivedChanges", payload.changes || []);

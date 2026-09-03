@@ -56,6 +56,21 @@ const State = {
 	},
 
 	// ==========================================================================
+	// Context View State (M3 - native auto memory)
+	// ==========================================================================
+	contextView: {
+		projects: [],
+		selectedProject: null,   // memoryDir, which is the stable key
+		selectedFile: null,      // fileName within the selected project
+		// Eight of eighteen projects in a real corpus hold no memory; listing
+		// them by default buries the ones that do.
+		showEmpty: false,
+		// The last write/delete/index result, so a refusal can be rendered in
+		// the backend's own words rather than paraphrased.
+		lastResult: null,
+	},
+
+	// ==========================================================================
 	// File Changes View State
 	// ==========================================================================
 	fileChangesView: {
@@ -226,6 +241,13 @@ const State = {
 			activityAvailableLogs: null,
 			activitySince: null,
 			activityHasMore: false,
+		};
+		this.contextView = {
+			projects: [],
+			selectedProject: null,
+			selectedFile: null,
+			showEmpty: false,
+			lastResult: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

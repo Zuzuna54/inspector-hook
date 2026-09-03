@@ -87,6 +87,7 @@ export function buildWebviewHtml(
 		["styles", "views", "archived", "layout.css"],
 		["styles", "views", "archived", "accordion.css"],
 		["styles", "views", "archived", "preview.css"],
+		["styles", "views", "context.css"],
 	];
 
 	const scripts: string[][] = [
@@ -122,6 +123,10 @@ export function buildWebviewHtml(
 		["scripts", "views", "history", "restore.js"],
 		["scripts", "views", "history.js"],
 		["scripts", "views", "archived.js"],
+		// Context modules load before context.js.
+		["scripts", "views", "context", "memory-render.js"],
+		["scripts", "views", "context", "curation.js"],
+		["scripts", "views", "context.js"],
 		// main.js wires everything up and must be last.
 		["scripts", "main.js"],
 	];
@@ -178,6 +183,12 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         </button>
         <button class="tab" data-view="sessions" role="tab" aria-selected="false" tabindex="-1">
           Sessions
+        </button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label" id="nav-group-knowledge">Knowledge</div>
+        <button class="tab" data-view="context" role="tab" aria-selected="false" tabindex="-1">
+          Context
         </button>
       </div>
       <div class="nav-group">
@@ -280,6 +291,24 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
             </div>
             <div class="sv-tabs" id="sv-tabs"></div>
             <div class="sv-content" id="sv-detail-content"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Context View: native auto memory, across every project -->
+      <div id="view-context" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
+        <div class="ctx-container">
+          <div class="ctx-projects">
+            <div class="ctx-pane-header"><h3>Projects</h3></div>
+            <div class="ctx-list" id="ctx-project-list"></div>
+          </div>
+          <div class="ctx-files">
+            <div class="ctx-pane-header"><h3>Memory</h3></div>
+            <div class="ctx-list" id="ctx-file-list"></div>
+          </div>
+          <div class="ctx-detail-pane">
+            <div id="ctx-result"></div>
+            <div id="ctx-detail"></div>
           </div>
         </div>
       </div>

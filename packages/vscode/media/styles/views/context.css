@@ -1,0 +1,317 @@
+/**
+ * Context view: native auto memory across every project.
+ *
+ * Three panes — projects, that project's memory files, and one file's detail.
+ * Orphan and authorship markers carry most of the meaning here, so they are the
+ * things given colour; everything else stays quiet.
+ */
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+
+.ctx-container {
+	display: flex;
+	height: 100%;
+	overflow: hidden;
+}
+
+.ctx-projects,
+.ctx-files {
+	display: flex;
+	flex-direction: column;
+	flex-shrink: 0;
+	width: 220px;
+	border-right: 1px solid var(--border);
+	overflow: hidden;
+}
+
+.ctx-detail-pane {
+	flex: 1;
+	min-width: 0;
+	overflow-y: auto;
+	padding: var(--spacing-md);
+}
+
+.ctx-pane-header {
+	padding: var(--spacing-sm) var(--spacing-md);
+	border-bottom: 1px solid var(--border);
+	flex-shrink: 0;
+}
+
+.ctx-pane-header h3 {
+	font-size: var(--font-size-sm);
+	font-weight: var(--font-weight-medium);
+	color: var(--fg-secondary);
+}
+
+.ctx-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: var(--spacing-xs);
+}
+
+/* ==========================================================================
+   Project and file rows
+   ========================================================================== */
+
+.ctx-project,
+.ctx-file {
+	padding: var(--spacing-xs) var(--spacing-sm);
+	border-left: 2px solid transparent;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.ctx-project:hover,
+.ctx-file:hover {
+	background: var(--bg-hover);
+}
+
+.ctx-project.selected,
+.ctx-file.selected {
+	background: var(--bg-tertiary);
+	border-left-color: var(--accent);
+}
+
+/* An orphaned file is the reason to open this view, so it is marked in the
+   list rather than only in the detail pane. */
+.ctx-file.orphaned {
+	border-left-color: var(--color-warning);
+}
+
+.ctx-project-name,
+.ctx-file-name {
+	font-size: var(--font-size-sm);
+	color: var(--fg-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ctx-file-head {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-xs);
+	justify-content: space-between;
+}
+
+.ctx-file-desc {
+	font-size: var(--font-size-xs);
+	color: var(--fg-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ctx-project-meta,
+.ctx-file-meta {
+	display: flex;
+	gap: var(--spacing-sm);
+	font-size: var(--font-size-xs);
+	color: var(--fg-muted);
+	font-family: var(--font-family-mono);
+}
+
+.ctx-orphan-count,
+.ctx-orphan-flag,
+.ctx-no-index {
+	color: var(--color-warning);
+}
+
+.ctx-toggle-empty {
+	width: 100%;
+	margin-top: var(--spacing-sm);
+	padding: var(--spacing-xs);
+	border: none;
+	background: transparent;
+	color: var(--fg-muted);
+	font-size: var(--font-size-xs);
+	cursor: pointer;
+}
+
+.ctx-toggle-empty:hover {
+	color: var(--fg-primary);
+	background: var(--bg-hover);
+}
+
+/* ==========================================================================
+   Type and authorship badges
+   ========================================================================== */
+
+.ctx-type {
+	flex-shrink: 0;
+	padding: 1px 6px;
+	border-radius: var(--radius-sm);
+	font-size: var(--font-size-xs);
+	font-family: var(--font-family-mono);
+	background: var(--bg-tertiary);
+	color: var(--fg-secondary);
+}
+
+.ctx-type.project { color: var(--color-info); background: var(--color-info-bg); }
+.ctx-type.reference { color: var(--color-success); background: var(--color-success-bg); }
+.ctx-type.feedback { color: var(--color-warning); background: var(--color-warning-bg); }
+.ctx-type.user { color: var(--accent); }
+
+/* An inferred type is a guess from the file name, not something the file
+   declares. It reads differently so nobody edits frontmatter expecting to find
+   it there. */
+.ctx-type.inferred,
+.ctx-type.untyped {
+	font-style: italic;
+	background: transparent;
+	color: var(--fg-muted);
+	border: 1px dashed var(--border);
+}
+
+.ctx-author {
+	padding: 1px 6px;
+	border-radius: var(--radius-sm);
+	font-size: var(--font-size-xs);
+}
+
+/* "yours" is the louder of the two: it means nothing regenerates this file. */
+.ctx-author.yours {
+	color: var(--color-warning);
+	background: var(--color-warning-bg);
+}
+
+.ctx-author.generated {
+	color: var(--fg-muted);
+	background: var(--bg-tertiary);
+}
+
+/* ==========================================================================
+   Detail pane
+   ========================================================================== */
+
+.ctx-detail-head {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-sm);
+	margin-bottom: var(--spacing-md);
+}
+
+.ctx-detail-head h3 {
+	font-size: var(--font-size-md);
+}
+
+.ctx-detail-body {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: var(--font-family-mono);
+	font-size: var(--font-size-sm);
+	line-height: 1.6;
+	color: var(--fg-primary);
+}
+
+.ctx-origin {
+	margin-bottom: var(--spacing-sm);
+	font-size: var(--font-size-xs);
+	color: var(--fg-secondary);
+}
+
+/* Most origin sessions no longer exist: retention deletes sessions while memory
+   persists. The unresolvable case is stated, not hidden, but stays quiet. */
+.ctx-origin.muted {
+	color: var(--fg-muted);
+}
+
+.ctx-origin-link,
+.ctx-wikilink,
+.ctx-index-link {
+	border: none;
+	background: transparent;
+	color: var(--accent);
+	font-family: inherit;
+	font-size: inherit;
+	padding: 0;
+	cursor: pointer;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.ctx-origin-link:hover,
+.ctx-wikilink:hover,
+.ctx-index-link:hover {
+	color: var(--fg-primary);
+}
+
+/* ==========================================================================
+   Notices
+   ========================================================================== */
+
+.ctx-notice {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-sm);
+	flex-wrap: wrap;
+	margin-bottom: var(--spacing-md);
+	padding: var(--spacing-sm);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--bg-secondary);
+	font-size: var(--font-size-sm);
+	color: var(--fg-secondary);
+}
+
+.ctx-notice-orphan {
+	border-color: var(--color-warning);
+	background: var(--color-warning-bg);
+}
+
+.ctx-notice-refused {
+	border-color: var(--color-error);
+	background: var(--color-error-bg);
+	color: var(--color-error);
+}
+
+.ctx-notice code {
+	font-family: var(--font-family-mono);
+	font-size: var(--font-size-xs);
+}
+
+/* ==========================================================================
+   Index
+   ========================================================================== */
+
+.ctx-index-meta {
+	margin-bottom: var(--spacing-sm);
+	font-size: var(--font-size-xs);
+	font-family: var(--font-family-mono);
+	color: var(--fg-muted);
+}
+
+/* Reporting only - nothing truncates the file. Past this point Claude stops
+   reading the index tail. */
+.ctx-budget-over {
+	color: var(--color-warning);
+}
+
+.ctx-index-body {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: var(--font-size-sm);
+	line-height: 1.6;
+}
+
+.modal-hint {
+	margin-top: var(--spacing-sm);
+	font-size: var(--font-size-xs);
+	color: var(--fg-muted);
+}
+
+@media (max-width: 900px) {
+	.ctx-container {
+		flex-direction: column;
+	}
+
+	.ctx-projects,
+	.ctx-files {
+		width: auto;
+		max-height: 180px;
+		border-right: none;
+		border-bottom: 1px solid var(--border);
+	}
+}
