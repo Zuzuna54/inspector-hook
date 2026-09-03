@@ -96,8 +96,12 @@ fi
 # Extract user prompt for UserPromptSubmit
 USER_PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 
-# Extract stop reason for Stop/SubagentStop
-STOP_REASON=$(echo "$INPUT" | jq -r '.stop_reason // ""' 2>/dev/null)
+# No event carries `stop_reason` -- that read never matched anything. Stop
+# receives stop_hook_active / last_assistant_message / background_tasks /
+# session_crons; the error taxonomy lives on StopFailure.error instead.
+STOP_ERROR=$(echo "$INPUT" | jq -r '.error // ""' 2>/dev/null)
+STOP_HOOK_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)
+BACKGROUND_TASKS=$(echo "$INPUT" | jq -r '(.background_tasks // []) | length' 2>/dev/null)
 
 # Extract notification info
 NOTIFICATION_MSG=$(echo "$INPUT" | jq -r '.message // ""' 2>/dev/null)
@@ -110,6 +114,14 @@ if [[ "$HOOK_NAME" == "UserPromptSubmit" ]]; then
 elif [[ "$HOOK_NAME" == "Stop" ]]; then
     MSG="Claude finished responding"
     EVENT="ai.response"
+elif [[ "$HOOK_NAME" == "StopFailure" ]]; then
+    # Runs INSTEAD of Stop when the turn ends on an API error. Its
+    # last_assistant_message holds the error string, not Claude's reply, so it
+    # must not share an event type with Stop -- otherwise a rate-limit error
+    # renders in the transcript as something Claude said.
+    MSG="Turn failed: ${STOP_ERROR:-unknown}"
+    EVENT="ai.error"
+    LEVEL="error"
 elif [[ "$HOOK_NAME" == "SubagentStop" ]]; then
     MSG="Subagent completed"
     EVENT="subagent.stop"
@@ -169,7 +181,7 @@ PAYLOAD=$(echo "$INPUT" | jq \
     --arg cwd "$WORKING_DIR" \
     --arg transcript "$TRANSCRIPT_PATH" \
     --arg userPrompt "$USER_PROMPT" \
-    --arg stopReason "$STOP_REASON" \
+    --arg stopError "$STOP_ERROR" \
     --arg notificationType "$NOTIFICATION_TYPE" \
     '{
         timestamp: $ts,
@@ -194,7 +206,10 @@ PAYLOAD=$(echo "$INPUT" | jq \
             cwd: $cwd,
             transcriptPath: $transcript,
             prompt: (if $userPrompt != "" then $userPrompt else null end),
-            stopReason: (if $stopReason != "" then $stopReason else null end),
+            stopError: (if $stopError != "" then $stopError else null end),
+            errorDetails: .error_details,
+            stopHookActive: .stop_hook_active,
+            backgroundTasks: (.background_tasks // [] | length),
             notificationType: (if $notificationType != "" then $notificationType else null end),
             tool_input: .tool_input,
             tool_result: .tool_response,

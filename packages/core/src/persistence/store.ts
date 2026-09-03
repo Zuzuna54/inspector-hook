@@ -14,6 +14,7 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -80,13 +81,30 @@ export class PersistenceStore {
 	// =========================================================================
 
 	/**
-	 * Save data as JSON file
+	 * Save data as a JSON file, atomically.
+	 *
+	 * Writes to a unique temporary file and renames it into place. rename(2) is
+	 * atomic within a filesystem, so a reader either sees the whole previous
+	 * document or the whole new one -- never a half-written file.
+	 *
+	 * This used to be a plain writeFile, which opens with O_TRUNC: two
+	 * overlapping saves of the same document (or a crash mid-write) could leave
+	 * a truncated, unparseable record. Session records were especially exposed,
+	 * because most callers did not await the write.
 	 */
 	async saveJSON<T>(category: string, id: string, data: T): Promise<void> {
 		await this.ensureInitialized();
 		const filePath = this.getJSONPath(category, id);
 		const content = JSON.stringify(data, null, 2);
-		await writeFile(filePath, content, "utf-8");
+		const tmpPath = `${filePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+
+		try {
+			await writeFile(tmpPath, content, "utf-8");
+			await rename(tmpPath, filePath);
+		} catch (error) {
+			await unlink(tmpPath).catch(() => {});
+			throw error;
+		}
 	}
 
 	/**
@@ -236,6 +254,80 @@ export class PersistenceStore {
 		} catch {
 			// Ignore if file doesn't exist
 		}
+	}
+
+	/**
+	 * Rewrite a log file keeping only the entries a predicate accepts.
+	 *
+	 * A filtered clear previously touched memory only, so logs "deleted" for a
+	 * session reappeared on the next restart. Filtering the file directly (rather
+	 * than rewriting from the in-memory buffer) also preserves entries that were
+	 * already evicted from memory by the size cap.
+	 */
+	async filterLog<T>(
+		filename: string,
+		keep: (entry: T) => boolean,
+	): Promise<{ removed: number }> {
+		await this.ensureInitialized();
+		const entries = await this.loadLogs<T>(filename);
+		const retained = entries.filter(keep);
+		const removed = entries.length - retained.length;
+		if (removed === 0) return { removed: 0 };
+
+		const filePath = this.getLogPath(filename);
+		const tmpPath = `${filePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+		const body = retained.map((e) => JSON.stringify(e)).join("\n");
+		try {
+			await writeFile(tmpPath, retained.length ? `${body}\n` : "", "utf-8");
+			await rename(tmpPath, filePath);
+		} catch (error) {
+			await unlink(tmpPath).catch(() => {});
+			throw error;
+		}
+		return { removed };
+	}
+
+	/**
+	 * Load the most recent entries, reading back across rotated files.
+	 *
+	 * loadLogs only reads the live file, which rotates at maxLogFileSize
+	 * (10 MB, roughly 1,800 entries) -- while the in-memory cap is 10,000. So
+	 * after any restart the buffer could never refill beyond one rotation's
+	 * worth, no matter how much history was on disk. Rotated files are read
+	 * newest-first until the limit is met.
+	 */
+	async loadRecentLogs<T>(filename: string, limit: number): Promise<T[]> {
+		await this.ensureInitialized();
+
+		const collected: T[] = await this.loadLogs<T>(filename);
+		if (collected.length >= limit) return collected.slice(-limit);
+
+		const baseName = filename.replace(/\.jsonl$/, "");
+		const logDir = join(this.basePath, this.dirs.logs);
+		let rotated: string[];
+		try {
+			rotated = (await readdir(logDir))
+				.filter(
+					(f) =>
+						f.startsWith(`${baseName}.`) &&
+						f.endsWith(".jsonl") &&
+						f !== `${baseName}.jsonl`,
+				)
+				// Rotated names embed an ISO timestamp, so lexical order is
+				// chronological; newest first.
+				.sort()
+				.reverse();
+		} catch {
+			return collected;
+		}
+
+		for (const file of rotated) {
+			if (collected.length >= limit) break;
+			const older = await this.loadLogs<T>(file);
+			collected.unshift(...older);
+		}
+
+		return collected.slice(-limit);
 	}
 
 	/**

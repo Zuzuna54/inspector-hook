@@ -7,7 +7,9 @@ import { createInterface, type Interface } from "node:readline";
 import type {
 	ErrorCode,
 	LogEntry,
+	Session,
 	SessionFilter,
+	SessionSummary,
 	JsonRpcError,
 	JsonRpcNotification,
 	JsonRpcRequest,
@@ -60,6 +62,34 @@ function terminalStatus(
 	if (log.level === "error" || log.event === "PostToolUseFailure") return "failed";
 	if (log.level === "blocked") return "blocked";
 	return "completed";
+}
+
+/**
+ * Reduce a session to what a list row or detail header actually renders.
+ * Deliberately omits toolExecutions, which dominates the payload on a long
+ * session while the client builds its feed from `activity` instead.
+ */
+function summarizeSession(session: Session | null): SessionSummary | null {
+	if (!session) return null;
+	const metadata = (session.metadata ?? {}) as Record<string, unknown>;
+	return {
+		id: session.id,
+		name: session.name,
+		status: session.status,
+		startTime: session.startTime,
+		endTime: session.endTime,
+		lastActivityTime: session.lastActivityTime,
+		toolExecutionCount: session.toolExecutions.length,
+		fileChangeCount: session.fileChanges.length,
+		errorCount: session.toolExecutions.filter((e: { status: string }) => e.status === "failed")
+			.length,
+		gitBranch:
+			typeof metadata.gitBranch === "string" ? metadata.gitBranch : undefined,
+		projectName:
+			typeof metadata.projectName === "string"
+				? metadata.projectName
+				: undefined,
+	};
 }
 
 /** Does a session match a filter's status constraint? */
@@ -234,7 +264,28 @@ export class IpcServer {
 						},
 					});
 				}
-				// AI response completion (Stop hook)
+				// A turn that ended on an API error. StopFailure runs INSTEAD of
+				// Stop, and its last_assistant_message holds the error string rather
+				// than Claude's reply -- so it must not become an ai_response, or
+				// "API Error: Rate limit reached" renders as something Claude said.
+				else if (log.hook === "StopFailure" || log.event === "ai.error") {
+					activityItems.push({
+						id: log.id,
+						type: "message",
+						timestamp: log.timestamp,
+						data: {
+							hook: log.hook,
+							event: log.event,
+							level: "error",
+							message: log.message || "Turn failed",
+							details: {
+								stopError: log.details?.stopError,
+								errorDetails: log.details?.errorDetails,
+							},
+						},
+					});
+				}
+				// AI response completion (Stop hook) -- the clean-finish path only.
 				else if (log.hook === "Stop" || log.event === "ai.response") {
 					activityItems.push({
 						id: log.id,
@@ -242,7 +293,12 @@ export class IpcServer {
 						timestamp: log.timestamp,
 						data: {
 							message: log.message || "Claude finished responding",
-							stopReason: log.details?.stopReason,
+							// Stop carries no reason field at all. What it does carry is
+							// whether background work is still outstanding, which
+							// distinguishes "done" from "paused waiting on tasks".
+							stopHookActive: log.details?.stopHookActive,
+							backgroundTasks: log.details?.backgroundTasks,
+							assistantMessage: log.details?.lastAssistantMessage,
 						},
 					});
 				}
@@ -394,13 +450,17 @@ export class IpcServer {
 			return {
 				sessionId,
 				session,
+				sessionSummary: summarizeSession(session),
 				activity: activityItems,
 				totalItems: activityItems.length,
 				// True when older logs exist beyond the fetched window, so the UI
 				// can show "earlier activity not loaded" rather than implying the
 				// session simply started here.
 				truncated,
-				totalLogs: newestFirst.total,
+				// How many logs the core currently RETAINS for this session -- not a
+				// lifetime total. LogManager serves reads from memory only, so
+				// anything evicted past maxLogsInMemory is uncounted. It is a floor.
+				availableLogs: newestFirst.total,
 			};
 		});
 

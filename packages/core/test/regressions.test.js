@@ -184,3 +184,157 @@ describe("REGRESSION B12: deleteVersion keeps versionCount consistent", () => {
 		);
 	});
 });
+
+describe("REGRESSION B19: session writes are coalesced and atomic", () => {
+	it("collapses a burst of mutations into a single write", async () => {
+		const storagePath = await makeTempStore();
+		tempDirs.push(storagePath);
+		const persistence = new PersistenceStore({ basePath: storagePath });
+		await persistence.initialize();
+
+		let writes = 0;
+		let bytes = 0;
+		const original = persistence.saveJSON.bind(persistence);
+		persistence.saveJSON = async (cat, id, data) => {
+			writes++;
+			bytes += Buffer.byteLength(JSON.stringify(data));
+			return original(cat, id, data);
+		};
+
+		const mgr = new SessionManager({ storagePath, persistence });
+
+		// 200 tool calls. Every event used to rewrite the whole (growing) session
+		// document, un-awaited: O(n^2) bytes, measured at 502x amplification over
+		// 500 calls, from inside the HTTP request path.
+		for (let i = 0; i < 200; i++) {
+			mgr.trackActivity("s", makeLog({
+				sessionId: "s", tool: "Bash", event: "PreToolUse", executionId: `t${i}`,
+			}));
+			mgr.trackActivity("s", makeLog({
+				sessionId: "s", tool: "Bash", event: "PostToolUse", executionId: `t${i}`,
+			}));
+		}
+		await mgr.flush();
+
+		assert.ok(
+			writes <= 5,
+			`400 mutations should coalesce into a handful of writes, saw ${writes}`,
+		);
+		const finalSize = Buffer.byteLength(
+			JSON.stringify(await persistence.loadJSON("sessions", "s")),
+		);
+		assert.ok(
+			bytes < finalSize * 10,
+			`amplification should be near 1x, wrote ${bytes} for a ${finalSize} doc`,
+		);
+	});
+
+	it("flush persists everything still queued", async () => {
+		const storagePath = await makeTempStore();
+		tempDirs.push(storagePath);
+		const persistence = new PersistenceStore({ basePath: storagePath });
+		await persistence.initialize();
+		const mgr = new SessionManager({ storagePath, persistence });
+
+		mgr.trackActivity("s", makeLog({ sessionId: "s", tool: "Read", event: "PreToolUse" }));
+		await mgr.flush();
+
+		const stored = await persistence.loadJSON("sessions", "s");
+		assert.ok(stored, "the session must be on disk after flush");
+		assert.equal(stored.id, "s");
+	});
+
+	it("a deleted session is not resurrected by a queued write", async () => {
+		const storagePath = await makeTempStore();
+		tempDirs.push(storagePath);
+		const persistence = new PersistenceStore({ basePath: storagePath });
+		await persistence.initialize();
+		const mgr = new SessionManager({ storagePath, persistence });
+
+		mgr.trackActivity("s", makeLog({ sessionId: "s" }));
+		await mgr.delete("s");
+		await mgr.flush();
+
+		assert.equal(await persistence.loadJSON("sessions", "s"), null);
+	});
+
+	it("saveJSON never leaves a partial document behind", async () => {
+		const storagePath = await makeTempStore();
+		tempDirs.push(storagePath);
+		const persistence = new PersistenceStore({ basePath: storagePath });
+		await persistence.initialize();
+
+		// Overlapping writes to one path used to be able to truncate it, because
+		// writeFile opens with O_TRUNC. Now each write lands via rename.
+		const big = { id: "x", blob: "y".repeat(200_000) };
+		await Promise.all([
+			persistence.saveJSON("sessions", "x", big),
+			persistence.saveJSON("sessions", "x", big),
+			persistence.saveJSON("sessions", "x", big),
+		]);
+
+		const loaded = await persistence.loadJSON("sessions", "x");
+		assert.ok(loaded, "document must be parseable after concurrent writes");
+		assert.equal(loaded.blob.length, 200_000);
+	});
+});
+
+describe("REGRESSION B21: a filtered log clear reaches disk", () => {
+	it("cleared session logs do not come back on reload", async () => {
+		const storagePath = await makeTempStore();
+		tempDirs.push(storagePath);
+		const persistence = new PersistenceStore({ basePath: storagePath });
+		await persistence.initialize();
+
+		const mgr = new LogManager({
+			storagePath, maxLogsInMemory: 1000, retentionDays: 7, persistence,
+		});
+		await mgr.addLog({ hook: "H", event: "E", sessionId: "keep", message: "a" });
+		await mgr.addLog({ hook: "H", event: "E", sessionId: "drop", message: "b" });
+		await mgr.addLog({ hook: "H", event: "E", sessionId: "drop", message: "c" });
+
+		const result = await mgr.clear({ sessionId: "drop" });
+		assert.equal(result.cleared, 2);
+
+		// The whole point: reload from disk and confirm they stayed gone.
+		const reloaded = new LogManager({
+			storagePath, maxLogsInMemory: 1000, retentionDays: 7, persistence,
+		});
+		await reloaded.load();
+
+		const { logs } = await reloaded.getLogs();
+		assert.equal(logs.length, 1, "deleted logs must not return after a restart");
+		assert.equal(logs[0].sessionId, "keep");
+	});
+});
+
+describe("REGRESSION B22: the buffer refills across rotated files", () => {
+	it("reads back beyond a single rotation", async () => {
+		const storagePath = await makeTempStore();
+		tempDirs.push(storagePath);
+		// Tiny cap so rotation happens after a few entries.
+		const persistence = new PersistenceStore({
+			basePath: storagePath, maxLogFileSize: 400,
+		});
+		await persistence.initialize();
+
+		const mgr = new LogManager({
+			storagePath, maxLogsInMemory: 500, retentionDays: 7, persistence,
+		});
+		for (let i = 0; i < 40; i++) {
+			await mgr.addLog({ hook: "H", event: "E", message: `entry ${i} ${"x".repeat(50)}` });
+		}
+
+		const reloaded = new LogManager({
+			storagePath, maxLogsInMemory: 500, retentionDays: 7, persistence,
+		});
+		await reloaded.load();
+
+		// Previously load() read only the live file, so the buffer could never
+		// exceed one rotation's worth no matter how much history existed.
+		assert.ok(
+			reloaded.getStats().totalLogs > 20,
+			`expected history from rotated files, got ${reloaded.getStats().totalLogs}`,
+		);
+	});
+});

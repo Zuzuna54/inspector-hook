@@ -214,13 +214,55 @@ export interface ActivityItem<T = unknown> extends ActivityItemBase {
 }
 
 /**
+ * Everything a session list row or detail header needs, without the
+ * toolExecutions array.
+ *
+ * The activity response used to carry the full Session so the client could keep
+ * the sidebar live without a second request. But a long session's
+ * toolExecutions array dominates the payload — 4.2 MB of a 7.6 MB response was
+ * measured — and the client renders the activity feed from `activity` anyway,
+ * never from that array. This carries the same information in a few hundred
+ * bytes.
+ */
+export interface SessionSummary {
+	id: string;
+	name?: string;
+	status: SessionStatus;
+	startTime: string;
+	endTime?: string;
+	lastActivityTime?: string;
+	/** Number of tool executions recorded, without the executions themselves. */
+	toolExecutionCount: number;
+	/** Number of file changes attributed to this session. */
+	fileChangeCount: number;
+	/** Tool executions that ended in failure. */
+	errorCount: number;
+	gitBranch?: string;
+	projectName?: string;
+}
+
+/**
  * Session activity response from API
  */
 export interface SessionActivityResponse {
 	sessionId: string;
+	/**
+	 * @deprecated Use `sessionSummary`. Retained only while clients migrate;
+	 * it is the single largest contributor to this response's size.
+	 */
 	session: Session | null;
+	/** Slim session header — prefer this over `session`. */
+	sessionSummary: SessionSummary | null;
 	activity: ActivityItem[];
 	totalItems: number;
+	/** True when older logs exist beyond the fetched window. */
+	truncated?: boolean;
+	/**
+	 * How many logs the core currently retains for this session. A FLOOR, not a
+	 * lifetime total: LogManager serves reads from memory only, so entries
+	 * evicted past maxLogsInMemory are not counted. Label it accordingly.
+	 */
+	availableLogs?: number;
 }
 
 /**

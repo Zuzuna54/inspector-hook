@@ -29,8 +29,12 @@ type JsonRpcResult = JsonRpcResponse | JsonRpcError;
 export interface CoreBridgeOptions {
 	/** Where the core keeps its own state (VS Code global storage). */
 	storagePath: string;
-	/** The user's workspace folder — what the core treats as the project root. */
-	workspaceRoot: string;
+	/**
+	 * The user's workspace folder — what the core treats as the project root.
+	 * Undefined when no folder is open; the env var is then omitted entirely
+	 * rather than passing a meaningless path.
+	 */
+	workspaceRoot?: string;
 	httpPort: number;
 	wsPort: number;
 	extensionPath?: string;
@@ -78,9 +82,13 @@ export class CoreBridge extends EventEmitter {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
-					INSPECTOR_HOOK_WORKSPACE: this.options.workspaceRoot,
 					INSPECTOR_HOOK_HTTP_PORT: String(this.options.httpPort),
 					INSPECTOR_HOOK_WS_PORT: String(this.options.wsPort),
+					// Omitted when there is no workspace folder, rather than sent
+					// as a placeholder the core would treat as a real root.
+					...(this.options.workspaceRoot
+						? { INSPECTOR_HOOK_WORKSPACE: this.options.workspaceRoot }
+						: {}),
 				},
 			});
 

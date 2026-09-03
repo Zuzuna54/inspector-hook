@@ -52,9 +52,9 @@ const SessionsView = {
 		if (session.name) {
 			projectName = session.name;
 		}
-		// 2. Try project name from metadata
-		else if (session.metadata?.projectName) {
-			projectName = session.metadata.projectName;
+		// 2. Try project name from metadata, or flattened onto a summary
+		else if (session.metadata?.projectName || session.projectName) {
+			projectName = session.metadata?.projectName || session.projectName;
 		}
 		// 3. Try to extract folder name from working directory
 		else if (session.metadata?.workingDirectory) {

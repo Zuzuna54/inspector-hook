@@ -72,9 +72,14 @@ export class LogManager extends EventEmitter {
 		if (!this.persistence) return;
 
 		try {
-			const logs = await this.persistence.loadLogs<LogEntry>("activity");
-			// Keep only the most recent logs up to maxLogsInMemory
-			this.logs = logs.slice(-this.options.maxLogsInMemory);
+			// loadRecentLogs reads back across rotated files. loadLogs only read
+			// the live file, which rotates at 10 MB (~1,800 entries) while the
+			// memory cap is 10,000 -- so after a restart the buffer could never
+			// refill beyond a single rotation's worth of history.
+			this.logs = await this.persistence.loadRecentLogs<LogEntry>(
+				"activity",
+				this.options.maxLogsInMemory,
+			);
 		} catch {
 			// No logs to load or file doesn't exist
 		}
@@ -233,21 +238,24 @@ export class LogManager extends EventEmitter {
 	async clear(filter?: LogFilter): Promise<LogClearResult> {
 		const before = this.logs.length;
 
-		if (filter) {
-			// Remove matching logs
-			if (filter.sessionId) {
-				this.logs = this.logs.filter((l) => l.sessionId !== filter.sessionId);
-			}
-			if (filter.olderThan) {
-				this.logs = this.logs.filter((l) => l.timestamp >= filter.olderThan!);
-			}
-		} else {
-			this.logs = [];
-		}
+		// One predicate drives both the in-memory buffer and the file, so they
+		// cannot disagree. Previously a filtered clear touched memory only, and
+		// the "deleted" logs reappeared on the next restart.
+		const keep = (l: LogEntry): boolean => {
+			if (!filter) return false;
+			if (filter.sessionId && l.sessionId === filter.sessionId) return false;
+			if (filter.olderThan && l.timestamp < filter.olderThan) return false;
+			return true;
+		};
 
-		// Clear the persistence log file if clearing all
-		if (!filter && this.persistence) {
-			await this.persistence.clearLog("activity");
+		this.logs = filter ? this.logs.filter(keep) : [];
+
+		if (this.persistence) {
+			if (filter) {
+				await this.persistence.filterLog<LogEntry>("activity", keep);
+			} else {
+				await this.persistence.clearLog("activity");
+			}
 		}
 
 		return {
