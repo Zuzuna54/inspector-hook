@@ -24,7 +24,10 @@ const ContextView = {
 	init() {
 		this._unsubscribers.push(
 			State.subscribe("contextView", (newVal, oldVal) => {
-				if (newVal.projects !== oldVal?.projects) this.renderProjects();
+				if (newVal.projects !== oldVal?.projects) {
+					this.renderProjects();
+					this.renderStatus();
+				}
 				if (
 					newVal.selectedProject !== oldVal?.selectedProject ||
 					newVal.projects !== oldVal?.projects
@@ -81,6 +84,7 @@ const ContextView = {
 	},
 
 	render() {
+		this.renderStatus();
 		this.renderMode();
 		this.renderProjects();
 		this.renderFiles();
@@ -97,18 +101,30 @@ const ContextView = {
 		const { mode, search } = State.contextView;
 		root.classList.toggle("ctx-mode-injection", mode === "injection");
 
-		const toggle = document.getElementById("ctx-mode-toggle");
-		if (toggle) {
-			toggle.innerHTML = `
-        <button class="ctx-mode ${mode === "memory" ? "active" : ""}" data-mode="memory">Memory</button>
-        <button class="ctx-mode ${mode === "injection" ? "active" : ""}" data-mode="injection">Context injection</button>
-      `;
+		// The buttons are in the HTML; only the active marker is ours. Rewriting
+		// them here would put their existence back behind this function running.
+		for (const button of document.querySelectorAll("#ctx-mode-toggle .ctx-mode")) {
+			button.classList.toggle("active", button.dataset.mode === mode);
 		}
 
 		const searchEl = document.getElementById("ctx-search");
 		if (searchEl && searchEl.value !== search) searchEl.value = search;
 
 		if (mode === "injection") this.renderInjectionPane();
+	},
+
+	/**
+	 * What the view currently holds.
+	 *
+	 * Doubles as the answer to "why is this empty": a pane with no projects and
+	 * no sessions is indistinguishable from a broken one unless it says so.
+	 */
+	renderStatus() {
+		const el = document.getElementById("ctx-status");
+		if (!el) return;
+		const { projects } = State.contextView;
+		const files = (projects || []).reduce((n, p) => n + (p.files || []).length, 0);
+		el.textContent = `${(projects || []).length} projects · ${files} memory files · ${(State.sessions || []).length} sessions retained`;
 	},
 
 	renderInjectionPane() {

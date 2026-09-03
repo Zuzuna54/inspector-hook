@@ -298,12 +298,22 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
       <!-- Context View: native auto memory, across every project -->
       <div id="view-context" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
         <div class="ctx-bar">
-          <div class="ctx-mode-toggle" id="ctx-mode-toggle" role="group" aria-label="Context mode"></div>
+          <!-- Static chrome. These were rendered by JS, which meant that if the
+               view's init did not run there was nothing to click and nothing to
+               explain why — a blank pane with no way out. Buttons that always
+               exist fail visibly instead: JS only sets which one is active. -->
+          <div class="ctx-mode-toggle" id="ctx-mode-toggle" role="group" aria-label="Context mode">
+            <button class="ctx-mode active" data-mode="memory">Memory</button>
+            <button class="ctx-mode" data-mode="injection">Context injection</button>
+          </div>
           <input type="text" id="ctx-search" class="input ctx-search"
                  placeholder="Search every project's memory..."
                  aria-label="Search memory across all projects">
         </div>
-        <div class="ctx-injection-pane" id="ctx-injection-pane"></div>
+        <div class="ctx-injection-pane" id="ctx-injection-pane">
+          <div class="ctx-notice">Loading sessions…</div>
+        </div>
+        <div class="ctx-status" id="ctx-status"></div>
         <div class="ctx-container">
           <div class="ctx-projects">
             <div class="ctx-pane-header"><h3>Projects</h3></div>
