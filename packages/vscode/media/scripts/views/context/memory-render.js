@@ -151,12 +151,40 @@ const ContextRenderMixin = {
           ${this.renderTypeBadge(file)}
           ${this.renderAuthorship(file)}
         </div>
+        ${this.renderReachability(file)}
         ${this.renderOrphanNotice(file)}
         ${file.hasFrontmatter ? "" : '<div class="ctx-notice">This file has no frontmatter. It still loads; its name and description come from the file name.</div>'}
         ${this.renderOriginLine(file, origin)}
         <div class="ctx-detail-body">${this.renderBody(file.body || "")}</div>
       </div>
     `;
+	},
+
+	/**
+	 * Whether native loading reaches this file by name — "what would load".
+	 *
+	 * The plan asks the view to show what would load, and the byte budget is the
+	 * wrong answer to that: the largest index here is 16 lines against a 200-line
+	 * limit, so a budget indicator says "everything" for every project and always
+	 * will. Per-file reachability is the real answer, and `indexState` already
+	 * carries it.
+	 *
+	 * Stated affirmatively for a file that does load, because a view that only
+	 * flags failures never tells you the normal case is working.
+	 * @param {Object} file
+	 * @returns {string}
+	 */
+	renderReachability(file) {
+		if (file.indexState === "referenced") {
+			return `
+        <div class="ctx-reach loads" title="MEMORY.md references this file">
+          Loaded by name — the index points at it
+        </div>
+      `;
+		}
+		// The unreachable cases already get a notice explaining the remedy, so
+		// repeating the diagnosis here would just be noise.
+		return "";
 	},
 
 	/**

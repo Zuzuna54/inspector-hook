@@ -520,3 +520,16 @@
 }
 
 .ctx-digest { margin-top: var(--spacing-md); }
+
+/* "What would load", per file. The byte budget is a footnote; whether the index
+   names a file is the answer, and the affirmative case is worth stating so the
+   view is not only a list of problems. */
+.ctx-reach {
+	margin-bottom: var(--spacing-sm);
+	font-size: var(--font-size-xs);
+	color: var(--fg-muted);
+}
+
+.ctx-reach.loads {
+	color: var(--color-success);
+}

@@ -489,3 +489,27 @@ describe("context: digest preview", () => {
 		assert.ok(!/write/i.test(html), "a write affordance appeared in the preview");
 	});
 });
+
+describe("context: what would load", () => {
+	const { view } = loadContext();
+
+	it("states affirmatively that a referenced file loads", () => {
+		// A view that only flags failures never tells you the normal case works.
+		const html = view.renderReachability(file({ indexState: "referenced" }));
+		assert.match(html, /Loaded by name/);
+	});
+
+	it("stays silent where the orphan notice already explains it", () => {
+		// Both unreachable states already carry a notice with the remedy;
+		// repeating the diagnosis would be noise.
+		assert.equal(view.renderReachability(file({ indexState: "unreferenced" })), "");
+		assert.equal(view.renderReachability(file({ indexState: "no-index" })), "");
+	});
+
+	it("answers per file rather than by byte budget", () => {
+		// The largest real index is 16 lines against a 200-line limit, so a budget
+		// indicator would say "everything" for every project and always will.
+		const detail = view.renderFileDetail(file({ indexState: "referenced" }), null);
+		assert.match(detail, /ctx-reach/);
+	});
+});
