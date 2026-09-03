@@ -306,13 +306,22 @@ describe("file changes: non-content diff states", () => {
 		assert.doesNotThrow(() => view.renderDiffLoading());
 	});
 
-	it("KNOWN BUG: throws when the toolbar is absent but the container is not", () => {
-		// renderEmptyDiff and renderDiffError null-check `container` and then
-		// write `toolbar.innerHTML` unguarded. Pinned as current behaviour, not
-		// endorsed - fixing it is a behaviour change and belongs in its own
-		// commit, not inside a move.
+	it("still renders when the toolbar is absent but the container is not", () => {
+		// Was a crash: both methods null-checked `container` and then wrote
+		// `toolbar.innerHTML` unguarded, so a missing toolbar threw and the diff
+		// never rendered - the caller lost the container it HAD because of the
+		// one it did not. Pinned as a known bug while the file was being moved,
+		// fixed once the move had landed.
 		const { view } = loadFileChanges();
-		withElements(["fc-diff-container"]);
-		assert.throws(() => view.renderEmptyDiff(), /toolbar|null|undefined/i);
+		const els = withElements(["fc-diff-container"]);
+		assert.doesNotThrow(() => view.renderEmptyDiff());
+		assert.match(els["fc-diff-container"].innerHTML, /fc-empty-state/);
+	});
+
+	it("still renders the error when the toolbar is absent", () => {
+		const { view } = loadFileChanges();
+		const els = withElements(["fc-diff-container"]);
+		assert.doesNotThrow(() => view.renderDiffError("boom"));
+		assert.match(els["fc-diff-container"].innerHTML, /boom/);
 	});
 });

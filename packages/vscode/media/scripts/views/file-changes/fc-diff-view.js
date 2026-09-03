@@ -51,7 +51,11 @@ const FcDiffViewMixin = {
 		const toolbar = document.getElementById("fc-toolbar");
 		if (!container) return;
 
-		toolbar.innerHTML = "";
+		// Guarded: this used to null-check `container` and then write
+		// `toolbar.innerHTML` unguarded, so a missing toolbar threw and the diff
+		// never rendered at all - the caller lost the container it HAD because of
+		// the one it did not.
+		if (toolbar) toolbar.innerHTML = "";
 		container.innerHTML = `
       <div class="fc-empty-state">
         <div class="fc-empty-icon">&#128196;</div>
@@ -87,7 +91,11 @@ const FcDiffViewMixin = {
 		const toolbar = document.getElementById("fc-toolbar");
 		if (!container) return;
 
-		toolbar.innerHTML = "";
+		// Guarded: this used to null-check `container` and then write
+		// `toolbar.innerHTML` unguarded, so a missing toolbar threw and the diff
+		// never rendered at all - the caller lost the container it HAD because of
+		// the one it did not.
+		if (toolbar) toolbar.innerHTML = "";
 		container.innerHTML = `
       <div class="fc-diff-error">
         <div class="fc-diff-error-icon">&#9888;</div>

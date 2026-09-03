@@ -63,6 +63,45 @@ describe("activity merge", () => {
 		assert.deepEqual(merged.map((i) => i.id), ["early", "late"]);
 	});
 
+	it("keeps the newer version when a stale copy arrives late", () => {
+		// updatedAt, not arrival order. A tool call keeps its start time as its
+		// timestamp while status and duration arrive later, so a slow or
+		// reordered response must not turn a completed call back into a running
+		// one.
+		const merged = mergeActivity(
+			[item("a", "1", { updatedAt: "5", data: { status: "completed" } })],
+			[item("a", "1", { updatedAt: "3", data: { status: "running" } })],
+		);
+		assert.equal(merged[0].data.status, "completed", "a stale copy overwrote a newer one");
+	});
+
+	it("applies an update that is genuinely newer", () => {
+		const merged = mergeActivity(
+			[item("a", "1", { updatedAt: "3", data: { status: "running" } })],
+			[item("a", "1", { updatedAt: "5", data: { status: "completed" } })],
+		);
+		assert.equal(merged[0].data.status, "completed");
+	});
+
+	it("falls back to timestamp when updatedAt is absent", () => {
+		// Items recorded before updatedAt existed have only a timestamp.
+		const merged = mergeActivity(
+			[item("a", "1", { data: { status: "running" } })],
+			[item("a", "1", { data: { status: "completed" } })],
+		);
+		assert.equal(merged[0].data.status, "completed");
+	});
+
+	it("orders by timestamp, not by updatedAt", () => {
+		// A tool call that completes late must stay where it started in the feed
+		// rather than jumping to the end.
+		const merged = mergeActivity(
+			[item("tool", "2026-09-03T10:00:00Z", { updatedAt: "2026-09-03T12:00:00Z" })],
+			[item("later", "2026-09-03T11:00:00Z", { updatedAt: "2026-09-03T11:00:00Z" })],
+		);
+		assert.deepEqual(merged.map((i) => i.id), ["tool", "later"]);
+	});
+
 	it("tolerates an item with no timestamp instead of throwing", () => {
 		assert.doesNotThrow(() => mergeActivity([item("a", "1")], [{ id: "b" }]));
 	});
