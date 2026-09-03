@@ -770,7 +770,15 @@ export class IpcServer {
 			return project.files.find((f) => f.fileName === fileName) ?? null;
 		});
 
-		/** Create or update a memory entry from the curation UI. */
+		/**
+		 * Create or update a memory entry from the curation UI.
+		 *
+		 * `userInitiated` is what lets a person edit a note they wrote by hand;
+		 * without it the write is refused, which is correct for anything
+		 * automated. Nothing inside the core sets it -- the session digest path
+		 * calls writeMemoryFile with no options at all -- so it can only arrive
+		 * from an explicit action at the UI.
+		 */
 		this.methods.set("memory.write", async (params) => {
 			const rec = asRec(params) ?? {};
 			const dir = await this.memoryDirFrom(params);
@@ -778,13 +786,17 @@ export class IpcServer {
 			if (!name) {
 				return { written: false, reason: "A name is required." };
 			}
-			return writeMemoryFile(dir, {
-				name,
-				description: asStr(rec.description) ?? "",
-				type: (asStr(rec.type) as MemoryType) ?? "project",
-				body: asStr(rec.body) ?? "",
-				title: asStr(rec.title),
-			});
+			return writeMemoryFile(
+				dir,
+				{
+					name,
+					description: asStr(rec.description) ?? "",
+					type: (asStr(rec.type) as MemoryType) ?? "project",
+					body: asStr(rec.body) ?? "",
+					title: asStr(rec.title),
+				},
+				{ userInitiated: asBool(rec.userInitiated) ?? false },
+			);
 		});
 
 		/** Delete a memory entry. `force` is required for a file we did not author. */

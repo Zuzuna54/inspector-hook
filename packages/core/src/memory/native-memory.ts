@@ -45,9 +45,32 @@
 import { readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import {
+	AUTHORED_BY,
+	INDEX_FILE,
+	INDEX_LOAD_BYTES,
+	INDEX_LOAD_LINES,
+	type MemoryFile,
+	type MemoryProject,
+	type MemoryType,
+	type WriteRefusal,
+	type WriteResult,
+} from "@inspector-hook/protocol";
 
-/** The type vocabulary native auto memory uses. */
-export type MemoryType = "user" | "feedback" | "project" | "reference";
+// Re-exported so existing importers of this module keep working; the
+// declarations now live in the protocol package with every other IPC
+// contract.
+export {
+	AUTHORED_BY,
+	INDEX_FILE,
+	INDEX_LOAD_BYTES,
+	INDEX_LOAD_LINES,
+	type MemoryFile,
+	type MemoryProject,
+	type MemoryType,
+	type WriteRefusal,
+	type WriteResult,
+};
 
 const MEMORY_TYPES: readonly MemoryType[] = [
 	"user",
@@ -55,66 +78,6 @@ const MEMORY_TYPES: readonly MemoryType[] = [
 	"project",
 	"reference",
 ];
-
-/** Marks a file this tool authored, and may therefore modify. */
-export const AUTHORED_BY = "inspector-hook";
-
-/** The index file every project's memory directory uses. */
-export const INDEX_FILE = "MEMORY.md";
-
-/**
- * How much of the index Claude Code loads every session.
- *
- * Used only to report when an index has grown past the point where its tail
- * stops being read; nothing here truncates a user's file.
- */
-export const INDEX_LOAD_LINES = 200;
-export const INDEX_LOAD_BYTES = 25 * 1024;
-
-/** One parsed memory file. */
-export interface MemoryFile {
-	/** Absolute path on disk. */
-	path: string;
-	/** File name including extension. */
-	fileName: string;
-	/** The `name:` slug, falling back to the file stem when absent. */
-	name: string;
-	/** The `description:` line, if the file has one. */
-	description?: string;
-	/** `metadata.type`, when it is one of the four known values. */
-	type?: MemoryType;
-	/** `metadata.source`, present on files this tool wrote. */
-	source?: string;
-	/** Body text with frontmatter removed. */
-	body: string;
-	/** Whether the file actually had frontmatter, as opposed to defaults. */
-	hasFrontmatter: boolean;
-	/** Size in bytes. */
-	size: number;
-	/** Last modification time, ISO 8601. */
-	modified: string;
-	/** True when no MEMORY.md line references this file. */
-	orphaned: boolean;
-}
-
-/** A project's memory directory, summarised. */
-export interface MemoryProject {
-	/** The `~/.claude/projects/<slug>` directory name. */
-	slug: string;
-	/** Absolute path to the `memory/` directory. */
-	memoryDir: string;
-	/** The workspace path this slug most likely refers to, when resolvable. */
-	workspacePath?: string;
-	/** Files in the directory, excluding the index. */
-	files: MemoryFile[];
-	/** Whether MEMORY.md exists. Without it, nothing here is loaded by name. */
-	hasIndex: boolean;
-	/** Total bytes of all memory files, excluding the index. */
-	totalSize: number;
-	/** Index size, so a caller can warn before the load limit bites. */
-	indexLines: number;
-	indexBytes: number;
-}
 
 /**
  * Locate a session's memory directory from the transcript path Claude Code
@@ -155,6 +118,7 @@ export function parseMemoryFile(
 	name?: string;
 	description?: string;
 	type?: MemoryType;
+	inferredType?: MemoryType;
 	source?: string;
 	body: string;
 	hasFrontmatter: boolean;
@@ -164,13 +128,23 @@ export function parseMemoryFile(
 	if (!text.startsWith("---\n")) {
 		// The pre-frontmatter form. One such file exists in the surveyed corpus,
 		// and a human wrote it, so it is read rather than skipped.
-		return { name: stem || undefined, body: text, hasFrontmatter: false };
+		return {
+			name: stem || undefined,
+			inferredType: inferTypeFromName(fileName),
+			body: text,
+			hasFrontmatter: false,
+		};
 	}
 
 	const end = text.indexOf("\n---", 4);
 	if (end === -1) {
 		// An unterminated block is not frontmatter; treat the whole file as body.
-		return { name: stem || undefined, body: text, hasFrontmatter: false };
+		return {
+			name: stem || undefined,
+			inferredType: inferTypeFromName(fileName),
+			body: text,
+			hasFrontmatter: false,
+		};
 	}
 
 	const head = text.slice(4, end);
@@ -208,10 +182,17 @@ export function parseMemoryFile(
 		name: name || stem || undefined,
 		description,
 		type,
+		inferredType: type ? undefined : inferTypeFromName(fileName),
 		source,
 		body,
 		hasFrontmatter: true,
 	};
+}
+
+/** The `<type>_name.md` convention six files in the corpus still use. */
+function inferTypeFromName(fileName: string): MemoryType | undefined {
+	const prefix = fileName.split("_")[0];
+	return isMemoryType(prefix) ? prefix : undefined;
 }
 
 function stripQuotes(value: string): string {
@@ -239,21 +220,30 @@ export function formatMemoryFile(entry: {
 	description: string;
 	type: MemoryType;
 	body: string;
-	source?: string;
+	/**
+	 * `undefined` stamps this tool as the author; `null` writes no source line
+	 * at all.
+	 *
+	 * null is what a user-initiated edit of someone else's note uses. Stamping
+	 * ownership onto a file a person wrote would silently promote it into the
+	 * set an automated pass is allowed to overwrite — turning a manual edit into
+	 * a permanent transfer of control over that file.
+	 */
+	source?: string | null;
 }): string {
 	const body = entry.body.trimEnd();
-	return [
+	const lines = [
 		"---",
 		`name: ${escapeScalar(entry.name)}`,
 		`description: ${escapeScalar(entry.description)}`,
 		"metadata:",
 		`  type: ${entry.type}`,
-		`  source: ${entry.source ?? AUTHORED_BY}`,
-		"---",
-		"",
-		body,
-		"",
-	].join("\n");
+	];
+	if (entry.source !== null) {
+		lines.push(`  source: ${entry.source ?? AUTHORED_BY}`);
+	}
+	lines.push("---", "", body, "");
+	return lines.join("\n");
 }
 
 /**
@@ -357,12 +347,18 @@ export async function readMemoryProject(
 				name: parsed.name ?? fileName.replace(/\.md$/i, ""),
 				description: parsed.description,
 				type: parsed.type,
+				inferredType: parsed.inferredType,
 				source: parsed.source,
 				body: parsed.body,
 				hasFrontmatter: parsed.hasFrontmatter,
 				size: info.size,
 				modified: info.mtime.toISOString(),
 				orphaned: hasIndex ? !referenced.has(fileName) : true,
+				indexState: !hasIndex
+					? "no-index"
+					: referenced.has(fileName)
+						? "referenced"
+						: "unreferenced",
 			});
 		} catch {
 			// Unreadable entry; skip it rather than failing the whole listing.
@@ -418,20 +414,6 @@ export async function listMemoryProjects(
 	return projects;
 }
 
-/** Why a write was refused. */
-export type WriteRefusal =
-	| "no-memory-dir"
-	| "not-authored-by-us"
-	| "unreadable";
-
-export interface WriteResult {
-	written: boolean;
-	path?: string;
-	indexUpdated?: boolean;
-	refused?: WriteRefusal;
-	reason?: string;
-}
-
 /**
  * Create or update one memory file, and reference it from the index.
  *
@@ -450,6 +432,7 @@ export async function writeMemoryFile(
 		body: string;
 		title?: string;
 	},
+	options?: { userInitiated?: boolean },
 ): Promise<WriteResult> {
 	if (!memoryDir) {
 		return {
@@ -463,19 +446,34 @@ export async function writeMemoryFile(
 
 	const fileName = memoryFileName(entry.name);
 	const target = join(memoryDir, fileName);
+	let fileExisted = false;
+	let existingSource: string | undefined;
 
-	// Guard an existing file we did not author.
+	// Guard an existing file we did not author -- unless a person asked.
+	//
+	// The same distinction deleteMemoryFile already draws with `force`, and for
+	// the same reason: a user clicking save in an editor is categorically
+	// different from a generated digest overwriting a note. Only the second was
+	// modelled, which made body editing impossible for every file in the real
+	// corpus, since all of them are hand-written.
+	//
+	// `userInitiated` is never set by anything automated. A test asserts that
+	// over the source, the way the context picker's explicit-only property is
+	// asserted -- the flag is only meaningful if nothing internal can set it.
 	try {
 		const existing = await readFile(target, "utf-8");
 		const parsed = parseMemoryFile(existing, fileName);
-		if (parsed.source !== AUTHORED_BY) {
+		fileExisted = true;
+		existingSource = parsed.source;
+		if (parsed.source !== AUTHORED_BY && !options?.userInitiated) {
 			return {
 				written: false,
 				path: target,
 				refused: "not-authored-by-us",
 				reason:
 					`${fileName} exists and was not written by Inspector Hook ` +
-					"(no metadata.source), so it is left untouched.",
+					"(no metadata.source), so it is left untouched. A user-initiated " +
+					"edit may overwrite it.",
 			};
 		}
 	} catch (error) {
@@ -490,7 +488,12 @@ export async function writeMemoryFile(
 		}
 	}
 
-	const text = formatMemoryFile(entry);
+	// Authorship is preserved, never assumed. A new file, or one we already
+	// own, is stamped as ours; someone else's file edited by hand keeps no
+	// source line, so it stays outside what an automated pass may overwrite.
+	const source =
+		!fileExisted || existingSource === AUTHORED_BY ? AUTHORED_BY : null;
+	const text = formatMemoryFile({ ...entry, source });
 	const temp = `${target}.${process.pid}.tmp`;
 	await writeFile(temp, text, "utf-8");
 	await rename(temp, target);

@@ -353,6 +353,64 @@ describe("writeMemoryFile", () => {
 		assert.doesNotMatch(text, /old body/);
 	});
 
+	it("a USER-INITIATED edit may overwrite a hand-written note", async () => {
+		// The escape hatch deleteMemoryFile already had. Every file in the real
+		// corpus is hand-written, so without this the curation UI could not edit
+		// a single one of them.
+		const { memoryDir } = await makeMemoryDir();
+		const target = join(memoryDir, "theirs.md");
+		await writeFile(target, HANDWRITTEN("theirs", "ORIGINAL"));
+
+		const result = await writeMemoryFile(
+			memoryDir,
+			{ name: "theirs", description: "edited by hand", type: "feedback", body: "EDITED" },
+			{ userInitiated: true },
+		);
+
+		assert.equal(result.written, true);
+		assert.match(await readFile(target, "utf-8"), /EDITED/);
+	});
+
+	it("a user edit does NOT stamp our authorship onto someone else's note", async () => {
+		// Stamping it would silently promote the file into the set an automated
+		// pass may overwrite -- turning one manual edit into a permanent
+		// transfer of control over a file a person wrote.
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "theirs.md"), HANDWRITTEN("theirs"));
+
+		await writeMemoryFile(
+			memoryDir,
+			{ name: "theirs", description: "d", type: "feedback", body: "EDITED" },
+			{ userInitiated: true },
+		);
+
+		const parsed = parseMemoryFile(
+			await readFile(join(memoryDir, "theirs.md"), "utf-8"),
+			"theirs.md",
+		);
+		assert.equal(parsed.source, undefined, "still not ours");
+
+		// And the automated path is still refused afterwards, which is the point.
+		const automated = await writeMemoryFile(memoryDir, {
+			name: "theirs", description: "d", type: "project", body: "GENERATED",
+		});
+		assert.equal(automated.written, false);
+		assert.equal(automated.refused, "not-authored-by-us");
+	});
+
+	it("still stamps authorship on a file we create", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		await writeMemoryFile(
+			memoryDir,
+			{ name: "ours", description: "d", type: "project", body: "b" },
+			{ userInitiated: true },
+		);
+		const parsed = parseMemoryFile(
+			await readFile(join(memoryDir, "ours.md"), "utf-8"), "ours.md",
+		);
+		assert.equal(parsed.source, AUTHORED_BY, "a new file is ours");
+	});
+
 	it("refuses, with a reason, when there is no memory directory", async () => {
 		const result = await writeMemoryFile(null, {
 			name: "x",
@@ -453,6 +511,130 @@ describe("upsertIndexEntry", () => {
 			false,
 			"an idempotent call must not rewrite the file",
 		);
+	});
+});
+
+describe("type: declared vs inferred", () => {
+	it("keeps an inferred type out of the declared one", async () => {
+		// Six files in the real corpus encode their type only as a filename
+		// prefix. Conflating that with a declared type is what made two parsers
+		// disagree about how many files are untyped -- 7 undeclared vs 1 with no
+		// type recoverable at all. A UI may show the inference; a count of what
+		// is declared must not include it.
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(
+			join(memoryDir, "feedback_no_shortcuts.md"),
+			"---\nname: feedback_no_shortcuts\ndescription: d\n---\n\nbody\n",
+		);
+		await writeFile(join(memoryDir, "user_profile.md"), "# no frontmatter\n");
+		await writeFile(join(memoryDir, "declared.md"), HANDWRITTEN("declared"));
+
+		const files = Object.fromEntries(
+			(await readMemoryProject(memoryDir)).files.map((f) => [f.fileName, f]),
+		);
+
+		assert.equal(files["feedback_no_shortcuts.md"].type, undefined);
+		assert.equal(files["feedback_no_shortcuts.md"].inferredType, "feedback");
+		assert.equal(files["user_profile.md"].inferredType, "user", "even without frontmatter");
+		assert.equal(files["declared.md"].type, "feedback");
+		assert.equal(
+			files["declared.md"].inferredType,
+			undefined,
+			"no inference when a type is declared",
+		);
+	});
+
+	it("does not invent a type from an unrecognised prefix", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "notes_thing.md"), "# x\n");
+		const [file] = (await readMemoryProject(memoryDir)).files;
+		assert.equal(file.inferredType, undefined);
+	});
+});
+
+describe("indexState", () => {
+	it("distinguishes an unreferenced file from a project with no index", async () => {
+		// `orphaned` is true for both, which is accurate and useless: with no
+		// index every file reports orphaned, and the answer there is "create an
+		// index" once, not the same warning repeated per file.
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "a.md"), AUTHORED("a"));
+		await writeFile(join(memoryDir, "b.md"), AUTHORED("b"));
+
+		const noIndex = await readMemoryProject(memoryDir);
+		assert.deepEqual(
+			noIndex.files.map((f) => f.indexState),
+			["no-index", "no-index"],
+		);
+
+		await writeFile(join(memoryDir, "MEMORY.md"), "# Memory\n\n- [A](a.md)\n");
+		const withIndex = await readMemoryProject(memoryDir);
+		const byName = Object.fromEntries(
+			withIndex.files.map((f) => [f.fileName, f.indexState]),
+		);
+		assert.equal(byName["a.md"], "referenced");
+		assert.equal(byName["b.md"], "unreferenced");
+	});
+
+	it("orphaned stays true whenever the file is not loaded by name", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "a.md"), AUTHORED("a"));
+		const [file] = (await readMemoryProject(memoryDir)).files;
+		assert.equal(file.orphaned, true);
+		assert.equal(file.indexState, "no-index");
+	});
+});
+
+describe("userInitiated cannot be set by anything automated", () => {
+	it("no core module passes it except the IPC handler", async () => {
+		// The flag is only meaningful if nothing internal can set it. Same
+		// property as the context picker's explicit-only guarantee, asserted the
+		// same way -- and scoped to a PROPERTY (which callers set it) rather
+		// than to a file list, so moving code does not silently retire the check.
+		const { readdir, readFile: rf } = await import("node:fs/promises");
+		const { join: j, resolve: r, dirname: d } = await import("node:path");
+		const { fileURLToPath: f2p } = await import("node:url");
+		const srcRoot = r(d(f2p(import.meta.url)), "..", "src");
+
+		const files = [];
+		const walk = async (dir) => {
+			for (const entry of await readdir(dir, { withFileTypes: true })) {
+				const full = j(dir, entry.name);
+				if (entry.isDirectory()) await walk(full);
+				else if (entry.name.endsWith(".ts")) files.push(full);
+			}
+		};
+		await walk(srcRoot);
+		assert.ok(files.length > 5, "found the source tree");
+
+		const setters = [];
+		for (const file of files) {
+			// Comments stripped first: an assertion over source that matches its
+			// own explanation can only be satisfied by rewording it, which is
+			// backwards.
+			const code = (await rf(file, "utf-8"))
+				.replace(/\/\*[\s\S]*?\*\//g, "")
+				.replace(/^\s*\/\/.*$/gm, "");
+			if (/userInitiated\s*:/.test(code)) setters.push(file);
+		}
+
+		assert.deepEqual(
+			setters.map((f) => f.slice(srcRoot.length + 1)),
+			["ipc/ipc-server.ts"],
+			"only the IPC handler may set userInitiated; it must come from the UI",
+		);
+	});
+
+	it("the session-digest write path passes no options at all", async () => {
+		const { readFile: rf } = await import("node:fs/promises");
+		const { resolve: r, dirname: d } = await import("node:path");
+		const { fileURLToPath: f2p } = await import("node:url");
+		const core = await rf(
+			r(d(f2p(import.meta.url)), "..", "src", "core.ts"),
+			"utf-8",
+		);
+		assert.match(core, /writeMemoryFile\(memoryDir, digest\)/,
+			"the automated path must call it with no options");
 	});
 });
 

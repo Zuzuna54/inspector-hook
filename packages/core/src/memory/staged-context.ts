@@ -38,6 +38,9 @@
 
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { StagedContext } from "@inspector-hook/protocol";
+
+export type { StagedContext };
 
 /** Where the hook looks. Fixed, because the hook must find it without help. */
 export const STAGED_CONTEXT_FILE = "pending-context.json";
@@ -53,21 +56,6 @@ export const DEFAULT_TTL_MS = 60 * 60 * 1000;
  * silent — a caller that gets back less than it staged is told so.
  */
 export const MAX_CONTEXT_BYTES = 16 * 1024;
-
-export interface StagedContext {
-	/** Exactly the text the hook will emit. */
-	text: string;
-	/** ISO 8601 stage time. */
-	stagedAt: string;
-	/** ISO 8601 expiry; past this it is treated as absent. */
-	expiresAt: string;
-	/** The session this was built from, for display and provenance. */
-	sourceSessionId?: string;
-	/** Human label for the picker's confirmation. */
-	label?: string;
-	/** True when `text` was cut to fit MAX_CONTEXT_BYTES. */
-	truncated?: boolean;
-}
 
 export function stagedContextPath(storagePath: string): string {
 	return join(storagePath, STAGED_CONTEXT_FILE);
