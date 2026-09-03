@@ -315,3 +315,208 @@
 		border-bottom: 1px solid var(--border);
 	}
 }
+
+/* ==========================================================================
+   Mode bar and cross-project search
+   ========================================================================== */
+
+.ctx-bar {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-md);
+	padding: var(--spacing-sm) var(--spacing-md);
+	border-bottom: 1px solid var(--border);
+	flex-shrink: 0;
+}
+
+.ctx-mode-toggle {
+	display: flex;
+	gap: 1px;
+}
+
+.ctx-mode {
+	padding: var(--spacing-xs) var(--spacing-sm);
+	border: 1px solid var(--border);
+	background: var(--bg-secondary);
+	color: var(--fg-secondary);
+	font-size: var(--font-size-xs);
+	cursor: pointer;
+}
+
+.ctx-mode.active {
+	background: var(--bg-tertiary);
+	color: var(--fg-primary);
+	border-color: var(--accent);
+}
+
+.ctx-search {
+	flex: 1;
+	max-width: 420px;
+}
+
+/* The two modes are exclusive: memory browsing and context staging answer
+   different questions and sharing one pane would crowd both. */
+.ctx-injection-pane { display: none; }
+.ctx-mode-injection .ctx-injection-pane { display: block; overflow-y: auto; padding: var(--spacing-md); }
+.ctx-mode-injection .ctx-container { display: none; }
+.ctx-mode-injection .ctx-search { display: none; }
+
+/* ==========================================================================
+   Search results
+   ========================================================================== */
+
+.ctx-results-count {
+	margin-bottom: var(--spacing-sm);
+	font-size: var(--font-size-xs);
+	color: var(--fg-muted);
+}
+
+.ctx-result {
+	padding: var(--spacing-sm);
+	margin-bottom: var(--spacing-xs);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.ctx-result:hover { border-color: var(--accent); }
+
+.ctx-result-head {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-sm);
+}
+
+/* The project is the point of a cross-project search: which one a hit came
+   from is the answer, not incidental metadata. */
+.ctx-result-project {
+	font-size: var(--font-size-xs);
+	color: var(--color-info);
+	font-family: var(--font-family-mono);
+}
+
+.ctx-result-desc,
+.ctx-result-excerpt {
+	margin-top: var(--spacing-xs);
+	font-size: var(--font-size-xs);
+	color: var(--fg-secondary);
+}
+
+.ctx-result-excerpt {
+	font-family: var(--font-family-mono);
+	color: var(--fg-muted);
+}
+
+/* ==========================================================================
+   Actions and editor
+   ========================================================================== */
+
+.ctx-actions {
+	display: flex;
+	gap: var(--spacing-xs);
+	margin-bottom: var(--spacing-md);
+}
+
+.ctx-editor-bar {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-sm);
+	margin-bottom: var(--spacing-sm);
+}
+
+.ctx-retype {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-xs);
+	font-size: var(--font-size-xs);
+	color: var(--fg-secondary);
+}
+
+/* What will change, before it is written. These are notes nothing regenerates,
+   so a blind save is the wrong default. */
+.ctx-diff-summary {
+	margin-left: auto;
+	font-size: var(--font-size-xs);
+	font-family: var(--font-family-mono);
+	color: var(--color-warning);
+}
+
+.ctx-diff-summary.unchanged { color: var(--fg-muted); }
+
+.ctx-editor-body {
+	width: 100%;
+	min-height: 320px;
+	padding: var(--spacing-sm);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--bg-primary);
+	color: var(--fg-primary);
+	font-family: var(--font-family-mono);
+	font-size: var(--font-size-sm);
+	line-height: 1.6;
+	resize: vertical;
+}
+
+/* ==========================================================================
+   Context injection
+   ========================================================================== */
+
+.ctx-hint {
+	font-size: var(--font-size-xs);
+	color: var(--fg-muted);
+	margin-bottom: var(--spacing-sm);
+}
+
+.ctx-staged {
+	margin-bottom: var(--spacing-md);
+	padding: var(--spacing-sm);
+	border: 1px solid var(--accent);
+	border-radius: var(--radius-sm);
+	background: var(--bg-secondary);
+}
+
+.ctx-staged-head,
+.ctx-digest-head {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-sm);
+	margin-bottom: var(--spacing-xs);
+}
+
+.ctx-staged-meta {
+	margin-left: auto;
+	font-size: var(--font-size-xs);
+	color: var(--fg-muted);
+	font-family: var(--font-family-mono);
+}
+
+.ctx-staged-text,
+.ctx-digest-text {
+	max-height: 300px;
+	overflow: auto;
+	padding: var(--spacing-sm);
+	background: var(--bg-primary);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-family-mono);
+	font-size: var(--font-size-xs);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.ctx-session-row {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-sm);
+	padding: var(--spacing-xs) var(--spacing-sm);
+	border-bottom: 1px solid var(--border);
+}
+
+.ctx-session-name { flex: 1; font-size: var(--font-size-sm); }
+
+.ctx-session-meta {
+	font-size: var(--font-size-xs);
+	color: var(--fg-muted);
+	font-family: var(--font-family-mono);
+}
+
+.ctx-digest { margin-top: var(--spacing-md); }

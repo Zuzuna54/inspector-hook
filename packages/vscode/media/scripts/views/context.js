@@ -60,9 +60,41 @@ const ContextView = {
 	},
 
 	render() {
+		this.renderMode();
 		this.renderProjects();
 		this.renderFiles();
 		this.renderDetail();
+	},
+
+	/**
+	 * The view does two jobs — browsing/curating the corpus, and staging context
+	 * for the next session — so it has two modes rather than one crowded pane.
+	 */
+	renderMode() {
+		const root = document.getElementById("view-context");
+		if (!root) return;
+		const { mode, search } = State.contextView;
+		root.classList.toggle("ctx-mode-injection", mode === "injection");
+
+		const toggle = document.getElementById("ctx-mode-toggle");
+		if (toggle) {
+			toggle.innerHTML = `
+        <button class="ctx-mode ${mode === "memory" ? "active" : ""}" data-mode="memory">Memory</button>
+        <button class="ctx-mode ${mode === "injection" ? "active" : ""}" data-mode="injection">Context injection</button>
+      `;
+		}
+
+		const searchEl = document.getElementById("ctx-search");
+		if (searchEl && searchEl.value !== search) searchEl.value = search;
+
+		if (mode === "injection") this.renderInjectionPane();
+	},
+
+	renderInjectionPane() {
+		const el = document.getElementById("ctx-injection-pane");
+		if (!el) return;
+		const { staged, digest } = State.contextView;
+		el.innerHTML = this.renderInjection(staged, State.sessions || [], digest);
 	},
 
 	/**
@@ -149,9 +181,49 @@ const ContextView = {
 		const el = document.getElementById("ctx-detail");
 		if (!el) return;
 
+		const { search, projects, editing, draft } = State.contextView;
+
+		// A search spans every project, so it replaces the single-file detail
+		// rather than filtering the one project's list: the answer to "where did
+		// I solve this before" is usually in a project you did not select.
+		if (String(search || "").trim().length >= 2) {
+			el.innerHTML = this.renderSearchResults(
+				this.searchCorpus(projects, search),
+				search,
+			);
+			return;
+		}
+
 		const file = this.selectedFile();
-		const origin = this.resolveOrigin(file);
-		el.innerHTML = this.renderFileDetail(file, origin);
+		if (editing && file && editing === file.fileName) {
+			el.innerHTML = this.renderEditor(file, draft);
+			return;
+		}
+
+		el.innerHTML = `
+      ${file ? this.renderFileActions(file) : ""}
+      ${this.renderFileDetail(file, this.resolveOrigin(file))}
+    `;
+	},
+
+	/**
+	 * The actions on one file. Delete sits beside the reversible alternative on
+	 * purpose, so the destructive option is never the only one offered.
+	 * @param {Object} file
+	 * @returns {string}
+	 */
+	renderFileActions(file) {
+		return `
+      <div class="ctx-actions">
+        <button class="btn btn-xs ctx-edit" data-file-name="${Utils.escapeHtml(file.fileName)}">Edit</button>
+        ${
+					file.orphaned
+						? ""
+						: `<button class="btn btn-xs btn-secondary ctx-unindex" data-file-name="${Utils.escapeHtml(file.fileName)}">Remove from index</button>`
+				}
+        <button class="btn btn-xs btn-danger ctx-delete" data-file-name="${Utils.escapeHtml(file.fileName)}">Delete</button>
+      </div>
+    `;
 	},
 
 	renderResult() {
@@ -240,9 +312,140 @@ const ContextView = {
 				return;
 			}
 
+			const mode = e.target.closest(".ctx-mode");
+			if (mode) {
+				State.update("contextView", {
+					...State.contextView,
+					mode: mode.dataset.mode,
+					digest: null,
+				});
+				this.renderMode();
+				if (mode.dataset.mode === "injection") API.memoryGetStaged();
+				return;
+			}
+
+			// A search hit names a project as well as a file, since the match is
+			// usually in a project other than the selected one.
+			const hit = e.target.closest(".ctx-result");
+			if (hit) {
+				State.update("contextView", {
+					...State.contextView,
+					search: "",
+					selectedProject: hit.dataset.memoryDir,
+					selectedFile: hit.dataset.fileName,
+				});
+				this.render();
+				return;
+			}
+
+			const edit = e.target.closest(".ctx-edit");
+			if (edit) return this.beginEdit(edit.dataset.fileName);
+
+			if (e.target.closest(".ctx-edit-cancel")) return this.cancelEdit();
+			if (e.target.closest(".ctx-edit-save")) return this.commitEdit();
+
+			const unindex = e.target.closest(".ctx-unindex");
+			if (unindex) return this.removeFromIndex(unindex.dataset.fileName);
+
+			const del = e.target.closest(".ctx-delete");
+			if (del) return this.confirmDelete(del.dataset.fileName);
+
+			const preview = e.target.closest(".ctx-preview-digest");
+			if (preview) {
+				API.memoryBuildDigest(preview.dataset.sessionId);
+				return;
+			}
+
+			if (e.target.closest(".ctx-stage-digest")) {
+				const { digest } = State.contextView;
+				if (digest?.sessionId) API.memoryStageContext({ sessionId: digest.sessionId });
+				return;
+			}
+
+			if (e.target.closest(".ctx-clear-staged")) {
+				API.memoryClearStaged();
+				return;
+			}
+
 			const file = e.target.closest(".ctx-file");
 			if (file) this.selectFile(file.dataset.fileName);
 		});
+
+		// Search is debounced: it scans every body in the corpus, and doing that
+		// per keystroke is wasted work on a large one.
+		const search = document.getElementById("ctx-search");
+		search?.addEventListener(
+			"input",
+			Utils.debounce((e) => {
+				State.update("contextView", {
+					...State.contextView,
+					search: e.target.value,
+				});
+				this.renderDetail();
+			}, 200),
+		);
+
+		// The draft is held in state rather than read off the textarea at save
+		// time, so the diff summary can update as you type.
+		root.addEventListener("input", (e) => {
+			if (e.target.classList?.contains("ctx-editor-body")) {
+				State.contextView.draft = e.target.value;
+				this.refreshDiffSummary();
+			}
+		});
+	},
+
+	/**
+	 * Start editing a file.
+	 * @param {string} fileName
+	 */
+	beginEdit(fileName) {
+		const project = this.selectedProject();
+		const file = (project?.files || []).find((f) => f.fileName === fileName);
+		if (!file) return;
+		State.update("contextView", {
+			...State.contextView,
+			editing: fileName,
+			draft: file.body || "",
+		});
+		this.renderDetail();
+	},
+
+	cancelEdit() {
+		State.update("contextView", {
+			...State.contextView,
+			editing: null,
+			draft: "",
+		});
+		this.renderDetail();
+	},
+
+	/**
+	 * Save the draft, with the type from the selector so a retype and an edit
+	 * are one write rather than two.
+	 */
+	commitEdit() {
+		const file = this.selectedFile();
+		if (!file) return;
+		const select = document.querySelector(".ctx-type-select");
+		this.saveEdit({ ...file, type: select?.value || file.type }, State.contextView.draft);
+		this.cancelEdit();
+	},
+
+	/**
+	 * Update just the diff line as the draft changes, rather than re-rendering
+	 * the editor and losing the cursor.
+	 */
+	refreshDiffSummary() {
+		const file = this.selectedFile();
+		const el = document.querySelector(".ctx-diff-summary");
+		const save = document.querySelector(".ctx-edit-save");
+		if (!file || !el) return;
+		const summary = this.diffSummary(file.body || "", State.contextView.draft);
+		const changed = summary.added > 0 || summary.removed > 0;
+		el.textContent = changed ? `+${summary.added} / -${summary.removed} lines` : "no changes";
+		el.classList.toggle("unchanged", !changed);
+		if (save) save.disabled = !changed;
 	},
 
 	/**

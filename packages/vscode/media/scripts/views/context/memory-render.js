@@ -297,6 +297,237 @@ const ContextRenderMixin = {
 	},
 
 	/**
+	 * Search every project's memory at once.
+	 *
+	 * The reason this view exists rather than a text editor: native memory is
+	 * per-project, so "where did I solve this before" has no answer from inside
+	 * a session and no answer from opening one project's folder either.
+	 *
+	 * @param {Array} projects
+	 * @param {string} query
+	 * @returns {Array<{project: Object, file: Object, where: string}>}
+	 */
+	searchCorpus(projects, query) {
+		const needle = String(query || "").trim().toLowerCase();
+		if (needle.length < 2) return [];
+
+		const hits = [];
+		for (const project of projects || []) {
+			for (const file of project.files || []) {
+				// Name and description first: a hit there is about the whole file,
+				// whereas a body hit is about one passage in it.
+				const where =
+					String(file.name || "").toLowerCase().includes(needle) ||
+					String(file.description || "").toLowerCase().includes(needle)
+						? "title"
+						: String(file.body || "").toLowerCase().includes(needle)
+							? "body"
+							: null;
+				if (where) hits.push({ project, file, where });
+			}
+		}
+		// Title matches before body matches; they answer different questions.
+		return hits.sort((a, b) => (a.where === b.where ? 0 : a.where === "title" ? -1 : 1));
+	},
+
+	/**
+	 * A line of body text around the match, so a hit is judgeable without
+	 * opening the file.
+	 * @param {string} body
+	 * @param {string} query
+	 * @returns {string}
+	 */
+	excerpt(body, query) {
+		const needle = String(query || "").trim().toLowerCase();
+		const text = String(body || "");
+		const at = text.toLowerCase().indexOf(needle);
+		if (at === -1 || !needle) return "";
+		const start = Math.max(0, at - 40);
+		const slice = text.slice(start, at + needle.length + 60).replace(/\s+/g, " ");
+		return `${start > 0 ? "…" : ""}${slice}${at + needle.length + 60 < text.length ? "…" : ""}`;
+	},
+
+	/**
+	 * Search results across the corpus.
+	 * @param {Array} hits
+	 * @param {string} query
+	 * @returns {string}
+	 */
+	renderSearchResults(hits, query) {
+		if (String(query || "").trim().length < 2) {
+			return `
+        <div class="empty-state">
+          <div class="empty-state-title">Search every project's memory</div>
+          <div class="empty-state-description">Native memory is per-project; this is not</div>
+        </div>
+      `;
+		}
+		if (!hits.length) {
+			return `
+        <div class="empty-state">
+          <div class="empty-state-title">No memory matches “${Utils.escapeHtml(query)}”</div>
+        </div>
+      `;
+		}
+
+		return `
+      <div class="ctx-results">
+        <div class="ctx-results-count">${hits.length} match${hits.length === 1 ? "" : "es"} across ${new Set(hits.map((h) => h.project.memoryDir)).size} project${new Set(hits.map((h) => h.project.memoryDir)).size === 1 ? "" : "s"}</div>
+        ${hits
+					.map(
+						(hit) => `
+          <div class="ctx-result" data-memory-dir="${Utils.escapeHtml(hit.project.memoryDir)}" data-file-name="${Utils.escapeHtml(hit.file.fileName)}">
+            <div class="ctx-result-head">
+              <span class="ctx-result-file">${Utils.escapeHtml(hit.file.name || hit.file.fileName)}</span>
+              <span class="ctx-result-project">${Utils.escapeHtml(this.projectLabel(hit.project))}</span>
+              ${this.renderTypeBadge(hit.file)}
+            </div>
+            ${hit.file.description ? `<div class="ctx-result-desc">${Utils.escapeHtml(hit.file.description)}</div>` : ""}
+            ${hit.where === "body" ? `<div class="ctx-result-excerpt">${Utils.escapeHtml(this.excerpt(hit.file.body, query))}</div>` : ""}
+          </div>
+        `,
+					)
+					.join("")}
+      </div>
+    `;
+	},
+
+	/**
+	 * The editor for one memory file.
+	 *
+	 * Shows what will change before anything is written: these are the user's own
+	 * notes and nothing regenerates them, so a blind save is the wrong default.
+	 * @param {Object} file
+	 * @param {string} draft
+	 * @returns {string}
+	 */
+	renderEditor(file, draft) {
+		const summary = this.diffSummary(file.body || "", draft);
+		const changed = summary.added > 0 || summary.removed > 0;
+
+		return `
+      <div class="ctx-editor">
+        <div class="ctx-editor-bar">
+          <label class="ctx-retype">
+            Type
+            <select class="ctx-type-select" aria-label="Memory type">
+              ${["project", "reference", "feedback", "user"]
+								.map(
+									(t) =>
+										`<option value="${t}" ${(file.type || file.inferredType) === t ? "selected" : ""}>${t}</option>`,
+								)
+								.join("")}
+            </select>
+          </label>
+          <span class="ctx-diff-summary ${changed ? "" : "unchanged"}">
+            ${changed ? `+${summary.added} / -${summary.removed} lines` : "no changes"}
+          </span>
+          <button class="btn btn-xs btn-secondary ctx-edit-cancel">Cancel</button>
+          <button class="btn btn-xs btn-success ctx-edit-save" ${changed ? "" : "disabled"}>Save</button>
+        </div>
+        <textarea class="ctx-editor-body" aria-label="Memory body">${Utils.escapeHtml(draft)}</textarea>
+      </div>
+    `;
+	},
+
+	/**
+	 * The injection pane: what is staged, and the sessions you can stage from.
+	 * @param {Object} staged
+	 * @param {Array} sessions
+	 * @param {Object} digest
+	 * @returns {string}
+	 */
+	renderInjection(staged, sessions, digest) {
+		return `
+      <div class="ctx-injection">
+        ${this.renderStaged(staged)}
+        <div class="ctx-injection-sessions">
+          <h4>Stage a session's digest</h4>
+          <p class="ctx-hint">
+            Nothing is injected unless you stage it, and it lands on the
+            <strong>next session that starts</strong> — not this one.
+          </p>
+          ${
+						(sessions || []).length
+							? (sessions || [])
+									.map(
+										(s) => `
+              <div class="ctx-session-row" data-session-id="${Utils.escapeHtml(s.id)}">
+                <span class="ctx-session-name">${Utils.escapeHtml(s.name || s.id.slice(0, 8))}</span>
+                <span class="ctx-session-meta">${Utils.formatDate(s.startTime)}</span>
+                <button class="btn btn-xs ctx-preview-digest" data-session-id="${Utils.escapeHtml(s.id)}">Preview</button>
+              </div>
+            `,
+									)
+									.join("")
+							: '<div class="empty-state"><div class="empty-state-title">No sessions retained</div></div>'
+					}
+        </div>
+        ${this.renderDigest(digest)}
+      </div>
+    `;
+	},
+
+	/**
+	 * What is currently staged.
+	 * @param {Object} staged
+	 * @returns {string}
+	 */
+	renderStaged(staged) {
+		if (!staged) {
+			return `
+        <div class="ctx-notice">
+          Nothing staged. The next session starts with only its native memory.
+        </div>
+      `;
+		}
+		return `
+      <div class="ctx-staged">
+        <div class="ctx-staged-head">
+          <strong>Staged for the next session</strong>
+          <span class="ctx-staged-meta">expires ${Utils.formatDate(staged.expiresAt)}</span>
+          <button class="btn btn-xs btn-danger ctx-clear-staged">Clear</button>
+        </div>
+        <p class="ctx-hint">This is exactly the text the hook will emit, and it is used once.</p>
+        <pre class="ctx-staged-text">${Utils.escapeHtml(staged.text || "")}</pre>
+      </div>
+    `;
+	},
+
+	/**
+	 * A previewed digest, and the button that stages it.
+	 *
+	 * Preview is the whole feature: what is staged is the text shown here, so
+	 * nothing can be injected that was not read first.
+	 * @param {Object} digest
+	 * @returns {string}
+	 */
+	renderDigest(digest) {
+		if (!digest) return "";
+
+		// A session with nothing recorded produces no useful digest, and the
+		// backend says why rather than handing back an empty entry.
+		if (digest.worthKeeping === false) {
+			return `
+        <div class="ctx-notice">
+          Nothing worth staging from this session${digest.skipReason ? `: ${Utils.escapeHtml(digest.skipReason)}` : "."}
+        </div>
+      `;
+		}
+
+		const text = digest.text || digest.body || "";
+		return `
+      <div class="ctx-digest">
+        <div class="ctx-digest-head">
+          <strong>Digest preview</strong>
+          <button class="btn btn-xs btn-success ctx-stage-digest">Stage this</button>
+        </div>
+        <pre class="ctx-digest-text">${Utils.escapeHtml(text)}</pre>
+      </div>
+    `;
+	},
+
+	/**
 	 * @param {number} bytes
 	 * @returns {string}
 	 */

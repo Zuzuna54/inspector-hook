@@ -68,6 +68,18 @@ const State = {
 		// The last write/delete/index result, so a refusal can be rendered in
 		// the backend's own words rather than paraphrased.
 		lastResult: null,
+		// "memory" browses and curates the corpus; "injection" is the explicit
+		// picker and the digest preview. Two jobs, one view.
+		mode: "memory",
+		// Cross-project search. Native memory is per-project, so searching the
+		// whole corpus is the thing no editor and no session can do.
+		search: "",
+		// The file being edited, and its working copy.
+		editing: null,
+		draft: "",
+		// Context staged for the next session, and a previewed digest.
+		staged: null,
+		digest: null,
 	},
 
 	// ==========================================================================
@@ -248,6 +260,12 @@ const State = {
 			selectedFile: null,
 			showEmpty: false,
 			lastResult: null,
+			mode: "memory",
+			search: "",
+			editing: null,
+			draft: "",
+			staged: null,
+			digest: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

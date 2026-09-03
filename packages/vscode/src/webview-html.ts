@@ -297,6 +297,13 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
 
       <!-- Context View: native auto memory, across every project -->
       <div id="view-context" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
+        <div class="ctx-bar">
+          <div class="ctx-mode-toggle" id="ctx-mode-toggle" role="group" aria-label="Context mode"></div>
+          <input type="text" id="ctx-search" class="input ctx-search"
+                 placeholder="Search every project's memory..."
+                 aria-label="Search memory across all projects">
+        </div>
+        <div class="ctx-injection-pane" id="ctx-injection-pane"></div>
         <div class="ctx-container">
           <div class="ctx-projects">
             <div class="ctx-pane-header"><h3>Projects</h3></div>

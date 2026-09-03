@@ -327,3 +327,165 @@ describe("context: destructive paths are guarded", () => {
 		assert.equal(occurrences, 1);
 	});
 });
+
+describe("context: cross-project search", () => {
+	const { view } = loadContext();
+	const projects = [
+		{
+			slug: "-Users-me-alpha",
+			memoryDir: "/a",
+			files: [
+				file({ fileName: "auth.md", name: "auth-setup", description: "OAuth flow", body: "we used PKCE" }),
+				file({ fileName: "misc.md", name: "misc", body: "nothing relevant" }),
+			],
+		},
+		{
+			slug: "-Users-me-beta",
+			memoryDir: "/b",
+			files: [file({ fileName: "notes.md", name: "notes", body: "the PKCE gotcha was the verifier" })],
+		},
+	];
+
+	it("finds matches in a project you did not select", () => {
+		// This is the whole reason the view exists: native memory is per-project,
+		// so "where did I solve this before" has no answer from one folder.
+		const hits = view.searchCorpus(projects, "pkce");
+		assert.equal(hits.length, 2);
+		assert.deepEqual([...new Set(hits.map((h) => h.project.memoryDir))].sort(), ["/a", "/b"]);
+	});
+
+	it("ranks a name or description match above a body match", () => {
+		// A title hit is about the whole file; a body hit is about one passage.
+		const hits = view.searchCorpus(projects, "auth");
+		assert.equal(hits[0].where, "title");
+	});
+
+	it("ignores a query too short to be meaningful", () => {
+		assert.deepEqual(view.searchCorpus(projects, "a"), []);
+		assert.deepEqual(view.searchCorpus(projects, ""), []);
+	});
+
+	it("matches case-insensitively", () => {
+		assert.equal(view.searchCorpus(projects, "OAUTH").length, 1);
+	});
+
+	it("names the project on every result", () => {
+		const html = view.renderSearchResults(view.searchCorpus(projects, "pkce"), "pkce");
+		assert.match(html, /ctx-result-project/);
+		assert.match(html, /alpha/);
+		assert.match(html, /beta/);
+	});
+
+	it("shows an excerpt around a body match so a hit is judgeable", () => {
+		const excerpt = view.excerpt("the PKCE gotcha was the verifier", "pkce");
+		assert.match(excerpt, /PKCE gotcha/);
+	});
+
+	it("prompts rather than showing an empty result for no query", () => {
+		assert.match(view.renderSearchResults([], ""), /Search every project/);
+	});
+});
+
+describe("context: editing", () => {
+	const { view } = loadContext();
+	const target = file({ body: "line one\nline two" });
+
+	it("counts what will change before anything is written", () => {
+		const summary = view.diffSummary("line one\nline two", "line one\nline CHANGED");
+		assert.equal(summary.unchanged, 1);
+		assert.ok(summary.added > 0);
+		assert.ok(summary.removed > 0);
+	});
+
+	it("reports no change for an untouched draft", () => {
+		const summary = view.diffSummary("same", "same");
+		assert.equal(summary.added, 0);
+		assert.equal(summary.removed, 0);
+	});
+
+	it("disables save until something actually changed", () => {
+		const html = view.renderEditor(target, target.body);
+		assert.match(html, /ctx-edit-save[^>]*disabled/);
+		assert.match(html, /no changes/);
+	});
+
+	it("enables save and shows the line delta once edited", () => {
+		const html = view.renderEditor(target, "line one\nline two\nline three");
+		assert.ok(!/ctx-edit-save[^>]*disabled/.test(html), "save stayed disabled after an edit");
+		assert.match(html, /\+\d+ \/ -\d+ lines/);
+	});
+
+	it("offers retype alongside the edit, so both are one write", () => {
+		const html = view.renderEditor(file({ type: "reference" }), "x");
+		assert.match(html, /ctx-type-select/);
+		assert.match(html, /<option value="reference" selected>/);
+	});
+
+	it("preselects an inferred type rather than defaulting blindly", () => {
+		const html = view.renderEditor(file({ inferredType: "feedback" }), "x");
+		assert.match(html, /<option value="feedback" selected>/);
+	});
+});
+
+describe("context: staged context", () => {
+	const { view } = loadContext();
+
+	it("says plainly when nothing is staged", () => {
+		const html = view.renderStaged(null);
+		assert.match(html, /Nothing staged/);
+	});
+
+	it("shows the exact text that will be injected", () => {
+		// stageContext returns what the hook will emit, so preview and delivery
+		// are the same artefact rather than two renderings of one intent.
+		const html = view.renderStaged({
+			text: "session summary here",
+			stagedAt: "2026-09-03T20:00:00.000Z",
+			expiresAt: "2026-09-03T21:00:00.000Z",
+		});
+		assert.match(html, /session summary here/);
+		assert.match(html, /used once/);
+		assert.match(html, /ctx-clear-staged/);
+	});
+
+	it("says the context lands on the NEXT session, not this one", () => {
+		// Nothing in the panel makes that visible, and it is the one thing a
+		// reasonable person would misread.
+		const html = view.renderInjection(null, [], null);
+		assert.match(html, /next session that starts/i);
+	});
+
+	it("escapes staged text rather than rendering it", () => {
+		const html = view.renderStaged({ text: "<script>x</script>", expiresAt: "" });
+		assert.ok(!html.includes("<script>"));
+	});
+});
+
+describe("context: digest preview", () => {
+	const { view } = loadContext();
+
+	it("shows nothing before a digest is requested", () => {
+		assert.equal(view.renderDigest(null), "");
+	});
+
+	it("previews the text and offers to stage it", () => {
+		const html = view.renderDigest({ sessionId: "s1", worthKeeping: true, text: "facts here" });
+		assert.match(html, /facts here/);
+		assert.match(html, /ctx-stage-digest/);
+	});
+
+	it("explains a skip instead of showing an empty entry", () => {
+		const html = view.renderDigest({
+			worthKeeping: false,
+			skipReason: "no tool executions recorded",
+		});
+		assert.match(html, /no tool executions recorded/);
+		assert.ok(!html.includes("ctx-stage-digest"), "offered to stage nothing");
+	});
+
+	it("has no write control anywhere in the preview", () => {
+		// v1 previews only; the client cannot even express a write.
+		const html = view.renderDigest({ sessionId: "s1", worthKeeping: true, text: "x" });
+		assert.ok(!/write/i.test(html), "a write affordance appeared in the preview");
+	});
+});

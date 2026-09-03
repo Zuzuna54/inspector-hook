@@ -333,6 +333,37 @@ const API = {
 		this.send("memory-delete", params);
 	},
 
+	/**
+	 * Stage context for the next session that starts.
+	 *
+	 * The backend returns exactly the text the hook will emit, which is what
+	 * lets the preview and the delivery be the same artefact rather than two
+	 * renderings of one intent.
+	 */
+	memoryStageContext(params) {
+		this.send("memory-stage-context", params);
+	},
+
+	/** What is staged right now, if anything. Expiry is applied on read. */
+	memoryGetStaged() {
+		this.send("memory-get-staged", {});
+	},
+
+	/** Discard whatever is staged. */
+	memoryClearStaged() {
+		this.send("memory-clear-staged", {});
+	},
+
+	/**
+	 * Preview a session's digest WITHOUT writing it.
+	 *
+	 * No write flag is sent: v1 previews only, and the surest way to keep that
+	 * true is for the client to be unable to ask for a write.
+	 */
+	memoryBuildDigest(sessionId) {
+		this.send("memory-build-digest", { sessionId });
+	},
+
 	// ==========================================================================
 	// File Operations
 	// ==========================================================================
@@ -607,6 +638,22 @@ const API = {
 			// listing a version that is gone.
 			case "delete-version-result":
 				if (payload?.success !== false) this.getTrackedFiles();
+				break;
+
+			// One case for stage/get/clear: each ends with "here is what is staged,
+			// or nothing", so the view re-renders from whatever came back.
+			case "memory-staged":
+				State.update("contextView", {
+					...State.contextView,
+					staged: payload || null,
+				});
+				break;
+
+			case "memory-digest":
+				State.update("contextView", {
+					...State.contextView,
+					digest: payload || null,
+				});
 				break;
 
 			case "memory-projects":
