@@ -18,6 +18,10 @@ const DEFAULT_CONFIG = {
 	httpPort: parseInt(process.env.INSPECTOR_HOOK_HTTP_PORT || "52376", 10),
 	maxLogsInMemory: parseInt(process.env.INSPECTOR_HOOK_MAX_LOGS || "10000", 10),
 	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "7", 10),
+	// Opt-in. Writing into ~/.claude/projects/<p>/memory changes what every
+	// future Claude session in that project is told, so it is not something to
+	// switch on by default on the user's behalf.
+	writeSessionMemory: process.env.INSPECTOR_HOOK_SESSION_MEMORY === "1",
 };
 
 // Get storage path (shared across sessions).

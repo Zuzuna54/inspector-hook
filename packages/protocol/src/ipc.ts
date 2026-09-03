@@ -134,6 +134,15 @@ export interface CoreConfig {
 	logRetentionDays: number;
 	/** Maximum logs to keep in memory */
 	maxLogsInMemory: number;
+	/**
+	 * Write a digest into Claude Code's native auto memory when a session ends.
+	 *
+	 * Off by default, and deliberately so. These files live outside the
+	 * workspace, they are the user's own notes, and they change what every
+	 * future Claude session in that project is told. Reading and curating the
+	 * corpus needs no permission; adding to it on a timer does.
+	 */
+	writeSessionMemory?: boolean;
 }
 
 

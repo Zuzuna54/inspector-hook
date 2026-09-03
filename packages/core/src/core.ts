@@ -7,6 +7,7 @@ import type {
 	CoreConfig,
 	CoreInitParams,
 	CoreStatus,
+	Session,
 	Stats,
 } from "@inspector-hook/protocol";
 import { VERSION } from "./index.js";
@@ -14,6 +15,8 @@ import { IpcServer } from "./ipc/ipc-server.js";
 import { FileTracker } from "./managers/file-tracker.js";
 import { LogManager } from "./managers/log-manager.js";
 import { SessionManager } from "./managers/session-manager.js";
+import { resolveMemoryDir, writeMemoryFile } from "./memory/native-memory.js";
+import { buildSessionDigest } from "./memory/session-digest.js";
 import { migrateStore } from "./persistence/migrations.js";
 import { PersistenceStore } from "./persistence/store.js";
 import { HttpServer } from "./server/http-server.js";
@@ -112,6 +115,11 @@ export class InspectorCore {
 			});
 			// Broadcast session event to VS Code
 			this.ipcServer.sendNotification("session", session);
+
+			// Milestone 3: record what happened into Claude Code's own memory,
+			// so the next session in this project loads it with no injection
+			// hook of ours involved. Off unless explicitly enabled.
+			void this.writeSessionMemory(session);
 		});
 
 		// When a session goes idle, log it and broadcast
@@ -291,6 +299,59 @@ export class InspectorCore {
 			activeSessions: sessionStats.activeSessions,
 			pendingChanges: fileStats.pendingChanges,
 		};
+	}
+
+	/**
+	 * Write a session digest into native auto memory.
+	 *
+	 * Never throws into the event emitter: a failure here must not take down
+	 * session bookkeeping, and it must not fail silently either -- every
+	 * outcome, including a refusal, is logged with its reason. This is the part
+	 * of the system most able to make a false claim ("saved to memory" when
+	 * nothing was written), so it reports what actually happened.
+	 */
+	private async writeSessionMemory(session: Session): Promise<void> {
+		if (!this.config.writeSessionMemory) return;
+
+		try {
+			const digest = buildSessionDigest({ session });
+			if (!digest.worthKeeping) {
+				this.logManager.addLog({
+					hook: "SessionMemory",
+					timestamp: new Date().toISOString(),
+					level: "info",
+					message: `No memory written for ${session.id}: ${digest.skipReason}`,
+					sessionId: session.id,
+					event: "memory.skipped",
+				});
+				return;
+			}
+
+			const memoryDir = resolveMemoryDir(session.metadata?.transcriptPath);
+			const result = await writeMemoryFile(memoryDir, digest);
+
+			this.logManager.addLog({
+				hook: "SessionMemory",
+				timestamp: new Date().toISOString(),
+				level: result.written ? "info" : "warn",
+				message: result.written
+					? `Wrote session memory to ${result.path}`
+					: `Session memory not written: ${result.reason ?? result.refused}`,
+				sessionId: session.id,
+				event: result.written ? "memory.written" : "memory.refused",
+			});
+		} catch (error) {
+			this.logManager.addLog({
+				hook: "SessionMemory",
+				timestamp: new Date().toISOString(),
+				level: "error",
+				message: `Session memory failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				sessionId: session.id,
+				event: "memory.error",
+			});
+		}
 	}
 
 	/**

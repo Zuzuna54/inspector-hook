@@ -79,6 +79,12 @@ export function mergeSessionMetadata(
 	if (typeof details.gitRemote === "string" && details.gitRemote) {
 		merged.gitRemote = details.gitRemote;
 	}
+	// The hook has always forwarded this and nothing has ever stored it: it was
+	// present on 2298 of 2309 captured events while every session record dropped
+	// it. It is how the memory directory is located, so it is kept.
+	if (typeof details.transcriptPath === "string" && details.transcriptPath) {
+		merged.transcriptPath = details.transcriptPath;
+	}
 	if (typeof cwd === "string" && cwd) {
 		merged.workingDirectory = cwd;
 		// Only infer from cwd when no explicit name was given, in this event or

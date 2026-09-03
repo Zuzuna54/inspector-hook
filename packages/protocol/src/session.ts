@@ -24,6 +24,16 @@ export interface SessionMetadata {
 	projectName?: string;
 	/** User identifier */
 	userId?: string;
+	/**
+	 * Absolute path to Claude Code's transcript for this session.
+	 *
+	 * Its parent directory is the project's entry under `~/.claude/projects/`,
+	 * which is where native auto memory lives. That makes this the authoritative
+	 * way to locate a session's memory directory: the slug in that path is lossy
+	 * (both `/` and `_` become `-`, so two real paths can collide) so computing
+	 * it from the working directory can silently target the wrong project.
+	 */
+	transcriptPath?: string;
 	/** Additional custom metadata */
 	[key: string]: unknown;
 }

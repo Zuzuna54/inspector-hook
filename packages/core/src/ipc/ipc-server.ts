@@ -25,6 +25,15 @@ import type {
 } from "@inspector-hook/protocol";
 import { ErrorCodes } from "@inspector-hook/protocol";
 import type { InspectorCore } from "../core.js";
+import {
+	deleteMemoryFile,
+	listMemoryProjects,
+	readMemoryProject,
+	resolveMemoryDir,
+	writeMemoryFile,
+	type MemoryType,
+} from "../memory/native-memory.js";
+import { buildSessionDigest } from "../memory/session-digest.js";
 import type { FileTracker } from "../managers/file-tracker.js";
 import type { LogManager } from "../managers/log-manager.js";
 import type { SessionManager } from "../managers/session-manager.js";
@@ -642,6 +651,167 @@ export class IpcServer {
 		this.methods.set("archive.getStats", async () =>
 			this.fileTracker.getArchiveStats(),
 		);
+
+		// ---------------------------------------------------------------------
+		// Native auto memory (Milestone 3)
+		//
+		// Claude Code writes these files and nothing but a text editor reads
+		// them back, which is the gap these methods close. Reads are
+		// unrestricted; writes and deletes go through native-memory's guards,
+		// which refuse to touch a file the user wrote.
+		// ---------------------------------------------------------------------
+
+		/** Every project on the machine that has memory — the cross-project rollup. */
+		this.methods.set("memory.getProjects", async (params) =>
+			listMemoryProjects({
+				includeEmpty: asBool(asRec(params)?.includeEmpty) ?? false,
+			}),
+		);
+
+		/**
+		 * One project's memory. Addressed either by directory, or by session so
+		 * the caller does not have to know where memory lives.
+		 */
+		this.methods.set("memory.getProject", async (params) => {
+			const dir = await this.memoryDirFrom(params);
+			if (!dir) {
+				return {
+					memoryDir: null,
+					files: [],
+					hasIndex: false,
+					reason:
+						"No memory directory for this session: it carries no transcript " +
+						"path, and the project slug cannot be derived safely.",
+				};
+			}
+			return readMemoryProject(dir);
+		});
+
+		/** One memory file, with its body. */
+		this.methods.set("memory.getFile", async (params) => {
+			const rec = asRec(params) ?? {};
+			const dir = await this.memoryDirFrom(params);
+			const fileName = asStr(rec.fileName);
+			if (!dir || !fileName) return null;
+			const project = await readMemoryProject(dir);
+			return project.files.find((f) => f.fileName === fileName) ?? null;
+		});
+
+		/** Create or update a memory entry from the curation UI. */
+		this.methods.set("memory.write", async (params) => {
+			const rec = asRec(params) ?? {};
+			const dir = await this.memoryDirFrom(params);
+			const name = asStr(rec.name);
+			if (!name) {
+				return { written: false, reason: "A name is required." };
+			}
+			return writeMemoryFile(dir, {
+				name,
+				description: asStr(rec.description) ?? "",
+				type: (asStr(rec.type) as MemoryType) ?? "project",
+				body: asStr(rec.body) ?? "",
+				title: asStr(rec.title),
+			});
+		});
+
+		/** Delete a memory entry. `force` is required for a file we did not author. */
+		this.methods.set("memory.delete", async (params) => {
+			const rec = asRec(params) ?? {};
+			const dir = await this.memoryDirFrom(params);
+			const fileName = asStr(rec.fileName);
+			if (!dir || !fileName) {
+				return { deleted: false, reason: "A memory directory and file name are required." };
+			}
+			return deleteMemoryFile(dir, fileName, {
+				force: asBool(rec.force) ?? false,
+			});
+		});
+
+		/**
+		 * Build a session's digest.
+		 *
+		 * Returns it without writing unless `write` is set, so the UI can show
+		 * exactly what would be added to memory before anything is added.
+		 */
+		this.methods.set("memory.buildDigest", async (params) => {
+			const rec = asRec(params) ?? {};
+			const sessionId = asStr(rec.sessionId);
+			if (!sessionId) return { error: "A sessionId is required." };
+			const session = await this.sessionManager.getSession(sessionId);
+			if (!session) return { error: `No session ${sessionId}.` };
+
+			const digest = buildSessionDigest({
+				session,
+				counts: await this.logCountsForSession(sessionId),
+				filePaths: await this.filePathsForSession(session.fileChanges),
+			});
+
+			if (!asBool(rec.write)) return { digest, written: false };
+			if (!digest.worthKeeping) {
+				return { digest, written: false, reason: digest.skipReason };
+			}
+			const dir = resolveMemoryDir(
+				(session.metadata as Record<string, unknown> | undefined)?.transcriptPath,
+			);
+			const result = await writeMemoryFile(dir, digest);
+			return { digest, ...result };
+		});
+	}
+
+	/**
+	 * Resolve a memory directory from an explicit path or from a session.
+	 *
+	 * An explicit `memoryDir` is honoured because the cross-project view lists
+	 * directories and then asks about them. Otherwise it comes from the
+	 * session's transcript path, which Claude Code supplied — never from a slug
+	 * computed out of the working directory, which can collide.
+	 */
+	private async memoryDirFrom(params: unknown): Promise<string | null> {
+		const rec = asRec(params) ?? {};
+		const explicit = asStr(rec.memoryDir);
+		if (explicit) return explicit;
+
+		const sessionId = asStr(rec.sessionId);
+		if (!sessionId) return null;
+		const session = await this.sessionManager.getSession(sessionId);
+		if (!session) return null;
+		return resolveMemoryDir(
+			(session.metadata as Record<string, unknown> | undefined)?.transcriptPath,
+		);
+	}
+
+	/** Error/warning/blocked counts for one session, from the log index. */
+	private async logCountsForSession(sessionId: string): Promise<{
+		errors: number;
+		warnings: number;
+		blocked: number;
+		logs: number;
+	}> {
+		const counts = { errors: 0, warnings: 0, blocked: 0, logs: 0 };
+		const { logs } = await this.logManager.getLogs({
+			filter: { sessionId },
+			pagination: { limit: Number.MAX_SAFE_INTEGER, offset: 0 },
+		});
+		for (const log of logs) {
+			counts.logs++;
+			if (log.level === "error") counts.errors++;
+			else if (log.level === "warn") counts.warnings++;
+			else if (log.level === "blocked") counts.blocked++;
+		}
+		return counts;
+	}
+
+	/** Resolve change IDs to file paths, which only the tracker can do. */
+	private async filePathsForSession(
+		changeIds: string[] | undefined,
+	): Promise<string[]> {
+		if (!Array.isArray(changeIds) || changeIds.length === 0) return [];
+		const paths: string[] = [];
+		for (const id of changeIds) {
+			const change = await this.fileTracker.getChangeById(id);
+			if (change?.filePath) paths.push(change.filePath);
+		}
+		return paths;
 	}
 
 	/**

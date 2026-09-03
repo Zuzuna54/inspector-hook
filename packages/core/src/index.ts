@@ -57,5 +57,36 @@ export {
 	type RedactionOptions,
 } from "./server/redaction.js";
 
+// Export native-memory integration (Milestone 3)
+export {
+	AUTHORED_BY,
+	INDEX_FILE,
+	INDEX_LOAD_BYTES,
+	INDEX_LOAD_LINES,
+	deleteMemoryFile,
+	formatMemoryFile,
+	listMemoryProjects,
+	memoryFileName,
+	parseIndexReferences,
+	parseMemoryFile,
+	projectsRoot,
+	readMemoryProject,
+	removeIndexEntry,
+	resolveMemoryDir,
+	upsertIndexEntry,
+	writeMemoryFile,
+	type MemoryFile,
+	type MemoryProject,
+	type MemoryType,
+	type WriteRefusal,
+	type WriteResult,
+} from "./memory/native-memory.js";
+export {
+	buildSessionDigest,
+	formatDuration,
+	type DigestInput,
+	type SessionDigest,
+} from "./memory/session-digest.js";
+
 // Export version
 export const VERSION = "0.1.0";
