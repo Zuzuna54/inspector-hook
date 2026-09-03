@@ -3,12 +3,15 @@
 # Usage: Add to any hook event in settings.json
 
 # Debug logging
-DEBUG_LOG="/tmp/hook-inspector-debug.log"
+# Debug logging is opt-in: this file recorded every prompt and tool payload
+# forever, with no rotation, in world-readable /tmp.
+DEBUG_LOG="${INSPECTOR_HOOK_DEBUG_LOG:-/dev/null}"
 echo "$(date): Hook called" >> "$DEBUG_LOG"
 
-# Get Hook Inspector port
-# Uses fixed path /tmp/inspector-hook.port per Phase 1 spec
-PORT_FILE="/tmp/inspector-hook.port"
+# Get Hook Inspector port.
+# INSPECTOR_HOOK_PORT_FILE overrides the default so a scratch/test core can be
+# targeted without redirecting the machine's real hooks at it.
+PORT_FILE="${INSPECTOR_HOOK_PORT_FILE:-/tmp/inspector-hook.port}"
 if [[ ! -f "$PORT_FILE" ]]; then
     echo "$(date): Port file not found at $PORT_FILE" >> "$DEBUG_LOG"
     exit 0  # Extension not running, skip silently
@@ -31,7 +34,16 @@ HOOK_NAME=$(echo "$INPUT" | jq -r '.hook_event_name // "unknown"' 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""' 2>/dev/null)
-TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+# Millisecond resolution. At second resolution most events in a busy session
+# share a timestamp (measured: 1024 of 1033 logs had none, with up to 11 events
+# in one second), and every sort here is a plain timestamp comparison -- so
+# correct feed ordering survived only because the sort happened to be stable.
+# GNU date supports %3N; BSD/macOS date does not, so fall back to node.
+TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%S.%3NZ' 2>/dev/null)
+case "$TIMESTAMP" in
+    ''|*%3N*|*N*) TIMESTAMP=$(node -e 'process.stdout.write(new Date().toISOString())' 2>/dev/null) ;;
+esac
+[ -z "$TIMESTAMP" ] && TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Extract full tool_input and tool_response for detailed logging
 TOOL_INPUT=$(echo "$INPUT" | jq '.tool_input // null' 2>/dev/null)
@@ -46,14 +58,50 @@ echo "$(date): Parsed - Hook: $HOOK_NAME, Tool: $TOOL_NAME, Session: $SESSION_ID
 # Determine event type based on hook name
 EVENT="$HOOK_NAME"
 
-# Set level (default to info)
+# Derive the level from the payload. This was hardcoded to "info", so the
+# Errors / Warnings / Blocked counters could never populate from real traffic
+# no matter what actually happened.
 LEVEL="info"
+TOOL_ERROR=$(echo "$INPUT" | jq -r '.tool_error // ""' 2>/dev/null)
+RESPONSE_ERROR=$(echo "$INPUT" | jq -r '
+    if (.tool_response | type) == "object" then (.tool_response.error // "") else "" end
+' 2>/dev/null)
+
+case "$HOOK_NAME" in
+    PostToolUseFailure|StopFailure)
+        LEVEL="error"
+        ;;
+    PermissionDenied)
+        LEVEL="blocked"
+        ;;
+esac
+
+# A tool can also report failure in its own response payload.
+if [[ "$LEVEL" == "info" ]] && { [[ -n "$TOOL_ERROR" ]] || [[ -n "$RESPONSE_ERROR" ]]; }; then
+    if echo "$TOOL_ERROR$RESPONSE_ERROR" | grep -qiE "blocked|denied|not allowed|permission"; then
+        LEVEL="blocked"
+    else
+        LEVEL="error"
+    fi
+fi
+
+# Notification carries its own severity.
+if [[ "$HOOK_NAME" == "Notification" ]]; then
+    case "$(echo "$INPUT" | jq -r '.level // ""' 2>/dev/null)" in
+        error) LEVEL="error" ;;
+        warn|warning) LEVEL="warn" ;;
+    esac
+fi
 
 # Extract user prompt for UserPromptSubmit
 USER_PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 
-# Extract stop reason for Stop/SubagentStop
-STOP_REASON=$(echo "$INPUT" | jq -r '.stop_reason // ""' 2>/dev/null)
+# No event carries `stop_reason` -- that read never matched anything. Stop
+# receives stop_hook_active / last_assistant_message / background_tasks /
+# session_crons; the error taxonomy lives on StopFailure.error instead.
+STOP_ERROR=$(echo "$INPUT" | jq -r '.error // ""' 2>/dev/null)
+STOP_HOOK_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)
+BACKGROUND_TASKS=$(echo "$INPUT" | jq -r '(.background_tasks // []) | length' 2>/dev/null)
 
 # Extract notification info
 NOTIFICATION_MSG=$(echo "$INPUT" | jq -r '.message // ""' 2>/dev/null)
@@ -66,6 +114,14 @@ if [[ "$HOOK_NAME" == "UserPromptSubmit" ]]; then
 elif [[ "$HOOK_NAME" == "Stop" ]]; then
     MSG="Claude finished responding"
     EVENT="ai.response"
+elif [[ "$HOOK_NAME" == "StopFailure" ]]; then
+    # Runs INSTEAD of Stop when the turn ends on an API error. Its
+    # last_assistant_message holds the error string, not Claude's reply, so it
+    # must not share an event type with Stop -- otherwise a rate-limit error
+    # renders in the transcript as something Claude said.
+    MSG="Turn failed: ${STOP_ERROR:-unknown}"
+    EVENT="ai.error"
+    LEVEL="error"
 elif [[ "$HOOK_NAME" == "SubagentStop" ]]; then
     MSG="Subagent completed"
     EVENT="subagent.stop"
@@ -125,7 +181,7 @@ PAYLOAD=$(echo "$INPUT" | jq \
     --arg cwd "$WORKING_DIR" \
     --arg transcript "$TRANSCRIPT_PATH" \
     --arg userPrompt "$USER_PROMPT" \
-    --arg stopReason "$STOP_REASON" \
+    --arg stopError "$STOP_ERROR" \
     --arg notificationType "$NOTIFICATION_TYPE" \
     '{
         timestamp: $ts,
@@ -136,14 +192,48 @@ PAYLOAD=$(echo "$INPUT" | jq \
         tool: $tool,
         file: $file,
         message: $msg,
+
+        # Claude Code supplies tool_use_id on every PreToolUse/PostToolUse. It is
+        # the only reliable way to pair a completion with its start when several
+        # calls to the same tool run in parallel; without it the core falls back
+        # to matching on tool name and leaves executions stuck "running".
+        tool_use_id: .tool_use_id,
+
+        # Groups every event belonging to one user turn.
+        prompt_id: .prompt_id,
+
         details: {
             cwd: $cwd,
             transcriptPath: $transcript,
             prompt: (if $userPrompt != "" then $userPrompt else null end),
-            stopReason: (if $stopReason != "" then $stopReason else null end),
+            stopError: (if $stopError != "" then $stopError else null end),
+            errorDetails: .error_details,
+            stopHookActive: .stop_hook_active,
+            backgroundTasks: (.background_tasks // [] | length),
             notificationType: (if $notificationType != "" then $notificationType else null end),
             tool_input: .tool_input,
-            tool_result: .tool_response
+            tool_result: .tool_response,
+
+            # Real measured duration. Hook timestamps are second-resolution, so
+            # durations derived from them are always a multiple of 1000ms or 0 --
+            # i.e. fiction. This is the actual figure.
+            durationMs: .duration_ms,
+
+            # Present on tool events fired inside a subagent, and the basis for
+            # an agent tree without needing SubagentStop wired up.
+            agentId: .agent_id,
+            agentType: .agent_type,
+
+            # Session conditions worth recording alongside the event.
+            permissionMode: .permission_mode,
+            effort: .effort.level,
+            model: .model,
+
+            # Stop carries the assistant text that just finished streaming.
+            lastAssistantMessage: .last_assistant_message,
+
+            # The error string carried by PostToolUseFailure.
+            toolError: .tool_error
         }
     }' 2>/dev/null)
 

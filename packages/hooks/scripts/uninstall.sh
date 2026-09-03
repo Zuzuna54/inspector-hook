@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
-# Inspector Hook - Uninstallation Script
-# Removes Inspector Hook configuration from Claude Code settings
+# Inspector Hook — uninstaller.
 #
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$SCRIPT_DIR/install.sh" --uninstall "$@"
+# Delegates to install.sh, which owns both directions so the add and remove
+# logic cannot drift apart. The previous pair had exactly that problem: the
+# uninstaller filtered carefully by command while the installer replaced the
+# whole hooks key.
+set -euo pipefail
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install.sh" --uninstall "$@"

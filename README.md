@@ -74,7 +74,8 @@ inspector-hook/
 │   │   └── package.json
 │   │
 │   ├── protocol/                  # Shared types and protocols
-│   │   ├── src/index.ts          # All interfaces/types
+│   │   ├── src/index.ts          # Barrel over the modules below
+│   │   ├── src/{log,session,activity,file-change,history,…}.ts
 │   │   └── package.json
 │   │
 │   ├── vscode/                    # VS Code extension wrapper
@@ -88,19 +89,15 @@ inspector-hook/
 │   │   │   └── styles/           # CSS styles
 │   │   └── package.json
 │   │
-│   └── hooks/                     # Hook scripts for AI agents
+│   └── hooks/                     # Hook integration for Claude Code
 │       ├── scripts/
-│       │   ├── install.sh        # Install hooks to Claude Code
-│       │   └── uninstall.sh      # Remove hooks
-│       └── claude/               # Claude Code hook scripts
-│           ├── pre-tool-use.sh
-│           ├── post-tool-use.sh
-│           ├── session-start.sh
-│           ├── user-prompt-submit.sh
-│           └── lib/
-│               └── http-logger.sh
+│       │   ├── install.sh        # Merging installer (also --uninstall)
+│       │   └── uninstall.sh      # Thin delegate to install.sh --uninstall
+│       └── claude/
+│           └── inspector-hook.sh # The single hook script, all events
 │
 ├── docs/
+│   ├── AUDIT-MATRIX.md            # What actually works, with evidence
 │   ├── phases/                    # Development phase documents
 │   └── design/                    # Technical design documents
 │
@@ -211,60 +208,76 @@ Press `Ctrl+Shift+B` to run the default build task, or use:
 
 ## Hooks Configuration
 
-### Installing Hooks for Claude Code
+### Installing
 
 ```bash
-# Automatic installation
-cd packages/hooks
-./scripts/install.sh
-
-# Or manual installation
-cp packages/hooks/claude/*.sh ~/.claude/
+./packages/hooks/scripts/install.sh            # install or update
+./packages/hooks/scripts/install.sh --dry-run  # preview without writing
+./packages/hooks/scripts/uninstall.sh          # remove only our entries
 ```
 
-### Manual Hook Configuration
+Then restart Claude Code so it re-reads `~/.claude/settings.json`.
 
-Add to `~/.claude/settings.json`:
+The installer **merges** — it adds only what is missing and leaves every other
+tool's hooks untouched, so it is safe to run repeatedly and safe to run
+alongside other hook-based tooling. It backs up `settings.json` before writing,
+and refuses to touch the file if it is not valid JSON.
+
+### What gets registered
+
+One script, `packages/hooks/claude/inspector-hook.sh`, is registered against
+every event Inspector Hook consumes — 30 of Claude Code's 33. `MessageDisplay`
+is skipped because it fires per streamed text chunk and would flood the store;
+the `Elicitation` pair is skipped because nothing renders it.
+
+Each entry uses the nested schema Claude Code requires:
 
 ```json
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "command": "/path/to/inspector-hook/packages/hooks/claude/pre-tool-use.sh",
-        "timeout": 5000
-      }
-    ],
     "PostToolUse": [
       {
-        "command": "/path/to/inspector-hook/packages/hooks/claude/post-tool-use.sh",
-        "timeout": 5000
-      }
-    ],
-    "SessionStart": [
-      {
-        "command": "/path/to/inspector-hook/packages/hooks/claude/session-start.sh",
-        "timeout": 5000
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "command": "/path/to/inspector-hook/packages/hooks/claude/user-prompt-submit.sh",
-        "timeout": 5000
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "/abs/path/to/packages/hooks/claude/inspector-hook.sh" }
+        ]
       }
     ]
   }
 }
 ```
 
-### Hook Scripts
+A flat `{"command": ..., "timeout": ...}` entry — which earlier versions of this
+project wrote — is **not** recognised by current Claude Code, and hooks
+installed that way never fire.
 
-| Script | Event | What It Captures |
-|--------|-------|------------------|
-| `pre-tool-use.sh` | Before tool execution | Tool name, input, file path |
-| `post-tool-use.sh` | After tool execution | Tool name, result, error status |
-| `session-start.sh` | Session begins | Project name, git branch, cwd |
-| `user-prompt-submit.sh` | User sends prompt | Prompt text, context |
+### What the hook captures
+
+Beyond the event name and session id: `tool_use_id` (which is what lets the core
+pair a tool call with its completion, even when several calls to the same tool
+run in parallel), `prompt_id` (turn grouping), `duration_ms` (the real measured
+duration — anything derived from hook timestamps would be a multiple of 1000 ms),
+`agent_id`/`agent_type` (subagent attribution), `permission_mode`, `effort`,
+`model`, and `last_assistant_message`.
+
+### Environment
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `INSPECTOR_HOOK_PORT_FILE` | `/tmp/inspector-hook.port` | Where to read the core's port |
+| `INSPECTOR_HOOK_DEBUG_LOG` | `/dev/null` | Append payloads for debugging. Off by default — it records prompts and tool I/O. |
+| `INSPECTOR_HOOK_DISABLED` | `0` | Set to `1` to disable capture entirely |
+| `INSPECTOR_HOOK_TIMEOUT` | `2` | curl max-time, seconds |
+
+### Performance
+
+The hook runs on every tool call, twice, so its cost is user-visible latency in
+Claude Code. It makes exactly one `jq` invocation and one backgrounded `curl`:
+**~37 ms per invocation**, against a project budget of 50 ms. An earlier version
+invoked `jq` 26 times and `date` 10 times and measured 337 ms.
+
+If the core is not running the hook exits before doing any work, and it always
+exits 0 — observability must never block or slow the agent.
 
 ### How Hooks Work
 
@@ -388,7 +401,6 @@ Configure in VS Code settings (`settings.json`):
 ```json
 {
   "inspectorHook.httpPort": 52376,
-  "inspectorHook.wsPort": 52377,
   "inspectorHook.autoStart": true,
   "inspectorHook.logRetentionDays": 7
 }
@@ -397,7 +409,6 @@ Configure in VS Code settings (`settings.json`):
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `httpPort` | 52376 | HTTP server port for receiving logs |
-| `wsPort` | 52377 | WebSocket port (future use) |
 | `autoStart` | true | Auto-start core on extension activation |
 | `logRetentionDays` | 7 | Days to retain logs |
 

@@ -1,0 +1,314 @@
+/**
+ * archived view: accordion.
+ *
+ * Split out of views/archived.css. Pure move: no rule changed, added
+ * or removed.
+ */
+
+/* ==========================================================================
+   Session Accordion
+   ========================================================================== */
+
+.arc-session {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  opacity: 0.85;
+}
+
+.arc-session.expanded {
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.arc-session-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.arc-session-header:hover {
+  background: var(--bg-hover);
+}
+
+.arc-expand-icon {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+
+.arc-session-name {
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.arc-session-meta {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.arc-session-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  margin-left: auto;
+}
+
+.arc-stat-kept {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 2px 6px;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.arc-stat-kept::before {
+  content: '\2713';
+  margin-right: 2px;
+}
+
+.arc-stat-reverted {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 2px 6px;
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.arc-stat-reverted::before {
+  content: '\2717';
+  margin-right: 2px;
+}
+
+.arc-session-content {
+  padding: 0 var(--spacing-md) var(--spacing-md);
+}
+
+.arc-session-content.hidden {
+  display: none;
+}
+/* ==========================================================================
+   File Accordion
+   ========================================================================== */
+
+.arc-file {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-xs);
+  overflow: hidden;
+  opacity: 0.8;
+}
+
+.arc-file:last-child {
+  margin-bottom: 0;
+}
+
+.arc-file.expanded {
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.arc-file.kept {
+  border-left: 3px solid var(--color-success);
+}
+
+.arc-file.reverted {
+  border-left: 3px solid var(--color-error);
+}
+
+.arc-file.mixed {
+  border-left: 3px solid var(--color-warning);
+}
+
+.arc-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.arc-file-header:hover {
+  background: var(--bg-hover);
+}
+
+.arc-resolution-badge {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.arc-resolution-badge.kept {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.arc-resolution-badge.reverted {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.arc-resolution-badge.mixed {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.arc-file-name {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.arc-file-path {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arc-change-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.arc-file-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.arc-file-header:hover .arc-file-actions {
+  opacity: 1;
+}
+
+.arc-file-content {
+  border-top: 1px solid var(--border);
+  padding: var(--spacing-sm);
+  background: var(--bg-primary);
+}
+
+.arc-file-content.hidden {
+  display: none;
+}
+
+.arc-loading {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+/* ==========================================================================
+   Changes List
+   ========================================================================== */
+
+.arc-changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.arc-change {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  opacity: 0.8;
+  transition: opacity var(--transition-fast), border-color var(--transition-fast);
+}
+
+.arc-change:hover {
+  opacity: 1;
+}
+
+.arc-change.selected {
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.arc-change.kept {
+  border-left: 2px solid var(--color-success);
+}
+
+.arc-change.reverted {
+  border-left: 2px solid var(--color-error);
+}
+
+.arc-change-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  cursor: pointer;
+}
+
+.arc-change-header:hover {
+  background: var(--bg-hover);
+}
+
+.arc-change-badge {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: lowercase;
+}
+
+.arc-change-badge.kept {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.arc-change-badge.reverted {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.arc-change-tool {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.arc-change-time {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  flex: 1;
+}
+
+.arc-change-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.arc-change-header:hover .arc-change-actions {
+  opacity: 1;
+}

@@ -33,3 +33,10 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# TypeScript incremental build cache (stale copies silently skip emit)
+*.tsbuildinfo
+
+# npm/yarn lockfiles - this is a pnpm workspace (pnpm-lock.yaml is the real one)
+package-lock.json
+yarn.lock

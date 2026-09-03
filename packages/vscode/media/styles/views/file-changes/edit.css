@@ -1,0 +1,35 @@
+/**
+ * file-changes view: edit.
+ *
+ * Split out of views/file-changes.css. Pure move: no rule changed,
+ * added or removed. Sections are assigned by position, not by title -
+ * two of them are both called "Split Diff View".
+ */
+
+/* ==========================================================================
+   Inline Edit Mode
+   ========================================================================== */
+
+.fc-line.editing .fc-line-content {
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  outline: none;
+  cursor: text;
+  padding: 0 var(--spacing-xs);
+}
+
+.fc-hunk-edit-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(0, 122, 204, 0.1);
+  border-top: 1px solid var(--accent);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+}
+
+.fc-hunk-edit-bar span:first-child {
+  flex: 1;
+}

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import type {
 	DiffResult,
+	SessionActivityResponse,
 	FileChange,
 	JsonRpcError,
 	JsonRpcNotification,
@@ -26,9 +27,15 @@ import type {
 type JsonRpcResult = JsonRpcResponse | JsonRpcError;
 
 export interface CoreBridgeOptions {
+	/** Where the core keeps its own state (VS Code global storage). */
 	storagePath: string;
+	/**
+	 * The user's workspace folder — what the core treats as the project root.
+	 * Undefined when no folder is open; the env var is then omitted entirely
+	 * rather than passing a meaningless path.
+	 */
+	workspaceRoot?: string;
 	httpPort: number;
-	wsPort: number;
 	extensionPath?: string;
 }
 
@@ -64,12 +71,22 @@ export class CoreBridge extends EventEmitter {
 			// Find the core CLI
 			const corePath = this.findCorePath();
 
-			// Spawn the core process
+			// Spawn the core process.
+			// The configured ports are passed through here; previously they were
+			// read from settings, handed to CoreBridge, and then never used, so
+			// `inspectorHook.httpPort` had no effect at all. Workspace root is the
+			// actual workspace folder -- it used to be VS Code's global storage
+			// path, which is where core state lives, not where the user's code is.
 			this.process = spawn("node", [corePath], {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
-					INSPECTOR_HOOK_WORKSPACE: this.options.storagePath,
+					INSPECTOR_HOOK_HTTP_PORT: String(this.options.httpPort),
+					// Omitted when there is no workspace folder, rather than sent
+					// as a placeholder the core would treat as a real root.
+					...(this.options.workspaceRoot
+						? { INSPECTOR_HOOK_WORKSPACE: this.options.workspaceRoot }
+						: {}),
 				},
 			});
 
@@ -386,15 +403,121 @@ export class CoreBridge extends EventEmitter {
 
 	/**
 	 * Get activity feed for a session (ordered events: prompts, responses, tools)
+	 *
+	 * `since` makes a poll incremental: pass back the `nextSince` from the
+	 * previous response and only items created or CHANGED after it are returned.
+	 * The cursor is inclusive, so the boundary items come back again — the caller
+	 * must merge by `id`, keeping the version with the greater `updatedAt`. That
+	 * merge is required regardless of paging, because a tool call is created by
+	 * PreToolUse and updated in place when it completes.
+	 *
+	 * `before` walks backwards for the `truncated`/`hasMore` case: pass the
+	 * oldest timestamp already held to fetch the window before it.
 	 */
-	async getSessionActivity(sessionId: string): Promise<{
-		activities: Array<{
-			type: "user_prompt" | "ai_response" | "tool_call" | "tool_result";
-			timestamp: string;
-			data: unknown;
-		}>;
-	}> {
-		return this.sendRequest("sessions.getActivity", { id: sessionId });
+	async getSessionActivity(
+		sessionId: string,
+		options?: { since?: string; before?: string; limit?: number },
+	): Promise<SessionActivityResponse> {
+		return this.sendRequest("sessions.getActivity", {
+			id: sessionId,
+			...(options?.since ? { since: options.since } : {}),
+			...(options?.before ? { before: options.before } : {}),
+			...(options?.limit ? { limit: options.limit } : {}),
+		});
+	}
+
+	// ==========================================================================
+	// Native auto memory (Milestone 3)
+	//
+	// Thin pass-throughs. Every refusal reason from the core is returned
+	// untouched: these operate on files the user wrote by hand, so "why not"
+	// is the most useful thing the UI can show, and paraphrasing it here would
+	// put a second, drifting explanation between the core and the reader.
+	// ==========================================================================
+
+	/** Every project on the machine that has memory. */
+	async getMemoryProjects(includeEmpty = false): Promise<unknown> {
+		return this.sendRequest("memory.getProjects", { includeEmpty });
+	}
+
+	/** Reference an existing file from MEMORY.md, without touching the file. */
+	async addMemoryToIndex(
+		memoryDir: string,
+		fileName: string,
+	): Promise<unknown> {
+		return this.sendRequest("memory.addToIndex", { memoryDir, fileName });
+	}
+
+	/** Drop a file's index line, leaving the file in place. */
+	async removeMemoryFromIndex(
+		memoryDir: string,
+		fileName: string,
+	): Promise<unknown> {
+		return this.sendRequest("memory.removeFromIndex", { memoryDir, fileName });
+	}
+
+	/**
+	 * Create or update a memory entry.
+	 *
+	 * `userInitiated` is what allows editing a note the user wrote by hand; the
+	 * core refuses otherwise, which is correct for anything automated.
+	 */
+	async writeMemory(params: {
+		memoryDir: string;
+		name: string;
+		description?: string;
+		type?: string;
+		body?: string;
+		title?: string;
+		userInitiated?: boolean;
+	}): Promise<unknown> {
+		return this.sendRequest("memory.write", params);
+	}
+
+	/** Delete a memory entry. `force` is required for a file we did not author. */
+	async deleteMemory(
+		memoryDir: string,
+		fileName: string,
+		force = false,
+	): Promise<unknown> {
+		return this.sendRequest("memory.delete", { memoryDir, fileName, force });
+	}
+
+	/**
+	 * Stage context for the next session that starts.
+	 *
+	 * Returns exactly what will be injected. That is the point: the preview and
+	 * the delivery cannot diverge if they are the same object, so nothing here
+	 * reshapes it.
+	 */
+	async stageContext(params: {
+		sessionId?: string;
+		text?: string;
+		label?: string;
+		ttlMs?: number;
+	}): Promise<unknown> {
+		return this.sendRequest("memory.stageContext", params);
+	}
+
+	/** What is currently staged, or null. Expiry is applied on read. */
+	async getStagedContext(): Promise<unknown> {
+		return this.sendRequest("memory.getStagedContext", {});
+	}
+
+	/** Discard a staged pick before it is consumed. */
+	async clearStagedContext(): Promise<unknown> {
+		return this.sendRequest("memory.clearStagedContext", {});
+	}
+
+	/**
+	 * Build a session's digest WITHOUT writing it.
+	 *
+	 * No `write` flag is accepted. v1 has no write button by decision, and the
+	 * most durable way to keep that true is for the extension to be unable to
+	 * express it — an option that cannot be passed cannot be passed by accident.
+	 */
+	async buildSessionDigest(sessionId: string): Promise<unknown> {
+		return this.sendRequest("memory.buildDigest", { sessionId });
 	}
 
 	/**
@@ -452,12 +575,45 @@ export class CoreBridge extends EventEmitter {
 		versions: Array<{
 			versionNumber: number;
 			timestamp: string;
-			tool: string;
+			/**
+			 * Optional, honestly: versions written before provenance was recorded
+			 * do not carry it. This was declared as a required string while the
+			 * core discarded the value, so every consumer saw undefined where the
+			 * type promised a value.
+			 */
+			tool?: string;
 			sessionId: string;
 			content?: string;
 		}>;
 	}> {
 		return this.sendRequest("history.getVersions", { filePath, limit });
+	}
+
+	/**
+	 * Get the stored content of one version.
+	 *
+	 * The webview has always called this (history.js -> API.getVersionContent),
+	 * and the core has always exposed `history.getVersionContent`, but the two
+	 * middle links -- this method and the panel's message case -- did not exist,
+	 * so opening a version in the History viewer could never load anything.
+	 *
+	 * Returns null when the version is not found, which the caller must still
+	 * report to the webview: history.js clears its "loading" flag from the
+	 * response, so swallowing a miss leaves the viewer spinning forever.
+	 */
+	async getVersionContent(
+		filePath: string,
+		versionNumber: number,
+	): Promise<{
+		filePath: string;
+		versionNumber: number;
+		content: string;
+		timestamp: string;
+	} | null> {
+		return this.sendRequest("history.getVersionContent", {
+			filePath,
+			versionNumber,
+		});
 	}
 
 	/**

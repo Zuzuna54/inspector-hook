@@ -1,0 +1,425 @@
+/**
+ * Activity feed: bubbles, and the turns that group them.
+ *
+ * Split out of the 1327-line views/sessions.css to mirror the JS modules.
+ * Pure move: no rule was changed, added or removed.
+ */
+
+/* ==========================================================================
+   Activity Feed
+   ========================================================================== */
+
+.sv-activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* Chat Bubbles */
+.sv-bubble {
+  max-width: 85%;
+  border-radius: var(--radius-lg);
+  animation: slideInUp 200ms ease;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* New item animation - used for incremental updates */
+.sv-new-item {
+  animation: slideInUp 300ms ease;
+}
+
+.sv-bubble.sv-user {
+  margin-left: auto;
+  background: var(--accent-bg, rgba(59, 130, 246, 0.1));
+  border: 1px solid var(--accent);
+}
+
+.sv-bubble.sv-ai {
+  margin-right: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
+.sv-bubble.sv-tool {
+  margin-right: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+
+.sv-bubble.sv-tool.error,
+.sv-bubble.sv-tool.failed {
+  border-color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+/* "blocked" is a first-class ExecutionStatus that nothing styled, so a tool
+   call denied by a hook was indistinguishable from one that succeeded. */
+.sv-bubble.sv-tool.blocked {
+  border-color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+/* sessions.js puts `expanded` on the bubble, but only .sv-tool-item.expanded
+   existed - the activity-feed bubble got no expanded affordance at all. */
+.sv-bubble.sv-tool.expanded {
+  border-color: var(--accent);
+}
+
+.sv-bubble.sv-tool.running {
+  border-color: var(--color-warning);
+}
+
+.sv-bubble.sv-session {
+  margin-right: auto;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border: 1px solid var(--color-success);
+  border-left: 3px solid var(--color-success);
+}
+
+.sv-session-project {
+  display: inline-block;
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.sv-session-branch {
+  display: inline-block;
+  margin-left: var(--spacing-sm);
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+}
+
+.sv-bubble.sv-message {
+  margin-right: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
+.sv-bubble.sv-message.sv-message-error {
+  border-color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.sv-bubble.sv-message.sv-message-warn {
+  border-color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+.sv-bubble.sv-notification {
+  margin-right: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--color-info);
+  border-left: 3px solid var(--color-info);
+}
+
+.sv-bubble.sv-subagent {
+  margin-right: auto;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border: 1px solid var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+.sv-bubble.sv-subagent.sv-subagent-success {
+  border-color: var(--color-success);
+  border-left-color: var(--color-success);
+}
+
+.sv-bubble.sv-subagent.sv-subagent-failed {
+  border-color: var(--color-error);
+  border-left-color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.sv-bubble.sv-unknown {
+  margin-right: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--color-warning);
+  border-left: 3px solid var(--color-warning);
+  opacity: 0.85;
+}
+
+.sv-response-indicator {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.sv-stop-reason {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.sv-bubble-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.sv-bubble-role {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.sv-bubble-time {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.sv-bubble-content {
+  padding: var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sv-expand-btn {
+  display: block;
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  text-align: center;
+  transition: background 150ms ease;
+}
+
+.sv-expand-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* Tool Badge Styling */
+.sv-tool-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Which subagent ran this call, from the hook's agent_type. Deliberately
+   quieter than the tool badge: it is attribution, not the primary label. */
+.sv-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  color: var(--color-info);
+  background: var(--color-info-bg);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ==========================================================================
+   Turns - one user message and everything that followed it, grouped by the
+   CLI's prompt_id. A long session is otherwise an undifferentiated wall of
+   several hundred bubbles.
+   ========================================================================== */
+
+.sv-turn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
+  overflow: hidden;
+}
+
+.sv-turn-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.sv-turn-header:hover {
+  background: var(--bg-hover);
+}
+
+.sv-turn-caret {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.sv-turn-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.sv-turn-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.sv-turn-stats .sv-turn-errors {
+  color: var(--color-error);
+}
+
+.sv-turn-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+}
+
+.sv-turn.collapsed .sv-turn-body {
+  display: none;
+}
+
+/* The API error that ended a turn. StopFailure reuses last_assistant_message
+   for the error string, so this must never read as something Claude said. */
+.sv-stop-error-code {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  color: var(--color-error);
+  background: var(--color-error-bg);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* The activity window is capped server-side; this states that plainly at the
+   top of the feed instead of letting the oldest item read as the session start. */
+.sv-truncation-notice {
+  margin: 0 auto var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--fg-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+.sv-tool-badge.read {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.sv-tool-badge.write {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.sv-tool-badge.edit {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.sv-tool-badge.bash {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.sv-tool-badge.search {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+.sv-tool-badge.agent {
+  background: rgba(236, 72, 153, 0.15);
+  color: #f472b6;
+}
+
+.sv-tool-badge.other {
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
+}
+
+.sv-tool-duration {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.sv-tool-status {
+  font-size: var(--font-size-sm);
+}
+
+.sv-tool-status.completed,
+.sv-tool-status.success {
+  color: var(--color-success);
+}
+
+.sv-tool-status.error,
+.sv-tool-status.failed {
+  color: var(--color-error);
+}
+
+.sv-tool-status.blocked {
+  color: var(--color-warning);
+}
+
+.sv-tool-status.running {
+  color: var(--color-warning);
+}
+
+.sv-error-badge {
+  background: var(--color-error);
+  color: white;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Spinner for running tools */
+.sv-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--fg-muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

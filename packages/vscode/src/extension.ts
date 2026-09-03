@@ -21,13 +21,16 @@ export async function activate(
 	const config = vscode.workspace.getConfiguration("inspectorHook");
 	const autoStart = config.get<boolean>("autoStart", true);
 	const httpPort = config.get<number>("httpPort", 52376);
-	const wsPort = config.get<number>("wsPort", 52377);
 
 	// Initialize core bridge
 	coreBridge = new CoreBridge({
 		storagePath: context.globalStorageUri.fsPath,
+		// Only a real workspace folder. The previous fallback was process.cwd(),
+		// which for the extension host is "/" -- so with no folder open the core
+		// was told the workspace root was the filesystem root. Undefined lets the
+		// core apply its own default instead of resolving paths against "/".
+		workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
 		httpPort,
-		wsPort,
 		extensionPath: context.extensionUri.fsPath,
 	});
 

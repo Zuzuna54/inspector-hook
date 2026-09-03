@@ -15,6 +15,20 @@ import type {
 	ToolExecution,
 } from "@inspector-hook/protocol";
 import type { PersistenceStore } from "../persistence/store.js";
+import {
+	deriveSessionName,
+	extractProjectName,
+	mergeSessionMetadata,
+} from "./session-metadata.js";
+import {
+	createExecution,
+	findAbandonedExecutions,
+	findRunningExecution,
+	isToolCompletionEvent,
+	isToolStartEvent,
+	markAbandoned,
+	terminalStatusFor,
+} from "./tool-executions.js";
 
 export interface SessionManagerOptions {
 	storagePath: string;
@@ -57,12 +71,27 @@ export interface SessionManagerEvents {
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_COMPLETED_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
 const STALE_CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
+/**
+ * How long a tool execution may sit in "running" before it is treated as
+ * abandoned. Generous, because a legitimate long-running Bash command or a
+ * slow subagent must not be resolved out from under itself.
+ */
+const STUCK_EXECUTION_TIMEOUT_MS = 15 * 60 * 1000;
+/**
+ * How long mutations are allowed to accumulate before the session is written.
+ * Short enough that a crash loses almost nothing, long enough that a burst of
+ * events in one turn collapses into a single write.
+ */
+const PERSIST_DEBOUNCE_MS = 250;
 
 export class SessionManager extends EventEmitter {
 	private sessions: Map<string, Session> = new Map();
 	private options: SessionManagerOptions;
 	private persistence?: PersistenceStore;
 	private staleCheckInterval: NodeJS.Timeout | null = null;
+	private dirtySessionIds: Set<string> = new Set();
+	private persistTimer: NodeJS.Timeout | null = null;
+	private writeChain: Promise<void> = Promise.resolve();
 	private idleTimeoutMs: number;
 	private completedTimeoutMs: number;
 
@@ -75,12 +104,6 @@ export class SessionManager extends EventEmitter {
 			options.completedTimeoutMs ?? DEFAULT_COMPLETED_TIMEOUT_MS;
 	}
 
-	/**
-	 * Set the persistence store after construction
-	 */
-	setPersistence(persistence: PersistenceStore): void {
-		this.persistence = persistence;
-	}
 
 	/**
 	 * Load sessions from persistence
@@ -93,11 +116,59 @@ export class SessionManager extends EventEmitter {
 			this.sessions.set(id, session);
 		}
 
+		// Any execution still marked "running" in a store we just loaded cannot
+		// actually be running -- the process that owned it is gone. Resolve them
+		// before anyone reads the store, or they stay "running" forever.
+		await this.reconcileStuckExecutions({ maxAgeMs: 0 });
+
 		// Start the stale session check interval
 		this.startStaleSessionCheck();
 
 		// Immediately check for stale sessions on load
 		await this.checkStaleSessions();
+	}
+
+	/**
+	 * Resolve tool executions that are stuck in "running".
+	 *
+	 * Nothing previously did this, so they accumulated without limit. Two causes
+	 * remain even with correct pairing:
+	 *  - the core restarted mid-execution, so the completion event was never seen;
+	 *  - the tool legitimately produces no terminal event at all. A PreToolUse
+	 *    denial, for instance, is followed by neither PostToolUse nor
+	 *    PostToolUseFailure.
+	 *
+	 * Marked "failed" rather than left running, because "running" is a definite
+	 * false statement while the error text is honest that the outcome is unknown.
+	 *
+	 * @param maxAgeMs Only resolve executions that started at least this long
+	 *                 ago. 0 resolves every running execution, which is correct
+	 *                 at load time.
+	 */
+	async reconcileStuckExecutions(options?: {
+		maxAgeMs?: number;
+	}): Promise<{ resolved: number }> {
+		const maxAgeMs = options?.maxAgeMs ?? STUCK_EXECUTION_TIMEOUT_MS;
+		const now = Date.now();
+		let resolved = 0;
+
+		for (const session of this.sessions.values()) {
+			const abandoned = findAbandonedExecutions(
+				session.toolExecutions,
+				maxAgeMs,
+				now,
+			);
+			if (abandoned.length === 0) continue;
+
+			for (const exec of abandoned) {
+				markAbandoned(exec);
+				this.emit("tool:failed", { sessionId: session.id, execution: exec });
+				resolved++;
+			}
+			await this.persistSession(session);
+		}
+
+		return { resolved };
 	}
 
 	/**
@@ -109,6 +180,8 @@ export class SessionManager extends EventEmitter {
 		this.staleCheckInterval = setInterval(() => {
 			this.checkStaleSessions();
 		}, STALE_CHECK_INTERVAL_MS);
+		// Housekeeping only: must not keep the process alive by itself.
+		this.staleCheckInterval.unref?.();
 	}
 
 	/**
@@ -128,6 +201,9 @@ export class SessionManager extends EventEmitter {
 	 */
 	async checkStaleSessions(): Promise<void> {
 		const now = Date.now();
+
+		// Executions abandoned mid-flight are resolved on the same cadence.
+		await this.reconcileStuckExecutions();
 
 		for (const session of this.sessions.values()) {
 			// Skip already completed/terminated/error sessions
@@ -187,7 +263,7 @@ export class SessionManager extends EventEmitter {
 		const now = new Date().toISOString();
 		const session: Session = {
 			id,
-			name: this.deriveSessionName(metadata),
+			name: deriveSessionName(metadata),
 			status: "active",
 			startTime: now,
 			lastActivityTime: now,
@@ -198,7 +274,7 @@ export class SessionManager extends EventEmitter {
 
 		this.sessions.set(id, session);
 		this.emit("session:created", session);
-		this.persistSession(session);
+		this.schedulePersist(session);
 
 		return session;
 	}
@@ -214,44 +290,6 @@ export class SessionManager extends EventEmitter {
 		return session;
 	}
 
-	/**
-	 * Extract project name from a path
-	 * @param cwd - working directory path
-	 * @returns project name (last segment of path)
-	 */
-	private extractProjectName(cwd: string | undefined): string | undefined {
-		if (!cwd) return undefined;
-		// Get the last non-empty segment of the path
-		const segments = cwd.split(/[/\\]/).filter((s) => s);
-		return segments.length > 0 ? segments[segments.length - 1] : undefined;
-	}
-
-	/**
-	 * Derive session name from metadata
-	 * Priority: projectName > folder from workingDirectory
-	 * @param metadata - session metadata
-	 * @returns derived session name or undefined
-	 */
-	private deriveSessionName(
-		metadata?: Record<string, unknown>,
-	): string | undefined {
-		if (!metadata) return undefined;
-
-		// First try explicit projectName
-		if (metadata.projectName && typeof metadata.projectName === "string") {
-			return metadata.projectName;
-		}
-
-		// Then try to extract from workingDirectory
-		if (
-			metadata.workingDirectory &&
-			typeof metadata.workingDirectory === "string"
-		) {
-			return this.extractProjectName(metadata.workingDirectory);
-		}
-
-		return undefined;
-	}
 
 	/**
 	 * Track activity from a log entry
@@ -265,7 +303,7 @@ export class SessionManager extends EventEmitter {
 			session = this.createSession(sessionId, {
 				workingDirectory: cwd,
 				projectName:
-					(log.details?.projectName as string) || this.extractProjectName(cwd),
+					(log.details?.projectName as string) || extractProjectName(cwd),
 				gitBranch: log.details?.gitBranch as string | undefined,
 				gitRemote: log.details?.gitRemote as string | undefined,
 			});
@@ -279,72 +317,51 @@ export class SessionManager extends EventEmitter {
 		// SessionStart provides the most accurate session info (project name, git branch, etc.)
 		if (log.event === "session.start" || log.hook === "SessionStart") {
 			// Always update session metadata with SessionStart info (overwrites previous values)
-			const newMetadata: Record<string, unknown> = { ...session.metadata };
-
-			if (log.details?.projectName) {
-				newMetadata.projectName = log.details.projectName as string;
-			}
-			if (log.details?.gitBranch) {
-				newMetadata.gitBranch = log.details.gitBranch as string;
-			}
-			if (log.details?.gitRemote) {
-				newMetadata.gitRemote = log.details.gitRemote as string;
-			}
-			if (cwd) {
-				newMetadata.workingDirectory = cwd;
-				// Only set projectName from cwd if not already set by projectName field
-				if (!log.details?.projectName) {
-					newMetadata.projectName = this.extractProjectName(cwd);
-				}
-			}
-
-			session.metadata = newMetadata;
-
-			// Update session.name based on updated metadata
-			session.name = this.deriveSessionName(newMetadata);
+			// SessionStart carries the most accurate session information, so it is
+			// allowed to overwrite what earlier events inferred -- but only with
+			// values it actually supplied.
+			session.metadata = mergeSessionMetadata(session.metadata, log.details);
+			session.name = deriveSessionName(session.metadata);
 		}
 
 		// Track tool execution start (supports both tool.start and PreToolUse)
 		if (
 			log.tool &&
-			(log.event === "tool.start" || log.event === "PreToolUse")
+			isToolStartEvent(log.event)
 		) {
-			const execution: ToolExecution = {
-				id: `exec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-				tool: log.tool,
-				input:
-					(log.details?.input as Record<string, unknown>) || log.details || {},
-				startTime: log.timestamp,
-				status: "running",
-				affectedFiles: log.file ? [log.file] : undefined,
-			};
+			const execution = createExecution(log);
 			session.toolExecutions.push(execution);
 			this.emit("tool:started", { sessionId, execution });
 		}
 
-		// Update tool execution on completion (supports both tool.end and PostToolUse)
-		if (log.tool && (log.event === "tool.end" || log.event === "PostToolUse")) {
-			const exec = session.toolExecutions.find(
-				(e) => e.tool === log.tool && e.status === "running",
-			);
+		// Update tool execution on completion (supports both tool.end and PostToolUse).
+		// "blocked" is resolved here rather than in a later pass: this branch used to
+		// mark every non-error completion "completed", which meant the blocked branch
+		// below could no longer find the execution as running, and blocked tool calls
+		// were silently recorded as successful.
+		if (log.tool && isToolCompletionEvent(log.event)) {
+			const exec = findRunningExecution(session.toolExecutions, log);
 			if (exec) {
 				exec.endTime = log.timestamp;
-				exec.status = log.level === "error" ? "failed" : "completed";
 				exec.result = log.details;
 
-				if (exec.status === "completed") {
-					this.emit("tool:completed", { sessionId, execution: exec });
-				} else {
-					this.emit("tool:failed", { sessionId, execution: exec });
-				}
+				exec.status = terminalStatusFor(log);
+				if (exec.status === "blocked") exec.error = log.message;
+				this.emit(
+					exec.status === "failed"
+						? "tool:failed"
+						: exec.status === "blocked"
+							? "tool:blocked"
+							: "tool:completed",
+					{ sessionId, execution: exec },
+				);
 			}
 		}
 
-		// Track blocked operations
-		if (log.level === "blocked") {
-			const exec = session.toolExecutions.find(
-				(e) => e.tool === log.tool && e.status === "running",
-			);
+		// Track operations blocked without a completion event of their own
+		// (e.g. a PreToolUse denial, which never produces a PostToolUse).
+		else if (log.level === "blocked") {
+			const exec = findRunningExecution(session.toolExecutions, log);
 			if (exec) {
 				exec.status = "blocked";
 				exec.error = log.message;
@@ -362,18 +379,21 @@ export class SessionManager extends EventEmitter {
 			}
 		}
 
-		// Check for session end
-		if (
-			log.event === "session.end" ||
-			log.hook === "SessionEnd" ||
-			log.hook === "Stop"
-		) {
+		// Check for session end.
+		// NOTE: the "Stop" hook is deliberately NOT treated as a session end. Stop
+		// fires every time Claude finishes a response, so ending on it marked live
+		// sessions "completed" after every single turn, emitted a spurious
+		// session:ended (which the core logs as "Session ended"), and then relied on
+		// reactivateSession to silently resurrect the session on the next event.
+		// Only a real SessionEnd ends a session; idle/completed transitions are
+		// handled by checkStaleSessions().
+		if (log.event === "session.end" || log.hook === "SessionEnd") {
 			session.status = "completed";
 			session.endTime = log.timestamp;
 			this.emit("session:ended", session);
 		}
 
-		this.persistSession(session);
+		this.schedulePersist(session);
 	}
 
 	/**
@@ -383,7 +403,7 @@ export class SessionManager extends EventEmitter {
 		const session = this.sessions.get(sessionId);
 		if (session && !session.fileChanges.includes(changeId)) {
 			session.fileChanges.push(changeId);
-			this.persistSession(session);
+			this.schedulePersist(session);
 		}
 	}
 
@@ -395,7 +415,7 @@ export class SessionManager extends EventEmitter {
 		if (session) {
 			session.toolExecutions.push(execution);
 			this.emit("tool:started", { sessionId, execution });
-			this.persistSession(session);
+			this.schedulePersist(session);
 		}
 	}
 
@@ -426,7 +446,7 @@ export class SessionManager extends EventEmitter {
 					this.emit("tool:blocked", { sessionId, execution });
 				}
 
-				this.persistSession(session);
+				this.schedulePersist(session);
 			}
 		}
 	}
@@ -440,7 +460,7 @@ export class SessionManager extends EventEmitter {
 			session.status = "completed";
 			session.endTime = new Date().toISOString();
 			this.emit("session:ended", session);
-			this.persistSession(session);
+			this.schedulePersist(session);
 		}
 	}
 
@@ -502,7 +522,7 @@ export class SessionManager extends EventEmitter {
 		}
 
 		this.emit("session:terminated", session);
-		this.persistSession(session);
+		this.schedulePersist(session);
 
 		return {
 			success: true,
@@ -513,27 +533,28 @@ export class SessionManager extends EventEmitter {
 	/**
 	 * Delete a session
 	 */
-	async delete(
-		id: string,
-		deleteAssociatedData?: boolean,
-	): Promise<SessionDeleteResult> {
+	async delete(id: string): Promise<SessionDeleteResult> {
 		const session = this.sessions.get(id);
 		if (!session) {
 			throw new Error(`Session not found: ${id}`);
 		}
 
 		this.sessions.delete(id);
+		this.dirtySessionIds.delete(id);
 
 		// Delete from persistence
 		if (this.persistence) {
 			await this.persistence.deleteJSON("sessions", id);
 		}
 
+		// Associated logs/changes are owned by other managers; IpcServer performs
+		// that cascade and overwrites these counts. Report 0 rather than the
+		// session's change-count, which claimed deletions that never happened.
 		return {
 			success: true,
 			deletedSessions: 1,
-			deletedLogs: 0, // TODO: Delete associated logs if requested
-			deletedFileChanges: deleteAssociatedData ? session.fileChanges.length : 0,
+			deletedLogs: 0,
+			deletedFileChanges: 0,
 			deletedAt: new Date().toISOString(),
 		};
 	}
@@ -541,10 +562,7 @@ export class SessionManager extends EventEmitter {
 	/**
 	 * Clear sessions with filter
 	 */
-	async clear(
-		filter?: SessionFilter,
-		deleteAssociatedData?: boolean,
-	): Promise<SessionDeleteResult> {
+	async clear(filter?: SessionFilter): Promise<SessionDeleteResult> {
 		const toDelete: string[] = [];
 
 		for (const [id, session] of this.sessions) {
@@ -582,7 +600,19 @@ export class SessionManager extends EventEmitter {
 	/**
 	 * Get statistics for a specific session
 	 */
-	async getSessionStats(id: string): Promise<SessionStats> {
+	/**
+	 * Statistics for one session.
+	 *
+	 * `logCount` and `warnings` used to be hardcoded to 0 regardless of the
+	 * session, so a UI showing "0 logs" for a session with hundreds was not a
+	 * rendering bug — the number was fabricated. They are now supplied by
+	 * IpcServer, which owns the LogManager; SessionManager has no reference to
+	 * it and cannot count logs itself.
+	 */
+	async getSessionStats(
+		id: string,
+		logCounts?: { logCount: number; warnings: number },
+	): Promise<SessionStats> {
 		const session = this.sessions.get(id);
 		if (!session) {
 			throw new Error(`Session not found: ${id}`);
@@ -599,11 +629,11 @@ export class SessionManager extends EventEmitter {
 			sessionId: id,
 			status: session.status,
 			duration: Math.floor(duration / 1000),
-			logCount: 0, // TODO: Count actual logs
+			logCount: logCounts?.logCount ?? 0,
 			toolExecutions: executions.length,
 			fileChangesCount: session.fileChanges.length,
 			errors: executions.filter((e) => e.status === "failed").length,
-			warnings: 0,
+			warnings: logCounts?.warnings ?? 0,
 			blocked: executions.filter((e) => e.status === "blocked").length,
 		};
 	}
@@ -628,17 +658,75 @@ export class SessionManager extends EventEmitter {
 	async flush(): Promise<void> {
 		if (!this.persistence) return;
 
-		for (const [id, session] of this.sessions) {
-			await this.persistence.saveJSON("sessions", id, session);
+		// Cancel the pending debounce and write everything still queued.
+		if (this.persistTimer) {
+			clearTimeout(this.persistTimer);
+			this.persistTimer = null;
 		}
+		await this.drainDirtySessions();
+		await this.writeChain;
 	}
 
 	/**
-	 * Persist a single session
+	 * Queue a session for persistence.
+	 *
+	 * Every hook event used to trigger an immediate, un-awaited rewrite of the
+	 * whole session document from inside the HTTP request path. Because the
+	 * document grows with each tool execution, total bytes written was O(n^2) in
+	 * event count -- measured at 252x amplification over 250 tool calls and 502x
+	 * over 500, i.e. ~1.5 GB of writes to produce a 4.7 MB file on a long
+	 * session. The un-awaited writes also overlapped each other on the same path.
+	 *
+	 * Writes are now coalesced: many mutations inside the debounce window
+	 * collapse into one write, and writes are chained so two never overlap.
+	 * Correctness is unaffected because the in-memory session is the source of
+	 * truth during a run, and flush() forces a drain on shutdown.
+	 */
+	private schedulePersist(session: Session): void {
+		if (!this.persistence) return;
+
+		this.dirtySessionIds.add(session.id);
+
+		if (this.persistTimer) return;
+		this.persistTimer = setTimeout(() => {
+			this.persistTimer = null;
+			void this.drainDirtySessions();
+		}, PERSIST_DEBOUNCE_MS);
+		// Housekeeping: must not hold the process open on its own.
+		this.persistTimer.unref?.();
+	}
+
+	/**
+	 * Write out every session queued since the last drain.
+	 * Serialized through a single chain so writes to one path never overlap.
+	 */
+	private drainDirtySessions(): Promise<void> {
+		const ids = [...this.dirtySessionIds];
+		this.dirtySessionIds.clear();
+		if (ids.length === 0) return this.writeChain;
+
+		this.writeChain = this.writeChain
+			.then(async () => {
+				for (const id of ids) {
+					const session = this.sessions.get(id);
+					// A session deleted while queued must not be resurrected.
+					if (!session || !this.persistence) continue;
+					await this.persistence.saveJSON("sessions", id, session);
+				}
+			})
+			.catch(() => {
+				// A failed write must not poison the chain for later writes.
+			});
+
+		return this.writeChain;
+	}
+
+	/**
+	 * Persist a session immediately, bypassing the debounce.
+	 * For the few callers that need the write to have landed before returning.
 	 */
 	private async persistSession(session: Session): Promise<void> {
-		if (this.persistence) {
-			await this.persistence.saveJSON("sessions", session.id, session);
-		}
+		this.dirtySessionIds.add(session.id);
+		await this.drainDirtySessions();
 	}
 }

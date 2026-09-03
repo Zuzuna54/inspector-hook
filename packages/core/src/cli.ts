@@ -5,7 +5,13 @@
  * Starts the core process and outputs ready JSON with port info
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CoreInitParams } from "@inspector-hook/protocol";
@@ -13,15 +19,23 @@ import { InspectorCore } from "./core.js";
 
 // Default configuration (can be overridden via environment variables)
 const DEFAULT_CONFIG = {
-	httpPort: parseInt(process.env.INSPECTOR_HOOK_HTTP_PORT || "0", 10), // 0 = OS assigns available port
-	wsPort: parseInt(process.env.INSPECTOR_HOOK_WS_PORT || "0", 10),
+	// Prefer the documented default so hook URLs stay stable; HttpServer scans
+	// upward if it is taken. Set to 0 explicitly to always let the OS choose.
+	httpPort: parseInt(process.env.INSPECTOR_HOOK_HTTP_PORT || "52376", 10),
 	maxLogsInMemory: parseInt(process.env.INSPECTOR_HOOK_MAX_LOGS || "10000", 10),
 	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "7", 10),
+	// Opt-in. Writing into ~/.claude/projects/<p>/memory changes what every
+	// future Claude session in that project is told, so it is not something to
+	// switch on by default on the user's behalf.
+	writeSessionMemory: process.env.INSPECTOR_HOOK_SESSION_MEMORY === "1",
 };
 
-// Get storage path (shared across sessions)
+// Get storage path (shared across sessions).
+// INSPECTOR_HOOK_STORAGE overrides it, which is what lets a second core run
+// against its own store instead of writing into the user's real history.
 function getStoragePath(): string {
-	const basePath = join(homedir(), ".inspector-hook");
+	const basePath =
+		process.env.INSPECTOR_HOOK_STORAGE || join(homedir(), ".inspector-hook");
 	if (!existsSync(basePath)) {
 		mkdirSync(basePath, { recursive: true });
 	}
@@ -33,11 +47,91 @@ function getWorkspaceRoot(): string {
 	return process.env.INSPECTOR_HOOK_WORKSPACE || process.cwd();
 }
 
-// Write port to file for hooks to discover
-// Uses fixed path /tmp/inspector-hook.port as per Phase 1 spec
-function writePortFile(port: number): void {
-	const portFile = "/tmp/inspector-hook.port";
-	writeFileSync(portFile, port.toString(), "utf-8");
+// Write the port where hooks can discover it.
+//
+// The path is overridable via INSPECTOR_HOOK_PORT_FILE. Without that, any
+// second core -- a test run, a scratch instance -- overwrites the single global
+// file and silently redirects every hook on the machine at itself, breaking
+// capture for the real instance until it restarts.
+function getPortFilePath(): string {
+	return process.env.INSPECTOR_HOOK_PORT_FILE || "/tmp/inspector-hook.port";
+}
+
+/**
+ * Claim the well-known port file, unless a healthy core already owns it.
+ *
+ * Hooks discover the core through ONE path, so the file is necessarily global.
+ * It was also written unconditionally, which meant a second core -- a second VS
+ * Code window, an Extension Development Host, a scratch instance -- silently
+ * redirected every hook on the machine at itself. The first core kept running
+ * and captured nothing, with no error anywhere, and when the second exited the
+ * file was left pointing at a dead port, so capture stayed broken until
+ * something restarted.
+ *
+ * So: probe the incumbent first. A live one keeps its claim and this core runs
+ * without hook traffic, which is honest and non-destructive; a dead or missing
+ * one is replaced. INSPECTOR_HOOK_CLAIM_PORT=1 takes it regardless, for when
+ * taking over is what the operator actually wants.
+ */
+async function claimPortFile(
+	port: number,
+): Promise<{ claimed: boolean; incumbent?: number }> {
+	const path = getPortFilePath();
+
+	if (process.env.INSPECTOR_HOOK_CLAIM_PORT !== "1") {
+		let incumbent: number | undefined;
+		try {
+			incumbent = parseInt(readFileSync(path, "utf-8").trim(), 10);
+		} catch {
+			incumbent = undefined;
+		}
+
+		if (
+			incumbent !== undefined &&
+			Number.isInteger(incumbent) &&
+			incumbent > 0 &&
+			incumbent !== port &&
+			(await isCoreAlive(incumbent))
+		) {
+			return { claimed: false, incumbent };
+		}
+	}
+
+	writeFileSync(path, port.toString(), "utf-8");
+	return { claimed: true };
+}
+
+/** Is a core answering on this port? Short timeout: this gates startup. */
+async function isCoreAlive(port: number): Promise<boolean> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 300);
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+			signal: controller.signal,
+		});
+		return res.ok;
+	} catch {
+		return false;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * Release the port file, but only if it still names this core.
+ *
+ * Guarded because another core may have taken over in the meantime, and
+ * deleting its claim would break capture for a process that is still running.
+ */
+function releasePortFile(port: number): void {
+	const path = getPortFilePath();
+	try {
+		if (parseInt(readFileSync(path, "utf-8").trim(), 10) === port) {
+			unlinkSync(path);
+		}
+	} catch {
+		// Already gone, or never ours.
+	}
 }
 
 async function main(): Promise<void> {
@@ -57,8 +151,16 @@ async function main(): Promise<void> {
 
 		const port = core.getHttpPort();
 
-		// Write port file for hook scripts
-		writePortFile(port);
+		// Claim the hook discovery point, unless a live core already holds it.
+		const claim = await claimPortFile(port);
+		if (!claim.claimed) {
+			process.stderr.write(
+				`[Inspector Hook] A core is already serving on port ${claim.incumbent} ` +
+					`and owns ${getPortFilePath()}. This instance is running on ${port} ` +
+					"but will NOT receive hook events. Set INSPECTOR_HOOK_CLAIM_PORT=1 " +
+					"to take over.\n",
+			);
+		}
 
 		// Output ready JSON for parent process (VS Code extension)
 		const readyMessage = JSON.stringify({ type: "ready", port });
@@ -67,6 +169,8 @@ async function main(): Promise<void> {
 		// Handle shutdown signals
 		const shutdown = async () => {
 			await core.stop();
+			// Leave no pointer to a port nothing is listening on.
+			if (claim.claimed) releasePortFile(port);
 			process.exit(0);
 		};
 
@@ -82,5 +186,26 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 }
+
+/**
+ * Last-resort handlers.
+ *
+ * The core is a background process whose stderr goes to the extension host, so
+ * an uncaught error previously killed capture with nothing written anywhere a
+ * user would look. These do not swallow the failure -- continuing with unknown
+ * state is worse than stopping -- they make it visible and exit non-zero so the
+ * supervisor sees a real failure rather than a silent disappearance.
+ */
+function fatal(kind: string, error: unknown): void {
+	const detail =
+		error instanceof Error ? (error.stack ?? error.message) : String(error);
+	process.stderr.write(`[Inspector Hook] ${kind}: ${detail}\n`);
+	process.exit(1);
+}
+
+process.on("uncaughtException", (error) => fatal("Uncaught exception", error));
+process.on("unhandledRejection", (reason) =>
+	fatal("Unhandled promise rejection", reason),
+);
 
 main();

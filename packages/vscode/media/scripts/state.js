@@ -44,6 +44,42 @@ const State = {
 		searchQuery: "",
 		sessionActivity: [],
 		sessionLogs: [],
+		// Set from the activity response: whether older logs exist beyond the
+		// fetched window, and how many the core still retains for the session.
+		// Retained, not lifetime - activity reads are served from memory.
+		activityTruncated: false,
+		activityAvailableLogs: null,
+		// Cursor for incremental activity polling. Null means "fetch the whole
+		// window"; after the first response it holds the server's nextSince.
+		activitySince: null,
+		activityHasMore: false,
+	},
+
+	// ==========================================================================
+	// Context View State (M3 - native auto memory)
+	// ==========================================================================
+	contextView: {
+		projects: [],
+		selectedProject: null,   // memoryDir, which is the stable key
+		selectedFile: null,      // fileName within the selected project
+		// Eight of eighteen projects in a real corpus hold no memory; listing
+		// them by default buries the ones that do.
+		showEmpty: false,
+		// The last write/delete/index result, so a refusal can be rendered in
+		// the backend's own words rather than paraphrased.
+		lastResult: null,
+		// "memory" browses and curates the corpus; "injection" is the explicit
+		// picker and the digest preview. Two jobs, one view.
+		mode: "memory",
+		// Cross-project search. Native memory is per-project, so searching the
+		// whole corpus is the thing no editor and no session can do.
+		search: "",
+		// The file being edited, and its working copy.
+		editing: null,
+		draft: "",
+		// Context staged for the next session, and a previewed digest.
+		staged: null,
+		digest: null,
 	},
 
 	// ==========================================================================
@@ -213,6 +249,23 @@ const State = {
 			searchQuery: "",
 			sessionActivity: [],
 			sessionLogs: [],
+			activityTruncated: false,
+			activityAvailableLogs: null,
+			activitySince: null,
+			activityHasMore: false,
+		};
+		this.contextView = {
+			projects: [],
+			selectedProject: null,
+			selectedFile: null,
+			showEmpty: false,
+			lastResult: null,
+			mode: "memory",
+			search: "",
+			editing: null,
+			draft: "",
+			staged: null,
+			digest: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

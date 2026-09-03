@@ -3,6 +3,44 @@
  * Handles message passing between webview and extension
  */
 
+/**
+ * Merge an incremental activity batch into what is already held.
+ *
+ * Keyed by id, resolved by `updatedAt` - NOT by arrival order. An item's
+ * updatedAt differs from its timestamp only for a tool call, which keeps its
+ * start time while status, result and duration arrive later; taking whichever
+ * copy arrived last would let a slow or reordered response overwrite a newer
+ * one with a stale one, turning a completed tool call back into a running one.
+ *
+ * The cursor is inclusive, so every poll deliberately re-sends the items on the
+ * boundary instant - 35% of real logs share a timestamp with another, and one
+ * instant covered twelve. Re-sending them is what stops an exclusive cursor
+ * silently dropping the lot; merging by id is what makes the repeat harmless.
+ *
+ * Ordering is by timestamp, which is the order the feed reads in, not by
+ * updatedAt, which would make a completing tool call jump to the end.
+ *
+ * @param {Array} existing
+ * @param {Array} incoming
+ * @returns {Array}
+ */
+function mergeActivity(existing, incoming) {
+	if (!incoming.length) return existing;
+
+	const stamp = (item) => String(item?.updatedAt || item?.timestamp || "");
+
+	const byId = new Map();
+	for (const item of existing || []) byId.set(item.id, item);
+	for (const item of incoming) {
+		const held = byId.get(item.id);
+		if (!held || stamp(item) >= stamp(held)) byId.set(item.id, item);
+	}
+
+	return [...byId.values()].sort((a, b) =>
+		String(a.timestamp || "").localeCompare(String(b.timestamp || "")),
+	);
+}
+
 const API = {
 	// VS Code API instance
 	vscode: typeof acquireVsCodeApi !== "undefined" ? acquireVsCodeApi() : null,
@@ -81,8 +119,15 @@ const API = {
 	 * Get activity feed for a session (ordered events: prompts, responses, tools)
 	 * @param {string} sessionId - Session ID
 	 */
-	getSessionActivity(sessionId) {
-		this.send("get-session-activity", { sessionId });
+	getSessionActivity(sessionId, options = {}) {
+		// `since` asks for only what changed, which is the difference between a
+		// few hundred bytes and the whole window every two seconds. `before`
+		// backfills older items past the window cap.
+		this.send("get-session-activity", {
+			sessionId,
+			...(options.since ? { since: options.since } : {}),
+			...(options.before ? { before: options.before } : {}),
+		});
 	},
 
 	// ==========================================================================
@@ -218,6 +263,23 @@ const API = {
 		this.send("delete-version", { filePath, versionNumber });
 	},
 
+	/**
+	 * Get the stored content of one version.
+	 *
+	 * history.js has always called this; it did not exist, so opening a version
+	 * in the viewer threw "API.getVersionContent is not a function" and no
+	 * request was ever sent. The core exposes history.getVersionContent; the
+	 * extension-side case and CoreBridge method are still needed for a response
+	 * to come back, so until those land this leaves the viewer showing its
+	 * loading state instead of throwing.
+	 *
+	 * @param {string} filePath - File path
+	 * @param {number} versionNumber - Version number
+	 */
+	getVersionContent(filePath, versionNumber) {
+		this.send("get-version-content", { filePath, versionNumber });
+	},
+
 	// ==========================================================================
 	// Archived Changes API
 	// ==========================================================================
@@ -235,6 +297,71 @@ const API = {
 	 */
 	restoreArchived(changeId) {
 		this.send("restore-archived", { changeId });
+	},
+
+	// ==========================================================================
+	// Memory API (M3 - native auto memory)
+	// ==========================================================================
+
+	/** Every project's memory. `includeEmpty` keeps projects with no files. */
+	memoryGetProjects(params = {}) {
+		this.send("memory-get-projects", params);
+	},
+
+	/** Reference an existing file from MEMORY.md without rewriting the file. */
+	memoryAddToIndex(params) {
+		this.send("memory-add-to-index", params);
+	},
+
+	/** Drop a file's index line, leaving the file in place. */
+	memoryRemoveFromIndex(params) {
+		this.send("memory-remove-from-index", params);
+	},
+
+	/**
+	 * Create or update a memory entry.
+	 *
+	 * `userInitiated` is what allows editing a note the tool did not author, and
+	 * is set only from an explicit save in the curation UI.
+	 */
+	memoryWrite(params) {
+		this.send("memory-write", params);
+	},
+
+	/** Delete a memory entry. `force` is required for anything we did not author. */
+	memoryDelete(params) {
+		this.send("memory-delete", params);
+	},
+
+	/**
+	 * Stage context for the next session that starts.
+	 *
+	 * The backend returns exactly the text the hook will emit, which is what
+	 * lets the preview and the delivery be the same artefact rather than two
+	 * renderings of one intent.
+	 */
+	memoryStageContext(params) {
+		this.send("memory-stage-context", params);
+	},
+
+	/** What is staged right now, if anything. Expiry is applied on read. */
+	memoryGetStaged() {
+		this.send("memory-get-staged", {});
+	},
+
+	/** Discard whatever is staged. */
+	memoryClearStaged() {
+		this.send("memory-clear-staged", {});
+	},
+
+	/**
+	 * Preview a session's digest WITHOUT writing it.
+	 *
+	 * No write flag is sent: v1 previews only, and the surest way to keep that
+	 * true is for the client to be unable to ask for a write.
+	 */
+	memoryBuildDigest(sessionId) {
+		this.send("memory-build-digest", { sessionId });
 	},
 
 	// ==========================================================================
@@ -354,11 +481,61 @@ const API = {
 				break;
 
 			case "session-activity": {
-				// Session activity feed response
-				const activities = payload?.activity || [];
+				// Session activity feed response. The payload also carries the
+				// session itself, so the poller does not need a separate
+				// get-session round trip - that call returned the full session
+				// (tool inputs and results included, megabytes on a long run)
+				// for data already present here.
+				const incomingActivity = payload?.activity || [];
+
+				// Merge by id rather than replace. An incremental response carries
+				// only what changed, and deliberately re-sends the boundary items,
+				// so replacing would drop everything older on the first delta. An
+				// id already present is an UPDATE - a tool call completing is the
+				// common case - so the incoming version wins.
+				const isDelta = typeof payload?.since === "string" && payload.since !== "";
+				const merged = isDelta
+					? mergeActivity(State.sessionView.sessionActivity, incomingActivity)
+					: incomingActivity;
+
+				// Prefer the slim summary; fall back to the full session while the
+				// core still sends one. The summary deliberately omits
+				// toolExecutions (it dominated the payload), so MERGE rather than
+				// replace - overwriting would strip the array the Tools tab renders.
+				const incoming = payload?.sessionSummary || payload?.session;
+				if (incoming?.id) {
+					const sessions = [...State.sessions];
+					const idx = sessions.findIndex((s) => s.id === incoming.id);
+					if (idx >= 0) {
+						sessions[idx] = { ...sessions[idx], ...incoming };
+					} else {
+						sessions.unshift(incoming);
+					}
+					State.update("sessions", sessions);
+				}
 				State.update("sessionView", {
 					...State.sessionView,
-					sessionActivity: activities,
+					sessionActivity: merged,
+					// Passed back as `since` next poll. Absent means the server had
+					// nothing newer, so the existing cursor stands.
+					activitySince:
+						typeof payload?.nextSince === "string"
+							? payload.nextSince
+							: State.sessionView.activitySince,
+					activityHasMore: payload?.hasMore === true,
+					// The feed window is capped server-side. Without these the UI
+					// would imply the session simply started at the oldest item it
+					// received.
+					activityTruncated: payload?.truncated === true,
+					// `availableLogs` is what the core RETAINS for this session, not a
+					// lifetime total - reads are served from memory. Renders as
+					// "of N available" for that reason. `totalLogs` is the older name.
+					activityAvailableLogs:
+						typeof payload?.availableLogs === "number"
+							? payload.availableLogs
+							: typeof payload?.totalLogs === "number"
+								? payload.totalLogs
+								: null,
 				});
 				break;
 			}
@@ -392,15 +569,29 @@ const API = {
 			}
 
 			case "diff-result":
-				// Diff result - handled by file-changes view
-				if (window.FileChangesView?.handleDiffResult) {
+				// Route to whichever view asked for it. This used to go only to
+				// FileChangesView, so the Archived view's "View" button requested a
+				// diff that was delivered to a view which never displayed it - and
+				// Archived listened on a State key ("currentDiff") that nothing ever
+				// sets, so its preview could not appear by either route.
+				if (
+					State.currentView === "archived" &&
+					window.ArchivedView?.handleDiffResult
+				) {
+					window.ArchivedView.handleDiffResult(payload);
+				} else if (window.FileChangesView?.handleDiffResult) {
 					window.FileChangesView.handleDiffResult(payload);
 				}
 				break;
 
 			case "diff-error":
-				// Diff error - handled by file-changes view
-				if (window.FileChangesView?.handleDiffError) {
+				// Routed like diff-result: to the view that asked.
+				if (
+					State.currentView === "archived" &&
+					window.ArchivedView?.handleDiffError
+				) {
+					window.ArchivedView.handleDiffError(payload);
+				} else if (window.FileChangesView?.handleDiffError) {
 					window.FileChangesView.handleDiffError(payload);
 				}
 				break;
@@ -435,8 +626,85 @@ const API = {
 				}
 				break;
 
+			// A deleted session produces no push event from the core - unlike a
+			// kept or reverted change, which arrives as "fileChange" - so without
+			// this the sidebar keeps showing the session until the 30s list poll.
+			case "delete-session-result":
+				if (payload?.success !== false) this.getSessions();
+				break;
+
+			// Same gap for versions: the core emits version:created and
+			// version:restored but nothing for a delete, so History would keep
+			// listing a version that is gone.
+			case "delete-version-result":
+				if (payload?.success !== false) this.getTrackedFiles();
+				break;
+
+			// One case for stage/get/clear: each ends with "here is what is staged,
+			// or nothing", so the view re-renders from whatever came back.
+			case "memory-staged":
+				State.update("contextView", {
+					...State.contextView,
+					staged: payload || null,
+				});
+				break;
+
+			case "memory-digest":
+				State.update("contextView", {
+					...State.contextView,
+					digest: payload || null,
+				});
+				break;
+
+			case "memory-projects":
+				State.update("contextView", {
+					...State.contextView,
+					projects: payload?.projects || payload || [],
+				});
+				break;
+
+			// One shape for every curation result. The backend answers a refusal
+			// with a human-readable `reason`, and the view renders it verbatim -
+			// paraphrasing would lose the detail that makes it actionable.
+			case "memory-result": {
+				State.update("contextView", {
+					...State.contextView,
+					lastResult: payload || null,
+				});
+				// Re-read rather than patching local state: the index, the file and
+				// its orphan status can all have changed together.
+				this.memoryGetProjects({ includeEmpty: true });
+				break;
+			}
+
 			case "archived":
 				State.update("archivedChanges", payload.changes || []);
+				break;
+
+			// A restore mutates the archive and the file's version history, but
+			// neither result had a handler at all, so the UI kept showing the
+			// change as still archived until the panel was reopened.
+			case "restore-archived-result":
+				if (payload?.success !== false) {
+					this.getArchivedChanges();
+					this.getTrackedFiles();
+				}
+				break;
+
+			case "restore-result":
+				if (payload?.success !== false) {
+					this.getTrackedFiles();
+					this.getArchivedChanges();
+				}
+				break;
+
+			// Raw content for one stored version. history.js has always called
+			// API.getVersionContent, which did not exist - so opening a version in
+			// the viewer threw "is not a function" and the request was never sent.
+			case "version-content":
+				if (window.HistoryView?.handleVersionContent) {
+					window.HistoryView.handleVersionContent(payload);
+				}
 				break;
 
 			case "error":

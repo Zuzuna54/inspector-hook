@@ -3,8 +3,11 @@
 
 set -e
 
-# macOS uses a different tmpdir than /tmp
-PORT_FILE="$(node -e "console.log(require('os').tmpdir())")/inspector-hook.port"
+# The core writes /tmp/inspector-hook.port (overridable via
+# INSPECTOR_HOOK_PORT_FILE). This script used to look in os.tmpdir(), which on
+# macOS is a private per-user dir, not /tmp -- so it could never find a
+# running core and always failed at the first check.
+PORT_FILE="${INSPECTOR_HOOK_PORT_FILE:-/tmp/inspector-hook.port}"
 
 echo "=== Inspector Hook E2E Test ==="
 echo ""
@@ -22,7 +25,7 @@ echo "✅ Core running on port: $PORT"
 # Test health
 echo ""
 echo "Testing health endpoint..."
-HEALTH=$(curl -s "http://localhost:$PORT/api/health")
+HEALTH=$(curl -s "http://127.0.0.1:$PORT/api/health")
 echo "   Response: $HEALTH"
 
 if echo "$HEALTH" | grep -q "healthy"; then
@@ -37,7 +40,7 @@ echo ""
 echo "Sending test logs..."
 
 for level in info warn error blocked; do
-    curl -s -X POST "http://localhost:$PORT/api/log" \
+    curl -s -X POST "http://127.0.0.1:$PORT/api/log" \
         -H "Content-Type: application/json" \
         -d "{
             \"hook\": \"TestHook\",
@@ -55,7 +58,7 @@ echo "✅ Logs sent"
 # Check stats
 echo ""
 echo "Checking stats..."
-STATS=$(curl -s "http://localhost:$PORT/api/stats")
+STATS=$(curl -s "http://127.0.0.1:$PORT/api/stats")
 echo "   Stats: $STATS"
 
 # Parse stats (basic check)

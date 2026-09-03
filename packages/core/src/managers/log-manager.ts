@@ -18,6 +18,11 @@ export interface LogManagerOptions {
 	storagePath: string;
 	maxLogsInMemory: number;
 	retentionDays: number;
+	/**
+	 * Called for each session about to be aged out, so it can be preserved in a
+	 * durable form first. Returning false cancels that session's deletion.
+	 */
+	collapseSession?: (id: string, session: unknown) => Promise<boolean> | boolean;
 	persistence?: PersistenceStore;
 }
 
@@ -36,6 +41,28 @@ export interface LogManagerEvents {
 	"log:blocked": (log: LogEntry) => void;
 }
 
+/**
+ * Read the effort level.
+ *
+ * The shipped hook flattens `.effort.level` to a string before sending, but the
+ * native payload nests it under `{ level }`. Accepting both means a raw
+ * forwarder -- an HTTP hook posting the payload unchanged, which is where M2 is
+ * headed -- does not silently store an object in a string field.
+ */
+function readEffort(
+	data: Record<string, unknown>,
+	details: Record<string, unknown>,
+): string | undefined {
+	for (const candidate of [data.effort, details.effort]) {
+		if (typeof candidate === "string" && candidate) return candidate;
+		if (candidate && typeof candidate === "object") {
+			const level = (candidate as { level?: unknown }).level;
+			if (typeof level === "string" && level) return level;
+		}
+	}
+	return undefined;
+}
+
 export class LogManager extends EventEmitter {
 	private logs: LogEntry[] = [];
 	private options: LogManagerOptions;
@@ -48,19 +75,19 @@ export class LogManager extends EventEmitter {
 		this.options = options;
 		this.persistence = options.persistence;
 
-		// Clean up old rate tracking entries every minute
+		// Clean up old rate tracking entries every minute.
+		// unref() so this housekeeping timer never keeps the process (or a test
+		// run) alive on its own -- it is bookkeeping, not work worth waiting for.
 		this.cleanupInterval = setInterval(() => {
 			const cutoff = Date.now() - 60000;
 			this.logsLastMinute = this.logsLastMinute.filter((t) => t > cutoff);
+			// Retention is cheap when nothing has expired, so it rides along on
+			// the same timer rather than adding another.
+			void this.enforceRetention().catch(() => {});
 		}, 60000);
+		this.cleanupInterval.unref?.();
 	}
 
-	/**
-	 * Set persistence store after construction
-	 */
-	setPersistence(persistence: PersistenceStore): void {
-		this.persistence = persistence;
-	}
 
 	/**
 	 * Load logs from persistence
@@ -69,12 +96,21 @@ export class LogManager extends EventEmitter {
 		if (!this.persistence) return;
 
 		try {
-			const logs = await this.persistence.loadLogs<LogEntry>("activity");
-			// Keep only the most recent logs up to maxLogsInMemory
-			this.logs = logs.slice(-this.options.maxLogsInMemory);
+			// loadRecentLogs reads back across rotated files. loadLogs only read
+			// the live file, which rotates at 10 MB (~1,800 entries) while the
+			// memory cap is 10,000 -- so after a restart the buffer could never
+			// refill beyond a single rotation's worth of history.
+			this.logs = await this.persistence.loadRecentLogs<LogEntry>(
+				"activity",
+				this.options.maxLogsInMemory,
+			);
 		} catch {
 			// No logs to load or file doesn't exist
 		}
+
+		// Apply retention to what we just loaded, so a restart does not
+		// resurrect data the policy says should be gone.
+		await this.enforceRetention();
 	}
 
 	/**
@@ -116,10 +152,25 @@ export class LogManager extends EventEmitter {
 			sessionId: data.sessionId,
 			tool: data.tool,
 			file: data.file,
-			// Preserve executionId for correlating PreToolUse/PostToolUse
-			executionId: (data as Record<string, unknown>).executionId as
-				| string
-				| undefined,
+			// Correlates PreToolUse with PostToolUse. Claude Code supplies
+			// `tool_use_id` natively on both events, which is exact even for
+			// parallel calls to the same tool; `executionId` is the legacy field
+			// name accepted for hooks that still send it.
+			executionId: ((data as Record<string, unknown>).tool_use_id ||
+				(data as Record<string, unknown>).executionId) as string | undefined,
+			// Groups every event in one user turn. The hook was already sending
+			// this and nothing read it, so turn grouping had to be inferred from
+			// prompt boundaries -- which collapses a whole session into one turn
+			// whenever prompts were logged before the field existed.
+			promptId: ((data as Record<string, unknown>).prompt_id ||
+				(data as Record<string, unknown>).promptId) as string | undefined,
+			// Both forwarded by the hook since M2 and read by nothing until now.
+			// Accepted under either the native snake_case name or the camelCase
+			// one the hook emits, because the hook renames them on the way out.
+			permissionMode: ((data as Record<string, unknown>).permission_mode ||
+				(data as Record<string, unknown>).permissionMode ||
+				details.permissionMode) as string | undefined,
+			effort: readEffort(data, details),
 			details: Object.keys(details).length > 0 ? details : undefined,
 		};
 
@@ -228,21 +279,24 @@ export class LogManager extends EventEmitter {
 	async clear(filter?: LogFilter): Promise<LogClearResult> {
 		const before = this.logs.length;
 
-		if (filter) {
-			// Remove matching logs
-			if (filter.sessionId) {
-				this.logs = this.logs.filter((l) => l.sessionId !== filter.sessionId);
-			}
-			if (filter.olderThan) {
-				this.logs = this.logs.filter((l) => l.timestamp >= filter.olderThan!);
-			}
-		} else {
-			this.logs = [];
-		}
+		// One predicate drives both the in-memory buffer and the file, so they
+		// cannot disagree. Previously a filtered clear touched memory only, and
+		// the "deleted" logs reappeared on the next restart.
+		const keep = (l: LogEntry): boolean => {
+			if (!filter) return false;
+			if (filter.sessionId && l.sessionId === filter.sessionId) return false;
+			if (filter.olderThan && l.timestamp < filter.olderThan) return false;
+			return true;
+		};
 
-		// Clear the persistence log file if clearing all
-		if (!filter && this.persistence) {
-			await this.persistence.clearLog("activity");
+		this.logs = filter ? this.logs.filter(keep) : [];
+
+		if (this.persistence) {
+			if (filter) {
+				await this.persistence.filterLog<LogEntry>("activity", keep);
+			} else {
+				await this.persistence.clearLog("activity");
+			}
 		}
 
 		return {
@@ -250,6 +304,46 @@ export class LogManager extends EventEmitter {
 			cleared: before - this.logs.length,
 			clearedAt: new Date().toISOString(),
 		};
+	}
+
+	/**
+	 * Drop in-memory entries older than the configured retention window, and
+	 * ask the store to prune what it holds.
+	 *
+	 * `retentionDays` was previously read from the environment, threaded through
+	 * three layers, stored on this object, and never used again — so the setting
+	 * was decoration. This makes it mean what it says.
+	 *
+	 * Returns 0 immediately when retention is disabled (0 or negative), which is
+	 * how a user opts into keeping everything.
+	 */
+	async enforceRetention(): Promise<{ removed: number }> {
+		const days = this.options.retentionDays;
+		if (!days || days <= 0) return { removed: 0 };
+
+		const maxAgeMs = days * 24 * 60 * 60 * 1000;
+		const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+
+		const before = this.logs.length;
+		// An entry with an unparseable timestamp is kept: it cannot be aged, and
+		// silently discarding data is the worse failure.
+		this.logs = this.logs.filter(
+			(l) => typeof l.timestamp !== "string" || l.timestamp >= cutoff,
+		);
+		const removed = before - this.logs.length;
+
+		if (this.persistence) {
+			// The collapse hook is supplied by the core, which owns the session
+			// data and the digest builder. LogManager only forwards it: it runs
+			// the retention timer, but it must not be the thing that decides
+			// what a preserved session looks like.
+			await this.persistence.cleanup({
+				maxAgeMs,
+				collapseSession: this.options.collapseSession,
+			});
+		}
+
+		return { removed };
 	}
 
 	/**

@@ -12,6 +12,7 @@ import type {
 	ArchiveDeleteResult,
 	ArchivedChange,
 	ArchiveFilter,
+	ArchiveResolution,
 	ArchiveStats,
 	DiffResult,
 	FileChange,
@@ -30,6 +31,23 @@ import type {
 } from "@inspector-hook/protocol";
 import type { PersistenceStore } from "../persistence/store.js";
 import { DiffEngine } from "./diff-engine.js";
+
+/**
+ * Sentinel meaning "the file as it currently exists on disk" rather than a
+ * stored version. Callers have historically used several spellings, so accept
+ * all of them.
+ */
+const LIVE_VERSION = -1;
+const LIVE_VERSION_ALIASES = new Set<string | number>([
+	"current",
+	"disk",
+	"live",
+	LIVE_VERSION,
+]);
+
+function isLiveVersion(v: number | string): boolean {
+	return LIVE_VERSION_ALIASES.has(typeof v === "string" ? v.toLowerCase() : v);
+}
 
 export interface FileTrackerOptions {
 	workspaceRoot: string;
@@ -85,12 +103,6 @@ export class FileTracker extends EventEmitter {
 		this.maxVersionsPerFile = options.maxVersionsPerFile || 50;
 	}
 
-	/**
-	 * Set persistence store after construction
-	 */
-	setPersistence(persistence: PersistenceStore): void {
-		this.persistence = persistence;
-	}
 
 	/**
 	 * Load data from persistence
@@ -275,8 +287,27 @@ export class FileTracker extends EventEmitter {
 		const captureId = `${log.file}:${log.sessionId}`;
 		const pending = this.pendingCaptures.get(captureId);
 
-		// Get before content from pending capture or try to read it
-		const beforeContent = pending?.beforeContent || "";
+		// Establish the "before" content. The PreToolUse capture is authoritative
+		// (it also records "" for a file that did not exist yet, which is how a
+		// genuine file creation is represented).
+		//
+		// Without a capture we must NOT assume "": doing so made every duplicate
+		// PostToolUse - a retried hook, a hook registered twice in settings.json,
+		// or the ingest race that used to exist - fabricate a phantom change
+		// claiming the AI created the whole file from nothing. Fall back to the
+		// last content we recorded in version history, and if we have never seen
+		// the file, decline to guess.
+		let beforeContent: string;
+		if (pending) {
+			beforeContent = pending.beforeContent;
+		} else {
+			const history = this.history.get(log.file);
+			const lastVersion = history?.versions[history.versions.length - 1];
+			if (lastVersion?.content === undefined) {
+				return null;
+			}
+			beforeContent = lastVersion.content;
+		}
 
 		// Get after content (current file state)
 		let afterContent = "";
@@ -546,9 +577,28 @@ export class FileTracker extends EventEmitter {
 		}
 
 		change.status = "kept";
+		const archivedAt = await this.archiveResolvedChange(change, "kept");
+
+		this.emit("change:kept", change);
+
+		return { success: true, archivedAt };
+	}
+
+	/**
+	 * Move a resolved change out of the pending map and into the archive.
+	 *
+	 * Shared by keepChange and revertChange so both resolutions land in the
+	 * archive. Previously only "kept" changes were archived, so reverted ones
+	 * lingered in the pending map with status "reverted" -- invisible to the
+	 * pending list (which filters on "pending"), never shown in the Archived
+	 * view, and accumulating on disk forever.
+	 */
+	private async archiveResolvedChange(
+		change: FileChange,
+		resolution: ArchiveResolution,
+	): Promise<string> {
 		const archivedAt = new Date().toISOString();
 
-		// Move to archive
 		const archived: ArchivedChange = {
 			id: change.id,
 			filePath: change.filePath,
@@ -557,21 +607,20 @@ export class FileTracker extends EventEmitter {
 			originalTimestamp: change.timestamp,
 			beforeContent: change.beforeContent,
 			afterContent: change.afterContent,
+			resolution,
 		};
 
 		this.archived.set(archived.id, archived);
-		this.changes.delete(changeId);
+		this.changes.delete(change.id);
 
-		this.emit("change:kept", change);
 		this.emit("archive:added", archived);
 
-		// Persist
 		await this.persistArchived(archived);
 		if (this.persistence) {
-			await this.persistence.deleteJSON("changes", changeId);
+			await this.persistence.deleteJSON("changes", change.id);
 		}
 
-		return { success: true, archivedAt };
+		return archivedAt;
 	}
 
 	/**
@@ -579,7 +628,12 @@ export class FileTracker extends EventEmitter {
 	 */
 	async revertChange(
 		changeId: string,
-	): Promise<{ success: boolean; revertedAt: string; filePath: string }> {
+	): Promise<{
+		success: boolean;
+		revertedAt: string;
+		filePath: string;
+		newVersionNumber?: number;
+	}> {
 		const change = this.changes.get(changeId);
 		if (!change) {
 			throw new Error(`Change not found: ${changeId}`);
@@ -592,18 +646,49 @@ export class FileTracker extends EventEmitter {
 			throw new Error(`Failed to revert file: ${error}`);
 		}
 
+		// Record the reverted content as a version.
+		//
+		// This was missing, and it made version history state something untrue:
+		// a revert rewrote the file to its BEFORE content while history still
+		// showed the after content as the newest version. Traced on a real
+		// tracker -- after edit, versions ["new"] and disk "new"; after revert,
+		// versions ["new"] and disk "old". Every reader that treats the newest
+		// version as the file's current state -- compare-to-disk, a diff against
+		// current, the version viewer -- was then working from content that no
+		// longer existed on disk.
+		//
+		// addVersion de-duplicates by content hash, so reverting to a content
+		// that is already the newest version correctly records nothing new.
+		//
+		// Best-effort: the file is already written. Failing to record must not
+		// report a completed revert as an error -- that would be the same class
+		// of false claim in the other direction.
+		let newVersionNumber: number | undefined;
+		try {
+			const version = await this.addVersion(
+				change.filePath,
+				change.beforeContent,
+				{
+					sessionId: change.sessionId,
+					changeId: change.id,
+					tool: "revert",
+				},
+			);
+			newVersionNumber = version.versionNumber;
+		} catch {
+			// History is now incomplete for this file, but the revert stands.
+		}
+
 		change.status = "reverted";
-		const revertedAt = new Date().toISOString();
+		const revertedAt = await this.archiveResolvedChange(change, "reverted");
 
 		this.emit("change:reverted", change);
-
-		// Persist the status change
-		await this.persistChange(change);
 
 		return {
 			success: true,
 			revertedAt,
 			filePath: change.filePath,
+			newVersionNumber,
 		};
 	}
 
@@ -755,6 +840,7 @@ export class FileTracker extends EventEmitter {
 				filePath,
 				versions: [],
 				versionCount: 0,
+				lastVersionNumber: 0,
 				firstTracked: timestamp,
 				lastModified: timestamp,
 			};
@@ -766,14 +852,14 @@ export class FileTracker extends EventEmitter {
 			const lastVersion = history.versions[history.versions.length - 1];
 			if (lastVersion.hash === contentHash) {
 				// Content hasn't changed - return the existing version instead of creating a duplicate
-				console.error(
-					`[FileTracker] Skipping duplicate version for ${filePath} - hash matches v${lastVersion.versionNumber}`,
-				);
 				return lastVersion;
 			}
 		}
 
-		const versionNumber = history.versionCount + 1;
+		// Number from the monotonic counter, never from the retained count --
+		// otherwise deleting or trimming a version would make the next one reuse
+		// a number that already exists in the file's history.
+		const versionNumber = (history.lastVersionNumber ?? history.versionCount) + 1;
 		const versionId = `v${versionNumber}-${contentHash.slice(0, 8)}`;
 		const version: FileVersion = {
 			id: versionId,
@@ -783,16 +869,22 @@ export class FileTracker extends EventEmitter {
 			sessionId: metadata?.sessionId || "unknown",
 			hash: contentHash,
 			size: content.length,
+			// Provenance. Both were accepted in metadata and discarded here, so
+			// seven call sites were passing a tool name into nothing.
+			...(metadata?.tool ? { tool: metadata.tool } : {}),
+			...(metadata?.changeId ? { changeId: metadata.changeId } : {}),
 		};
 
 		history.versions.push(version);
-		history.versionCount = versionNumber;
+		history.lastVersionNumber = versionNumber;
 		history.lastModified = timestamp;
 
 		// Trim old versions if exceeding max
 		if (history.versions.length > this.maxVersionsPerFile) {
 			history.versions = history.versions.slice(-this.maxVersionsPerFile);
 		}
+
+		history.versionCount = history.versions.length;
 
 		this.emit("version:created", { filePath, version });
 
@@ -864,23 +956,14 @@ export class FileTracker extends EventEmitter {
 		content: string;
 		timestamp: string;
 	} | null> {
-		console.error(
-			`[FileTracker] getVersionContent: ${filePath} v${versionNumber}`,
-		);
 
 		// Try memory first
 		const history = this.history.get(filePath);
 		if (history) {
-			console.error(
-				`[FileTracker] Found history in memory, ${history.versions.length} versions`,
-			);
 			const version = history.versions.find(
 				(v) => v.versionNumber === versionNumber,
 			);
 			if (version) {
-				console.error(
-					`[FileTracker] Found version in memory, content length: ${version.content?.length || 0}`,
-				);
 				if (version.content) {
 					return {
 						filePath,
@@ -889,32 +972,19 @@ export class FileTracker extends EventEmitter {
 						timestamp: version.timestamp,
 					};
 				} else {
-					console.error(
-						`[FileTracker] Version found but content is empty, trying persistence`,
-					);
 				}
 			} else {
-				console.error(
-					`[FileTracker] Version ${versionNumber} not found in memory versions`,
-				);
 			}
 		} else {
-			console.error(`[FileTracker] No history in memory for ${filePath}`);
 		}
 
 		// Try persistence
 		if (this.persistence) {
-			console.error(
-				`[FileTracker] Trying persistence for ${filePath} v${versionNumber}`,
-			);
 			const result = await this.persistence.loadVersion(
 				filePath,
 				versionNumber,
 			);
 			if (result) {
-				console.error(
-					`[FileTracker] Found in persistence, content length: ${result.content?.length || 0}`,
-				);
 				return {
 					filePath,
 					versionNumber,
@@ -922,45 +992,62 @@ export class FileTracker extends EventEmitter {
 					timestamp: (result.metadata?.timestamp as string) || "",
 				};
 			} else {
-				console.error(`[FileTracker] Not found in persistence`);
 			}
 		}
 
-		console.error(`[FileTracker] getVersionContent returning null`);
 		return null;
 	}
 
 	/**
-	 * Compare two versions of a file
+	 * Read the file's current on-disk content as a pseudo-version, so a stored
+	 * version can be compared against the live file.
+	 */
+	private async getLiveContent(filePath: string): Promise<{
+		filePath: string;
+		versionNumber: number;
+		content: string;
+		timestamp: string;
+	} | null> {
+		try {
+			if (!existsSync(filePath)) return null;
+			return {
+				filePath,
+				versionNumber: LIVE_VERSION,
+				content: await readFile(filePath, "utf-8"),
+				timestamp: new Date().toISOString(),
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Compare two versions of a file.
+	 *
+	 * Either side may be one of the LIVE_VERSION_ALIASES ("current"/"disk"/-1)
+	 * to mean "the file as it is on disk right now". The public API advertised
+	 * this but never implemented it: the alias fell through to a numeric version
+	 * lookup, missed, and the whole comparison silently returned null.
 	 */
 	async compareVersions(
 		filePath: string,
-		v1: number,
-		v2: number,
+		v1: number | string,
+		v2: number | string,
 	): Promise<{
 		filePath: string;
 		version1: number;
 		version2: number;
 		diff: DiffResult;
 	} | null> {
-		console.error(
-			`[FileTracker] compareVersions called: ${filePath} v${v1} -> v${v2}`,
-		);
+		const resolve = (v: number | string) =>
+			isLiveVersion(v)
+				? this.getLiveContent(filePath)
+				: this.getVersionContent(filePath, Number(v));
 
-		const content1 = await this.getVersionContent(filePath, v1);
-		const content2 = await this.getVersionContent(filePath, v2);
-
-		console.error(
-			`[FileTracker] content1: ${content1 ? `${content1.content?.length || 0} chars` : "null"}`,
-		);
-		console.error(
-			`[FileTracker] content2: ${content2 ? `${content2.content?.length || 0} chars` : "null"}`,
-		);
+		const content1 = await resolve(v1);
+		const content2 = await resolve(v2);
 
 		if (!content1 || !content2) {
-			console.error(
-				`[FileTracker] compareVersions returning null - missing content`,
-			);
 			return null;
 		}
 
@@ -968,14 +1055,11 @@ export class FileTracker extends EventEmitter {
 			content1.content,
 			content2.content,
 		);
-		console.error(
-			`[FileTracker] compareVersions diff: ${diff.hunks?.length || 0} hunks`,
-		);
 
 		return {
 			filePath,
-			version1: v1,
-			version2: v2,
+			version1: content1.versionNumber,
+			version2: content2.versionNumber,
 			diff,
 		};
 	}
@@ -1034,6 +1118,10 @@ export class FileTracker extends EventEmitter {
 			(v) => v.versionNumber !== versionNumber,
 		);
 		const deleted = beforeCount - history.versions.length;
+
+		// Keep the retained count truthful. lastVersionNumber is deliberately NOT
+		// rolled back, so a future version never reuses a deleted number.
+		history.versionCount = history.versions.length;
 
 		if (deleted > 0 && this.persistence) {
 			await this.persistence.deleteVersion(filePath, versionNumber);
@@ -1168,6 +1256,12 @@ export class FileTracker extends EventEmitter {
 			if (f.olderThan) {
 				changes = changes.filter((c) => c.archivedAt < f.olderThan!);
 			}
+			if (f.resolution) {
+				// Archives written before `resolution` existed were kept-only.
+				changes = changes.filter(
+					(c) => (c.resolution ?? "kept") === f.resolution,
+				);
+			}
 		}
 
 		// Sort by archived time, newest first
@@ -1195,7 +1289,12 @@ export class FileTracker extends EventEmitter {
 	 */
 	async restoreFromArchive(
 		changeId: string,
-	): Promise<{ success: boolean; restoredAt: string; filePath: string }> {
+	): Promise<{
+		success: boolean;
+		restoredAt: string;
+		filePath: string;
+		newVersionNumber?: number;
+	}> {
 		const archived = this.archived.get(changeId);
 		if (!archived) {
 			throw new Error(`Archived change not found: ${changeId}`);
@@ -1208,12 +1307,41 @@ export class FileTracker extends EventEmitter {
 			throw new Error(`Failed to restore from archive: ${error}`);
 		}
 
+		// Record the restore as a new version, exactly as restoreVersion does.
+		//
+		// This was missing, and the asymmetry made version history lie: an
+		// archive restore rewrote the file on disk while the history showed the
+		// previous content as current. Anything reading history to answer "what
+		// is in this file" -- a diff against the newest version, a comparison to
+		// disk -- was then working from a state that no longer existed.
+		//
+		// It is best-effort: the file has already been written, so failing to
+		// record the version must not turn a completed restore into an error.
+		// A missing version is a gap in history; a thrown error here would leave
+		// the caller believing the restore failed when it did not.
+		let newVersionNumber: number | undefined;
+		try {
+			const version = await this.addVersion(
+				archived.filePath,
+				archived.afterContent,
+				{
+					sessionId: archived.sessionId,
+					changeId: archived.id,
+					tool: "restore-from-archive",
+				},
+			);
+			newVersionNumber = version.versionNumber;
+		} catch {
+			// History is now incomplete for this file, but the restore stands.
+		}
+
 		this.emit("archive:restored", archived);
 
 		return {
 			success: true,
 			restoredAt: new Date().toISOString(),
 			filePath: archived.filePath,
+			newVersionNumber,
 		};
 	}
 

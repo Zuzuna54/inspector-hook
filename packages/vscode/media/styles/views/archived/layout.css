@@ -1,0 +1,193 @@
+/**
+ * archived view: layout.
+ *
+ * Split out of views/archived.css. Pure move: no rule changed, added
+ * or removed.
+ */
+
+/* ==========================================================================
+   Main Layout
+   ========================================================================== */
+
+.archived-v2 {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.arc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.arc-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.arc-header-left h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.arc-count {
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  background: var(--bg-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+}
+
+.arc-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.arc-search {
+  width: 180px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-sm);
+  color: var(--fg-primary);
+  font-size: var(--font-size-sm);
+}
+
+.arc-search:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.arc-search::placeholder {
+  color: var(--fg-muted);
+}
+/* ==========================================================================
+   Filters
+   ========================================================================== */
+
+.arc-filters {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.filter-btn {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.filter-btn.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+/* ==========================================================================
+   Content Area
+   ========================================================================== */
+
+.arc-content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-md);
+}
+
+.arc-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+/* ==========================================================================
+   Empty State
+   ========================================================================== */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-2xl);
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.empty-state-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--spacing-xs);
+}
+
+.empty-state-description {
+  font-size: var(--font-size-sm);
+}
+
+.arc-empty {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 600px) {
+  .arc-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .arc-header-right {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .arc-search {
+    width: 100%;
+  }
+
+  .arc-filters {
+    justify-content: stretch;
+  }
+
+  .arc-filters .filter-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .arc-session-stats {
+    display: none;
+  }
+
+  .arc-file-path {
+    display: none;
+  }
+
+  .arc-file-actions,
+  .arc-change-actions {
+    opacity: 1;
+  }
+}

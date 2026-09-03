@@ -13,9 +13,23 @@ import type { LogEntry } from "@inspector-hook/protocol";
 import type { FileTracker } from "../managers/file-tracker.js";
 import type { LogManager } from "../managers/log-manager.js";
 import type { SessionManager } from "../managers/session-manager.js";
+import { RateLimiter } from "./rate-limiter.js";
+import { redactPayload } from "./redaction.js";
+
+/** How many ports above the preferred one to try before giving up. */
+const PORT_SCAN_RANGE = 20;
+
+/**
+ * Ingest rate limit. Generous relative to real hook traffic — a busy session
+ * produces a few events per second — while still bounding a flood.
+ */
+const RATE_LIMIT = 600;
+const RATE_WINDOW_MS = 60_000;
 
 export interface HttpServerOptions {
 	port: number;
+	/** Redact credentials from payloads before storing. Default true. */
+	redactSecrets?: boolean;
 	logManager: LogManager;
 	sessionManager: SessionManager;
 	fileTracker: FileTracker;
@@ -28,33 +42,90 @@ export class HttpServer {
 	private logManager: LogManager;
 	private sessionManager: SessionManager;
 	private fileTracker: FileTracker;
+	private rateLimiter: RateLimiter;
+	private redactSecrets: boolean;
+	private pruneInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(options: HttpServerOptions) {
 		this.requestedPort = options.port;
+		this.redactSecrets = options.redactSecrets !== false;
+		this.rateLimiter = new RateLimiter({
+			limit: RATE_LIMIT,
+			windowMs: RATE_WINDOW_MS,
+		});
 		this.logManager = options.logManager;
 		this.sessionManager = options.sessionManager;
 		this.fileTracker = options.fileTracker;
 	}
 
 	/**
-	 * Start the HTTP server
-	 * If port is 0, the OS will assign an available port
+	 * Start the HTTP server.
+	 *
+	 * Port 0 lets the OS assign any free port. A non-zero port is treated as a
+	 * preference rather than a demand: if it is taken (a second window, a stale
+	 * process), we scan upward for the next free one. Keeping the port stable in
+	 * the common case matters because `"type": "http"` hooks are configured with
+	 * a literal URL in settings.json, but refusing to start would be worse.
 	 */
 	async start(): Promise<void> {
+		if (this.requestedPort === 0) {
+			await this.listenOn(0);
+			return;
+		}
+
+		let lastError: Error | undefined;
+		for (
+			let port = this.requestedPort;
+			port <= this.requestedPort + PORT_SCAN_RANGE;
+			port++
+		) {
+			try {
+				await this.listenOn(port);
+				return;
+			} catch (error) {
+				const err = error as NodeJS.ErrnoException;
+				if (err.code !== "EADDRINUSE") throw err;
+				lastError = err;
+			}
+		}
+
+		throw new Error(
+			`No free port in range ${this.requestedPort}-${
+				this.requestedPort + PORT_SCAN_RANGE
+			} (last error: ${lastError?.message})`,
+		);
+	}
+
+	/**
+	 * Bind a single port, resolving once listening and rejecting on any error.
+	 */
+	private listenOn(port: number): Promise<void> {
 		return new Promise((resolve, reject) => {
-			this.server = createServer(this.handleRequest.bind(this));
+			const server = createServer(this.handleRequest.bind(this));
 
-			this.server.on("error", (error: NodeJS.ErrnoException) => {
-				if (error.code === "EADDRINUSE") {
-					reject(new Error(`Port ${this.requestedPort} is already in use`));
-				} else {
-					reject(error);
-				}
-			});
+			const onError = (error: NodeJS.ErrnoException) => {
+				server.close();
+				reject(error);
+			};
 
-			this.server.listen(this.requestedPort, "127.0.0.1", () => {
-				const addr = this.server?.address();
-				this.actualPort = typeof addr === "object" ? (addr?.port ?? 0) : 0;
+			server.once("error", onError);
+
+			// The limiter's key map would otherwise grow once per distinct key
+			// forever -- an unbounded-memory bug inside the thing meant to
+			// prevent one.
+			if (!this.pruneInterval) {
+				this.pruneInterval = setInterval(
+					() => this.rateLimiter.prune(),
+					RATE_WINDOW_MS,
+				);
+				this.pruneInterval.unref?.();
+			}
+
+			server.listen(port, "127.0.0.1", () => {
+				server.removeListener("error", onError);
+				this.server = server;
+				const addr = server.address();
+				this.actualPort = typeof addr === "object" ? (addr?.port ?? 0) : port;
 				resolve();
 			});
 		});
@@ -71,6 +142,10 @@ export class HttpServer {
 	 * Stop the HTTP server
 	 */
 	async stop(): Promise<void> {
+		if (this.pruneInterval) {
+			clearInterval(this.pruneInterval);
+			this.pruneInterval = null;
+		}
 		return new Promise((resolve) => {
 			if (this.server) {
 				this.server.close(() => {
@@ -90,10 +165,25 @@ export class HttpServer {
 		req: IncomingMessage,
 		res: ServerResponse,
 	): Promise<void> {
-		// CORS headers for development
-		res.setHeader("Access-Control-Allow-Origin", "*");
-		res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-		res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+		// This server exists to receive hook events from local processes (a hook
+		// script's curl, or Claude Code's own `"type": "http"` hook). None of those
+		// are browsers, so no cross-origin access is needed.
+		//
+		// It previously sent `Access-Control-Allow-Origin: *`, which invited any
+		// web page the user had open to POST fabricated sessions and log entries,
+		// and -- because ingest reads whatever file path the payload names -- to
+		// make the core open arbitrary files and surface their contents in the UI.
+		// Requests carrying an Origin are browser-initiated by definition, so
+		// reject them outright rather than advertising permission.
+		const origin = req.headers.origin;
+		if (origin !== undefined) {
+			this.sendJson(
+				res,
+				{ success: false, error: "Cross-origin requests are not accepted" },
+				403,
+			);
+			return;
+		}
 
 		if (req.method === "OPTIONS") {
 			res.writeHead(204);
@@ -156,12 +246,35 @@ export class HttpServer {
 		req: IncomingMessage,
 		res: ServerResponse,
 	): Promise<void> {
+		// Rate-limited per peer. Only the write path is limited: the read
+		// endpoints are cheap and are what a status script polls.
+		const peer = req.socket.remoteAddress ?? "unknown";
+		const limit = this.rateLimiter.check(peer);
+		res.setHeader("X-RateLimit-Limit", String(RATE_LIMIT));
+		res.setHeader("X-RateLimit-Remaining", String(limit.remaining));
+		res.setHeader(
+			"X-RateLimit-Reset",
+			String(Math.ceil(limit.resetAt / 1000)),
+		);
+		if (!limit.allowed) {
+			this.sendJson(res, { success: false, error: "Rate limit exceeded" }, 429);
+			return;
+		}
+
 		const body = await this.readBody(req);
 
 		try {
-			const logData = JSON.parse(body) as Partial<LogEntry> & {
+			const parsed = JSON.parse(body) as Partial<LogEntry> & {
 				executionId?: string;
 			};
+
+			// Redact credentials BEFORE anything is stored or broadcast. Payloads
+			// carry prompts, tool I/O and file contents, so they routinely contain
+			// keys and tokens -- and everything here is written to disk in plain
+			// text and shown on screen.
+			const logData = this.redactSecrets
+				? redactPayload(parsed).value
+				: parsed;
 
 			// Validate required fields
 			if (!logData.hook || !logData.event) {

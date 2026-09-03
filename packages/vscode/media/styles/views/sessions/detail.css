@@ -1,0 +1,489 @@
+/**
+ * Detail pane shell: container, header, tabs, logs, modal, responsive.
+ *
+ * Split out of the 1327-line views/sessions.css to mirror the JS modules.
+ * Pure move: no rule was changed, added or removed.
+ */
+
+/* ==========================================================================
+   Sessions View Container - Split Panel Layout
+   ========================================================================== */
+
+#view-sessions {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sv-container {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+/* ==========================================================================
+   Session Detail Panel
+   ========================================================================== */
+
+.sv-detail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.sv-detail-header {
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.sv-detail-empty {
+  padding: var(--spacing-xl);
+}
+
+.sv-detail-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.sv-detail-title h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.sv-detail-status {
+  font-size: var(--font-size-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  text-transform: capitalize;
+  background: var(--bg-secondary);
+  color: var(--fg-secondary);
+}
+
+.sv-detail-status.active {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.sv-detail-status.idle {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.sv-detail-status.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+/* completed and terminated are both reachable statuses; neither was styled,
+   so the badge fell back to the neutral base and read as "no status". */
+.sv-detail-status.completed {
+  background: var(--bg-tertiary);
+  color: var(--fg-muted);
+}
+
+.sv-detail-status.terminated {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  opacity: 0.8;
+}
+
+.sv-git-branch {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+.sv-git-branch::before {
+  content: "\2442 ";
+  /* Git branch icon character */
+}
+
+.sv-quick-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+}
+
+.sv-quick-stat {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+}
+
+.sv-quick-stat-icon {
+  font-size: var(--font-size-md);
+}
+
+.sv-quick-stat-value {
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.sv-quick-stat-label {
+  color: var(--fg-muted);
+}
+
+.sv-quick-stat.error {
+  color: var(--color-error);
+}
+
+.sv-quick-stat.error .sv-quick-stat-value {
+  color: var(--color-error);
+}
+/* ==========================================================================
+   Tabs
+   ========================================================================== */
+
+.sv-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.sv-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: all 150ms ease;
+}
+
+.sv-tab:hover {
+  color: var(--fg-primary);
+  background: var(--bg-hover);
+}
+
+.sv-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.sv-tab-badge {
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-muted);
+}
+
+.sv-tab.active .sv-tab-badge {
+  /* --accent-bg is not defined in variables.css (nor anywhere else). Without a
+     fallback the declaration is invalid at computed-value time and the property
+     unsets to transparent, so the active Tools badge silently lost its
+     background. The other use site, .sv-bubble.sv-user, already had this
+     fallback, which is why only this one broke. */
+  background: var(--accent-bg, rgba(59, 130, 246, 0.1));
+  color: var(--accent);
+}
+
+.sv-tab-actions {
+  margin-left: auto;
+  padding: var(--spacing-sm) 0;
+}
+
+.sv-auto-scroll {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.sv-auto-scroll input {
+  margin: 0;
+}
+/* ==========================================================================
+   Tab Content
+   ========================================================================== */
+
+.sv-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-md);
+}
+/* ==========================================================================
+   Logs Tab
+   ========================================================================== */
+
+.sv-logs-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.sv-logs-header {
+  display: grid;
+  grid-template-columns: 80px 60px 120px 1fr;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sv-logs-body {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.sv-logs-row {
+  display: grid;
+  grid-template-columns: 80px 60px 120px 1fr;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  transition: background 150ms ease;
+}
+
+.sv-logs-row:last-child {
+  border-bottom: none;
+}
+
+.sv-logs-row:hover {
+  background: var(--bg-hover);
+}
+
+.sv-logs-row.error {
+  background: var(--color-error-bg);
+}
+
+/* LogLevel is info|warn|error|blocked. `warning` never occurs - the renderer
+   emits log.level verbatim - so this rule could never match; `warn` is the
+   real value and `blocked` had no rule at all. */
+.sv-logs-row.warn,
+.sv-logs-row.warning {
+  background: var(--color-warning-bg);
+}
+
+.sv-logs-row.blocked {
+  background: var(--color-warning-bg);
+}
+
+.sv-logs-col-time {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.sv-logs-col-level {
+  display: flex;
+  align-items: center;
+}
+
+.sv-level-badge {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+}
+
+.sv-level-badge.info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.sv-level-badge.warn,
+.sv-level-badge.warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.sv-level-badge.blocked {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.sv-level-badge.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.sv-level-badge.debug {
+  background: var(--bg-tertiary);
+  color: var(--fg-muted);
+}
+
+.sv-logs-col-hook {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sv-logs-col-message {
+  color: var(--fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ==========================================================================
+   Empty States
+   ========================================================================== */
+
+.sv-activity-empty,
+.sv-tools-empty,
+.sv-logs-loading {
+  padding: var(--spacing-xl);
+}
+/* ==========================================================================
+   Modal (inherited from existing styles, ensure it works)
+   ========================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal, 1000);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.modal-overlay.visible {
+  opacity: 1;
+}
+
+.modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-width: 300px;
+  max-width: 400px;
+  transform: scale(0.95);
+  transition: transform 200ms ease;
+}
+
+.modal-overlay.visible .modal-content {
+  transform: scale(1);
+}
+
+.modal-header {
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.modal-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.modal-body {
+  padding: var(--spacing-md);
+}
+
+.modal-body p {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.modal-body p:last-child {
+  margin-bottom: 0;
+}
+
+.modal-warning {
+  color: var(--color-warning) !important;
+  font-size: var(--font-size-xs) !important;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 800px) {
+  .sv-container {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .sv-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 200px;
+  }
+
+  .sv-list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+  }
+
+  .sv-card {
+    min-width: 200px;
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .sv-bubble {
+    max-width: 95%;
+  }
+
+  .sv-logs-header,
+  .sv-logs-row {
+    grid-template-columns: 70px 50px 1fr;
+  }
+
+  .sv-logs-col-hook {
+    display: none;
+  }
+
+  .sv-quick-stats {
+    gap: var(--spacing-sm);
+  }
+
+  .sv-quick-stat-label {
+    display: none;
+  }
+}

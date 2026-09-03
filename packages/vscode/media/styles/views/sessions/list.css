@@ -1,0 +1,249 @@
+/**
+ * Sessions sidebar: the list and its session cards.
+ *
+ * Split out of the 1327-line views/sessions.css to mirror the JS modules.
+ * Pure move: no rule was changed, added or removed.
+ */
+
+/* ==========================================================================
+   Sessions Sidebar
+   ========================================================================== */
+
+.sv-sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.sv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.sv-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.sv-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.sv-search {
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.sv-search input {
+  width: 100%;
+}
+
+.sv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+/* ==========================================================================
+   Session Card in Sidebar
+   ========================================================================== */
+
+.sv-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: all 200ms ease;
+}
+
+.sv-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--fg-muted);
+}
+
+.sv-card.selected {
+  background: var(--bg-active);
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.sv-card.active {
+  border-left-color: var(--color-success);
+}
+
+.sv-card.completed {
+  border-left-color: var(--fg-muted);
+}
+
+.sv-card.idle {
+  border-left-color: var(--color-warning);
+  opacity: 0.8;
+}
+
+.sv-card.error,
+.sv-card.has-errors {
+  border-left-color: var(--color-error);
+}
+
+/* SessionManager.terminate() sets this status, but nothing styled it, so a
+   terminated session was indistinguishable from one still starting up. */
+.sv-card.terminated {
+  border-left-color: var(--color-error);
+  opacity: 0.7;
+}
+
+.sv-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-xs);
+}
+
+.sv-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sv-status-dot.active {
+  background: var(--color-success);
+  box-shadow: 0 0 4px var(--color-success);
+}
+
+.sv-status-dot.completed {
+  background: var(--fg-muted);
+}
+
+.sv-status-dot.idle {
+  background: var(--color-warning);
+  box-shadow: 0 0 4px var(--color-warning);
+  animation: pulse-idle 2s ease-in-out infinite;
+}
+
+@keyframes pulse-idle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.sv-status-dot.error {
+  background: var(--color-error);
+}
+
+/* Without this the dot rendered as 8x8 of nothing: .sv-status-dot sets only
+   size and radius, so an unstyled status has no background at all. */
+.sv-status-dot.terminated {
+  background: var(--color-error);
+  opacity: 0.7;
+}
+
+.sv-status-dot.unknown {
+  background: var(--fg-muted);
+}
+
+.sv-card-name-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sv-card-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sv-card-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  color: var(--color-info);
+  background: rgba(59, 130, 246, 0.1);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.sv-delete-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  transition: all 150ms ease;
+}
+
+.sv-card:hover .sv-delete-btn {
+  opacity: 0.6;
+}
+
+.sv-delete-btn:hover {
+  opacity: 1 !important;
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.sv-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.sv-card-time {
+  font-family: var(--font-family-mono);
+}
+
+.sv-card-duration {
+  color: var(--fg-muted);
+}
+
+.sv-card-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.sv-stat strong {
+  color: var(--fg-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sv-stat.error {
+  color: var(--color-error);
+}
+
+.sv-stat.error strong {
+  color: var(--color-error);
+}

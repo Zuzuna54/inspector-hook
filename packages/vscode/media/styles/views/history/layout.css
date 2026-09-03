@@ -1,0 +1,120 @@
+/**
+ * history view: layout.
+ *
+ * Split out of views/history.css. Pure move: no rule changed, added
+ * or removed.
+ */
+
+/* ==========================================================================
+   Main Layout
+   ========================================================================== */
+
+.history-v2 {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.hv-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.hv-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.hv-header-left h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.hv-count {
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  background: var(--bg-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+}
+/* ==========================================================================
+   Content Area - Split View
+   ========================================================================== */
+
+.hv-content {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  flex: 1;
+  overflow: hidden;
+}
+
+.hv-files-panel {
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-secondary);
+  padding: var(--spacing-sm);
+}
+
+.hv-viewer-panel {
+  overflow: auto;
+  background: var(--bg-primary);
+}
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 700px) {
+  .hv-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: 200px 1fr;
+  }
+
+  .hv-files-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 200px;
+  }
+
+  .hv-comparison-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+
+  .hv-comparison-dropdowns {
+    flex-wrap: wrap;
+  }
+
+  .hv-view-toggle {
+    margin-top: var(--spacing-xs);
+  }
+
+  .hv-split-container {
+    grid-template-columns: 1fr;
+  }
+
+  .hv-split-left {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hv-toolbar-path {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .hv-version-nav {
+    margin-top: var(--spacing-xs);
+  }
+}

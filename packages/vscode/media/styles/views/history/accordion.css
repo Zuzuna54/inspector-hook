@@ -1,0 +1,223 @@
+/**
+ * history view: accordion.
+ *
+ * Split out of views/history.css. Pure move: no rule changed, added
+ * or removed.
+ */
+
+/* ==========================================================================
+   File Accordion
+   ========================================================================== */
+
+.hv-file {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-xs);
+  overflow: hidden;
+}
+
+.hv-file:last-child {
+  margin-bottom: 0;
+}
+
+.hv-file.expanded {
+  border-color: var(--accent);
+}
+
+.hv-file.selected .hv-file-header {
+  background: var(--bg-active);
+}
+
+.hv-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.hv-file-header:hover {
+  background: var(--bg-hover);
+}
+
+.hv-expand-icon {
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+
+.hv-file-name {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hv-version-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.hv-file-content {
+  border-top: 1px solid var(--border);
+}
+
+.hv-file-content.hidden {
+  display: none;
+}
+/* ==========================================================================
+   Version List
+   ========================================================================== */
+
+.hv-versions {
+  padding: var(--spacing-xs);
+}
+
+.hv-version {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin-bottom: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.hv-version:last-child {
+  margin-bottom: 0;
+}
+
+.hv-version:hover {
+  background: var(--bg-hover);
+}
+
+.hv-version.selected {
+  border-color: var(--accent);
+  background: var(--bg-active);
+}
+
+.hv-version.current {
+  border-left: 3px solid var(--color-success);
+}
+
+.hv-version-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+}
+
+.hv-version-badge {
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border-radius: var(--radius-sm);
+}
+
+.hv-version-meta {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.hv-version-tool {
+  font-family: var(--font-family-mono);
+}
+
+.hv-version-session {
+  font-family: var(--font-family-mono);
+  opacity: 0.7;
+}
+
+.hv-version-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.hv-version:hover .hv-version-actions {
+  opacity: 1;
+}
+
+.hv-no-versions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+}
+/* ==========================================================================
+   Version Navigation
+   ========================================================================== */
+
+.hv-version-nav {
+  display: flex;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.hv-version-nav button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  transition: all var(--transition-fast);
+  font-weight: bold;
+}
+
+.hv-version-nav button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.hv-version-nav button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.hv-version-nav button:first-child {
+  border-right: 1px solid var(--border);
+}
+/* ==========================================================================
+   Updated Version Row (Minimal Style)
+   ========================================================================== */
+
+.hv-version .hv-version-num {
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.hv-version .hv-version-time {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.hv-current-marker {
+  font-size: var(--font-size-xs);
+}

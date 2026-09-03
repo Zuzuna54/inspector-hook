@@ -1,0 +1,492 @@
+/**
+ * file-changes view: diff.
+ *
+ * Split out of views/file-changes.css. Pure move: no rule changed,
+ * added or removed. Sections are assigned by position, not by title -
+ * two of them are both called "Split Diff View".
+ */
+
+/* ==========================================================================
+   Diff Container
+   ========================================================================== */
+
+.fc-diff-container {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-md);
+}
+
+/* Empty State */
+.fc-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: var(--fg-muted);
+}
+
+.fc-empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--spacing-md);
+  opacity: 0.5;
+}
+
+.fc-empty-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--spacing-md);
+  color: var(--fg-secondary);
+}
+
+.fc-empty-tips {
+  text-align: left;
+  font-size: var(--font-size-sm);
+  max-width: 300px;
+}
+
+.fc-empty-tips p {
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.fc-empty-tips ul {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+}
+
+.fc-empty-tips li {
+  margin-bottom: var(--spacing-xs);
+}
+/* ==========================================================================
+   Unified Diff View
+   ========================================================================== */
+
+.fc-diff-unified {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* Full file diff - no gaps between lines */
+.fc-diff-unified.fc-diff-full-file {
+  gap: 0;
+}
+/* ==========================================================================
+   Split Diff View
+   ========================================================================== */
+
+.fc-diff-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.fc-diff-split-pane {
+  background: var(--bg-primary);
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+}
+
+.fc-diff-split-pane .fc-hunk-lines {
+  overflow-x: auto;
+}
+
+.fc-diff-split-header {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  text-align: center;
+  font-weight: var(--font-weight-medium);
+}
+/* ==========================================================================
+   Hunk Card
+   ========================================================================== */
+
+.fc-hunk {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.fc-hunk-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--diff-hunk-header-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.fc-hunk-info {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--diff-hunk-header-fg);
+}
+
+.fc-hunk-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-hunk:hover .fc-hunk-actions,
+.fc-hunk-card:hover .fc-hunk-actions {
+  opacity: 1;
+}
+
+.fc-hunk-lines {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* Inline hunk header (for full file view) */
+.fc-hunk-header-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--diff-hunk-header-bg, rgba(0, 122, 204, 0.1));
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-top: var(--spacing-sm);
+}
+
+.fc-hunk-header-inline .fc-hunk-info {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--diff-hunk-header-fg, var(--fg-secondary));
+}
+
+.fc-hunk-header-inline .fc-hunk-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-hunk-header-inline:hover .fc-hunk-actions {
+  opacity: 1;
+}
+
+/* Full file diff container */
+.fc-diff-full-file {
+  display: flex;
+  flex-direction: column;
+}
+/* ==========================================================================
+   Split Diff View
+   ========================================================================== */
+
+.fc-split-headers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.fc-split-hunk-row {
+  margin-bottom: var(--spacing-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.fc-split-hunk-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--diff-hunk-header-bg, rgba(0, 122, 204, 0.1));
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.fc-split-hunk-header .fc-hunk-info {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--diff-hunk-header-fg, var(--fg-secondary));
+  min-width: 150px;
+}
+
+.fc-split-hunk-header .fc-hunk-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.fc-split-hunk-row:hover .fc-split-hunk-header .fc-hunk-actions {
+  opacity: 1;
+}
+
+.fc-split-hunk-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  min-height: 50px;
+}
+
+.fc-split-hunk-content .fc-diff-split-pane {
+  background: var(--bg-primary);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fc-split-hunk-content .fc-diff-split-pane .fc-hunk-lines {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.fc-split-hunk-content .fc-hunk {
+  border: none;
+  border-radius: 0;
+}
+
+.fc-split-hunk-content .fc-line {
+  min-width: max-content;
+}
+
+.fc-split-hunk-content .fc-line-content {
+  white-space: pre;
+  overflow: visible;
+}
+/* ==========================================================================
+   Diff Lines
+   ========================================================================== */
+
+.fc-line {
+  display: flex;
+  min-height: 20px;
+}
+
+.fc-line-num {
+  width: 45px;
+  padding: 0 var(--spacing-sm);
+  text-align: right;
+  color: var(--fg-muted);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  flex-shrink: 0;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+.fc-line-content {
+  flex: 1;
+  padding-left: var(--spacing-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Subtle color tints for diff lines */
+.fc-line.added {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.fc-line.added .fc-line-num {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--diff-added-fg);
+}
+
+.fc-line.removed {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.fc-line.removed .fc-line-num {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--diff-removed-fg);
+}
+
+.fc-line.context {
+  background: var(--bg-primary);
+}
+/* ==========================================================================
+   Syntax Highlighting Tokens (for diff content)
+   ========================================================================== */
+
+.fc-line-content .token.keyword { color: #c586c0; }
+.fc-line-content .token.string { color: #ce9178; }
+.fc-line-content .token.number { color: #b5cea8; }
+.fc-line-content .token.boolean { color: #569cd6; }
+.fc-line-content .token.comment { color: #6a9955; font-style: italic; }
+.fc-line-content .token.function { color: #dcdcaa; }
+.fc-line-content .token.property { color: #9cdcfe; }
+.fc-line-content .token.type { color: #4ec9b0; }
+.fc-line-content .token.operator { color: #d4d4d4; }
+.fc-line-content .token.punctuation { color: #808080; }
+/* ==========================================================================
+   Full File View (Before/After Side-by-Side)
+   ========================================================================== */
+
+.fc-full-file-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.fc-full-file-headers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+
+.fc-full-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-right: 1px solid var(--border);
+}
+
+.fc-full-file-header:last-child {
+  border-right: none;
+}
+
+.fc-full-file-label {
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-primary);
+}
+
+.fc-full-file-lines {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.fc-full-file-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  overflow: hidden;
+}
+
+.fc-full-file-pane {
+  overflow: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.fc-full-file-before {
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.fc-full-file-after {
+  background: var(--bg-primary);
+}
+
+.fc-full-file-empty {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.fc-full-line {
+  display: flex;
+  min-height: 20px;
+  border-bottom: 1px solid transparent;
+}
+
+.fc-full-line .fc-line-num {
+  width: 50px;
+  padding: 0 var(--spacing-sm);
+  text-align: right;
+  color: var(--fg-muted);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.fc-full-line .fc-line-content {
+  flex: 1;
+  padding-left: var(--spacing-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Context lines */
+.fc-full-line.context {
+  background: var(--bg-primary);
+}
+
+/* Removed lines (in before pane) */
+.fc-full-line.removed {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.fc-full-line.removed .fc-line-num {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-error);
+}
+
+/* Added lines (in after pane) */
+.fc-full-line.added {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.fc-full-line.added .fc-line-num {
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--color-success);
+}
+
+/* Synchronized scroll indicator */
+.fc-full-file-pane::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.fc-full-file-pane::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.fc-full-file-pane::-webkit-scrollbar-thumb {
+  background: var(--fg-muted);
+  border-radius: 4px;
+}
+
+.fc-full-file-pane::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-secondary);
+}
+
+/* Responsive - stack vertically on small screens */
+@media (max-width: 900px) {
+  .fc-full-file-headers {
+    grid-template-columns: 1fr;
+  }
+
+  .fc-full-file-header {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .fc-full-file-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .fc-full-file-before {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}

@@ -14,13 +14,43 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export interface PersistenceStoreOptions {
 	basePath: string;
 	maxLogFileSize?: number; // Max size in bytes before rotating (default: 10MB)
 	maxLogFiles?: number; // Max number of log files to keep (default: 10)
+}
+
+/**
+ * Reduce an untrusted path component to a single safe segment.
+ *
+ * Separators and parent references are replaced rather than rejected: an id
+ * that has always worked must keep resolving to the same file, and every id in
+ * real use (UUIDs, and file paths already flattened to `__` by the version
+ * store) contains none of these characters, so nothing existing changes.
+ */
+function safeSegment(value: string): string {
+	return String(value)
+		.replace(/\.\./g, "__")
+		.replace(/[/\\]/g, "__")
+		// Control characters and the characters Windows forbids in a filename.
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: sanitising them is the point
+		.replace(/[\u0000-\u001f<>:"|?*]/g, "_");
+}
+
+/** Refuse a path that escapes the store, whatever produced it. */
+function assertContained(base: string, candidate: string, original: string): string {
+	const root = resolve(base);
+	const target = resolve(candidate);
+	if (target !== root && !target.startsWith(`${root}/`)) {
+		throw new Error(
+			`Refusing a path outside the store: ${original}`,
+		);
+	}
+	return target;
 }
 
 export class PersistenceStore {
@@ -37,6 +67,13 @@ export class PersistenceStore {
 		archives: "archives",
 		changes: "changes",
 		snapshots: "snapshots",
+		// What survives retention. Sessions are collapsed into a summary here
+		// before their raw record is deleted, so ageing out bounds storage
+		// without destroying the answer to "what happened".
+		summaries: "summaries",
+		// The research index. Durable by design: it is built as events arrive
+		// and must outlive the logs retention deletes.
+		research: "research",
 	};
 
 	constructor(options: PersistenceStoreOptions) {
@@ -80,13 +117,38 @@ export class PersistenceStore {
 	// =========================================================================
 
 	/**
-	 * Save data as JSON file
+	 * Save data as a JSON file, atomically.
+	 *
+	 * Writes to a unique temporary file and renames it into place. rename(2) is
+	 * atomic within a filesystem, so a reader either sees the whole previous
+	 * document or the whole new one -- never a half-written file.
+	 *
+	 * This used to be a plain writeFile, which opens with O_TRUNC: two
+	 * overlapping saves of the same document (or a crash mid-write) could leave
+	 * a truncated, unparseable record. Session records were especially exposed,
+	 * because most callers did not await the write.
 	 */
 	async saveJSON<T>(category: string, id: string, data: T): Promise<void> {
 		await this.ensureInitialized();
 		const filePath = this.getJSONPath(category, id);
 		const content = JSON.stringify(data, null, 2);
-		await writeFile(filePath, content, "utf-8");
+		const tmpPath = `${filePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+
+		try {
+			await writeFile(tmpPath, content, "utf-8");
+			await rename(tmpPath, filePath);
+		} catch (error) {
+			await unlink(tmpPath).catch(() => {});
+			// A category whose directory initialize() did not create fails with
+			// ENOENT. Creating it and retrying once removes a whole class of
+			// bug: adding a new category otherwise means remembering to add it
+			// to `dirs`, and forgetting shows up only as a write that throws at
+			// runtime, in whatever code path happened to save first.
+			if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+			await mkdir(dirname(filePath), { recursive: true });
+			await writeFile(tmpPath, content, "utf-8");
+			await rename(tmpPath, filePath);
+		}
 	}
 
 	/**
@@ -236,6 +298,80 @@ export class PersistenceStore {
 		} catch {
 			// Ignore if file doesn't exist
 		}
+	}
+
+	/**
+	 * Rewrite a log file keeping only the entries a predicate accepts.
+	 *
+	 * A filtered clear previously touched memory only, so logs "deleted" for a
+	 * session reappeared on the next restart. Filtering the file directly (rather
+	 * than rewriting from the in-memory buffer) also preserves entries that were
+	 * already evicted from memory by the size cap.
+	 */
+	async filterLog<T>(
+		filename: string,
+		keep: (entry: T) => boolean,
+	): Promise<{ removed: number }> {
+		await this.ensureInitialized();
+		const entries = await this.loadLogs<T>(filename);
+		const retained = entries.filter(keep);
+		const removed = entries.length - retained.length;
+		if (removed === 0) return { removed: 0 };
+
+		const filePath = this.getLogPath(filename);
+		const tmpPath = `${filePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+		const body = retained.map((e) => JSON.stringify(e)).join("\n");
+		try {
+			await writeFile(tmpPath, retained.length ? `${body}\n` : "", "utf-8");
+			await rename(tmpPath, filePath);
+		} catch (error) {
+			await unlink(tmpPath).catch(() => {});
+			throw error;
+		}
+		return { removed };
+	}
+
+	/**
+	 * Load the most recent entries, reading back across rotated files.
+	 *
+	 * loadLogs only reads the live file, which rotates at maxLogFileSize
+	 * (10 MB, roughly 1,800 entries) -- while the in-memory cap is 10,000. So
+	 * after any restart the buffer could never refill beyond one rotation's
+	 * worth, no matter how much history was on disk. Rotated files are read
+	 * newest-first until the limit is met.
+	 */
+	async loadRecentLogs<T>(filename: string, limit: number): Promise<T[]> {
+		await this.ensureInitialized();
+
+		const collected: T[] = await this.loadLogs<T>(filename);
+		if (collected.length >= limit) return collected.slice(-limit);
+
+		const baseName = filename.replace(/\.jsonl$/, "");
+		const logDir = join(this.basePath, this.dirs.logs);
+		let rotated: string[];
+		try {
+			rotated = (await readdir(logDir))
+				.filter(
+					(f) =>
+						f.startsWith(`${baseName}.`) &&
+						f.endsWith(".jsonl") &&
+						f !== `${baseName}.jsonl`,
+				)
+				// Rotated names embed an ISO timestamp, so lexical order is
+				// chronological; newest first.
+				.sort()
+				.reverse();
+		} catch {
+			return collected;
+		}
+
+		for (const file of rotated) {
+			if (collected.length >= limit) break;
+			const older = await this.loadLogs<T>(file);
+			collected.unshift(...older);
+		}
+
+		return collected.slice(-limit);
 	}
 
 	/**
@@ -419,12 +555,175 @@ export class PersistenceStore {
 	/**
 	 * Clean up old data
 	 */
+	/**
+	 * Delete data older than maxAgeMs.
+	 *
+	 * This was a stub returning zeros, which is why `logRetentionDays` had no
+	 * effect: the setting was read from the environment, passed through three
+	 * layers, and never acted on. Nothing was ever deleted for being old — the
+	 * only bounds on growth were an in-memory cap and size-triggered rotation.
+	 *
+	 * Age is taken from record content where available (a log entry's timestamp,
+	 * a session's last activity) and from file mtime otherwise, because a
+	 * rotated log's name encodes its rotation time, not its contents' age.
+	 */
 	async cleanup(options?: {
 		maxAgeMs?: number;
 		keepMinVersions?: number;
-	}): Promise<{ deletedFiles: number; freedBytes: number }> {
-		// TODO: Implement cleanup logic
-		return { deletedFiles: 0, freedBytes: 0 };
+		/**
+		 * Collapse an expiring session into something durable BEFORE its raw
+		 * record is deleted.
+		 *
+		 * Retention was shipped as the destructive half of a two-part design:
+		 * the plan pairs "drop raw rows" with "collapse to session summaries
+		 * first", and only the dropping existed. Without this, ageing out is
+		 * indistinguishable from data loss.
+		 *
+		 * Returning false, or throwing, CANCELS the delete for that session.
+		 * Preserving is the point; pruning something we failed to preserve
+		 * would be worse than leaving it on disk.
+		 */
+		collapseSession?: (
+			id: string,
+			session: unknown,
+		) => Promise<boolean> | boolean;
+	}): Promise<{
+		deletedFiles: number;
+		freedBytes: number;
+		collapsed: number;
+		collapseFailures: number;
+	}> {
+		await this.ensureInitialized();
+
+		const maxAgeMs = options?.maxAgeMs;
+		if (!maxAgeMs || maxAgeMs <= 0) {
+			return { deletedFiles: 0, freedBytes: 0, collapsed: 0, collapseFailures: 0 };
+		}
+
+		const cutoffMs = Date.now() - maxAgeMs;
+		const cutoffIso = new Date(cutoffMs).toISOString();
+		let deletedFiles = 0;
+		let freedBytes = 0;
+		let collapsed = 0;
+		let collapseFailures = 0;
+
+		// 1. Rotated log files whose newest entry predates the cutoff.
+		const logDir = join(this.basePath, this.dirs.logs);
+		let logFiles: string[] = [];
+		try {
+			logFiles = await readdir(logDir);
+		} catch {
+			logFiles = [];
+		}
+
+		for (const file of logFiles) {
+			if (!file.endsWith(".jsonl")) continue;
+			// Never touch a live log by name; it is pruned line-by-line below.
+			if (!/\.\d{4}-\d{2}-\d{2}T[\d-]+\.jsonl$/.test(file)) continue;
+
+			const full = join(logDir, file);
+			try {
+				const info = await stat(full);
+				if (info.mtimeMs >= cutoffMs) continue;
+				freedBytes += info.size;
+				await unlink(full);
+				deletedFiles++;
+			} catch {
+				// Raced with something else; nothing to do.
+			}
+		}
+
+		// 2. Prune old entries from every live log, keeping newer ones.
+		for (const file of logFiles) {
+			if (!file.endsWith(".jsonl")) continue;
+			if (/\.\d{4}-\d{2}-\d{2}T[\d-]+\.jsonl$/.test(file)) continue;
+			const name = file.replace(/\.jsonl$/, "");
+			const before = await stat(join(logDir, file)).then(
+				(i) => i.size,
+				() => 0,
+			);
+			const { removed } = await this.filterLog<{ timestamp?: string }>(
+				name,
+				(entry) =>
+					typeof entry?.timestamp !== "string" || entry.timestamp >= cutoffIso,
+			);
+			if (removed > 0) {
+				const after = await stat(join(logDir, file)).then(
+					(i) => i.size,
+					() => 0,
+				);
+				freedBytes += Math.max(0, before - after);
+			}
+		}
+
+		// 3. Sessions whose last activity predates the cutoff, and the archived
+		//    changes belonging to them. Pending changes are deliberately NOT
+		//    aged out: they are awaiting a human decision, and silently
+		//    discarding one would lose work.
+		const sessions = await this.loadAllJSON<{
+			id?: string;
+			startTime?: string;
+			lastActivityTime?: string;
+			endTime?: string;
+		}>(this.dirs.sessions);
+
+		const expiredSessionIds = new Set<string>();
+		for (const [id, session] of sessions) {
+			const last =
+				session?.lastActivityTime ?? session?.endTime ?? session?.startTime;
+			if (typeof last !== "string" || last >= cutoffIso) continue;
+
+			// Preserve before pruning. A session that cannot be collapsed is
+			// left alone: storage stays bounded by everything else that expires,
+			// and the alternative is deleting the only copy of something we
+			// undertook to summarise.
+			if (options?.collapseSession) {
+				let preserved = false;
+				try {
+					preserved = (await options.collapseSession(id, session)) !== false;
+				} catch {
+					preserved = false;
+				}
+				if (!preserved) {
+					collapseFailures++;
+					continue;
+				}
+				collapsed++;
+			}
+
+			const path = this.getJSONPath(this.dirs.sessions, id);
+			try {
+				freedBytes += (await stat(path)).size;
+			} catch {
+				// size unknown; the delete still counts
+			}
+			if (await this.deleteJSON(this.dirs.sessions, id)) {
+				deletedFiles++;
+				expiredSessionIds.add(id);
+			}
+		}
+
+		const archives = await this.loadAllJSON<{
+			sessionId?: string;
+			archivedAt?: string;
+		}>(this.dirs.archives);
+		for (const [id, archive] of archives) {
+			const tooOld =
+				typeof archive?.archivedAt === "string" && archive.archivedAt < cutoffIso;
+			const orphaned =
+				typeof archive?.sessionId === "string" &&
+				expiredSessionIds.has(archive.sessionId);
+			if (!tooOld && !orphaned) continue;
+			const path = this.getJSONPath(this.dirs.archives, id);
+			try {
+				freedBytes += (await stat(path)).size;
+			} catch {
+				// as above
+			}
+			if (await this.deleteJSON(this.dirs.archives, id)) deletedFiles++;
+		}
+
+		return { deletedFiles, freedBytes, collapsed, collapseFailures };
 	}
 
 	// =========================================================================
@@ -437,13 +736,40 @@ export class PersistenceStore {
 		}
 	}
 
+	/**
+	 * Path for one JSON record, contained to the store.
+	 *
+	 * SECURITY: this used to join the id raw. Ids reach it straight from the
+	 * ingest payload — session-manager saves under the `sessionId` a hook sent —
+	 * so posting `{"sessionId": "../../evil"}` to the local ingest endpoint
+	 * wrote a JSON file anywhere the core process could write. Confirmed
+	 * end-to-end against a running core before this fix, not inferred.
+	 *
+	 * The endpoint binds to 127.0.0.1 and rejects browser origins, so this was
+	 * reachable only by a local process — but "only local" is the threat model
+	 * for a tool that indexes local development, not an exemption from it.
+	 *
+	 * Two defences, deliberately both: segments are sanitised, AND the resolved
+	 * path is checked to fall under the base. The first is what should hold; the
+	 * second is what catches an encoding or platform case the first missed.
+	 */
 	private getJSONPath(category: string, id: string): string {
-		return join(this.basePath, category, `${id}.json`);
+		const path = join(
+			this.basePath,
+			safeSegment(category),
+			`${safeSegment(id)}.json`,
+		);
+		return assertContained(this.basePath, path, `${category}/${id}`);
 	}
 
 	private getLogPath(filename: string): string {
-		const name = filename.endsWith(".jsonl") ? filename : `${filename}.jsonl`;
-		return join(this.basePath, this.dirs.logs, name);
+		const base = safeSegment(filename);
+		const name = base.endsWith(".jsonl") ? base : `${base}.jsonl`;
+		return assertContained(
+			this.basePath,
+			join(this.basePath, this.dirs.logs, name),
+			filename,
+		);
 	}
 
 	private sanitizeFilePath(filePath: string): string {
