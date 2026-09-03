@@ -431,6 +431,12 @@ describe("event coverage", () => {
 	 * them, so the handling was dead in production. This locks the set.
 	 */
 	const REGISTERED = {
+	// Named in the M2 plan and registered late. None has fired on this machine
+	// yet, which is precisely why they were easy to miss.
+	Elicitation: {},
+	ElicitationResult: {},
+	MessageDisplay: {},
+
 		SessionStart: { start_reason: "startup", cwd: "/p" },
 		SessionEnd: { reason: "exit" },
 		UserPromptSubmit: { prompt: "go" },
@@ -473,7 +479,15 @@ describe("event coverage", () => {
 			installer.indexOf("EVENTS=("),
 			installer.indexOf(")", installer.indexOf("EVENTS=(")),
 		);
-		const declared = block.match(/[A-Z][A-Za-z]+/g).filter((w) => w !== "EVENTS");
+		// Comments are stripped BEFORE extracting names. Without this the words
+		// in an explanatory comment inside the array are read as event names --
+		// a comment mentioning "None has fired yet" contributed a phantom event
+		// called None. The same measurement artifact as a source assertion that
+		// matches its own explanation: the check was right, its aim was wrong.
+		const declared = block
+			.replace(/#.*$/gm, "")
+			.match(/[A-Z][A-Za-z]+/g)
+			.filter((w) => w !== "EVENTS");
 		assert.deepEqual(
 			declared.sort(),
 			Object.keys(REGISTERED).sort(),

@@ -83,7 +83,10 @@ export class InspectorCore {
 		// Research history index (M4). Built as events arrive and persisted
 		// separately from the logs, because retention deletes those and the
 		// index has to outlive them.
-		this.researchIndex = new ResearchIndex({ persistence: this.persistence });
+		this.researchIndex = new ResearchIndex({
+			persistence: this.persistence,
+			workspaceRoot: params.workspaceRoot,
+		});
 
 		// Initialize servers
 		this.httpServer = new HttpServer({

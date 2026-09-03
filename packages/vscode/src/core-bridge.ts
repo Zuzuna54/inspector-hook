@@ -484,6 +484,43 @@ export class CoreBridge extends EventEmitter {
 	}
 
 	/**
+	 * Stage context for the next session that starts.
+	 *
+	 * Returns exactly what will be injected. That is the point: the preview and
+	 * the delivery cannot diverge if they are the same object, so nothing here
+	 * reshapes it.
+	 */
+	async stageContext(params: {
+		sessionId?: string;
+		text?: string;
+		label?: string;
+		ttlMs?: number;
+	}): Promise<unknown> {
+		return this.sendRequest("memory.stageContext", params);
+	}
+
+	/** What is currently staged, or null. Expiry is applied on read. */
+	async getStagedContext(): Promise<unknown> {
+		return this.sendRequest("memory.getStagedContext", {});
+	}
+
+	/** Discard a staged pick before it is consumed. */
+	async clearStagedContext(): Promise<unknown> {
+		return this.sendRequest("memory.clearStagedContext", {});
+	}
+
+	/**
+	 * Build a session's digest WITHOUT writing it.
+	 *
+	 * No `write` flag is accepted. v1 has no write button by decision, and the
+	 * most durable way to keep that true is for the extension to be unable to
+	 * express it — an option that cannot be passed cannot be passed by accident.
+	 */
+	async buildSessionDigest(sessionId: string): Promise<unknown> {
+		return this.sendRequest("memory.buildDigest", { sessionId });
+	}
+
+	/**
 	 * Keep all pending changes
 	 */
 	async keepAllChanges(

@@ -88,6 +88,9 @@ EVENTS=(
   WorktreeCreate WorktreeRemove
   PreModelSwitch PostModelSwitch
   Setup
+  # Named in the M2 plan and previously missed. None has fired on this
+  # machine yet, which is exactly why they were easy to overlook.
+  Elicitation ElicitationResult MessageDisplay
 )
 
 # Events that accept a matcher. For the tool events we want everything, so "*".

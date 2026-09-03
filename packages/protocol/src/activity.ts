@@ -101,6 +101,13 @@ export interface AiResponseActivityData {
  * Tool call activity data
  */
 export interface ToolCallActivityData {
+	/**
+	 * Permission mode in force for this call. Changes what the call means: an
+	 * edit under `bypassPermissions` was never offered for approval.
+	 */
+	permissionMode?: string;
+	/** Reasoning effort in force, which explains long turns. */
+	effort?: string;
 	tool: string;
 	executionId?: string;
 	input?: Record<string, unknown>;

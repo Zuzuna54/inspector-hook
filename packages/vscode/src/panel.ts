@@ -346,6 +346,46 @@ export class InspectorPanel {
 				break;
 			}
 
+			// The three staging calls share one reply type on purpose: each ends
+			// with "here is what is staged, or nothing", so the view re-renders
+			// from whatever came back. The staged object is passed through
+			// untouched — rebuilding it here would quietly break the guarantee
+			// that the preview is the delivery.
+			case "memory-stage-context": {
+				const staged = await this._coreBridge.stageContext(
+					message.params as {
+						sessionId?: string;
+						text?: string;
+						label?: string;
+						ttlMs?: number;
+					},
+				);
+				this._sendMessage({ type: "memory-staged", payload: staged });
+				break;
+			}
+
+			case "memory-get-staged": {
+				const staged = await this._coreBridge.getStagedContext();
+				this._sendMessage({ type: "memory-staged", payload: staged });
+				break;
+			}
+
+			case "memory-clear-staged": {
+				await this._coreBridge.clearStagedContext();
+				this._sendMessage({ type: "memory-staged", payload: null });
+				break;
+			}
+
+			case "memory-build-digest": {
+				// Only the sessionId is forwarded. A `write` flag in the params
+				// is deliberately ignored rather than passed through.
+				const digest = await this._coreBridge.buildSessionDigest(
+					(message.params as { sessionId: string }).sessionId,
+				);
+				this._sendMessage({ type: "memory-digest", payload: digest });
+				break;
+			}
+
 			case "delete-session": {
 				const result = await this._coreBridge.deleteSession(
 					(message.params as any).sessionId,

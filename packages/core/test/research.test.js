@@ -463,6 +463,67 @@ describe("ResearchIndex", () => {
 		assert.equal(scoped.searched, 1, "and it reports the scoped corpus size");
 	});
 
+	it("indexes a file read as a path, never its contents", () => {
+		// M4 lists "files read" in its capture set. Only the PATH is indexed: a
+		// Read result is the file itself, so indexing it would put a copy of the
+		// codebase into the corpus -- enormous, redundant with the files on
+		// disk, and it would drown every other kind in the ranking.
+		const index = new ResearchIndex();
+		index.ingest(
+			log({
+				tool: "Read",
+				details: {
+					tool_input: { file_path: "/w/proj/packages/core/src/managers/file-tracker.ts" },
+					tool_result: { content: "SECRET FILE BODY THAT MUST NOT BE INDEXED" },
+				},
+			}),
+		);
+
+		const { hits } = index.search("file-tracker");
+		assert.equal(hits.length, 1);
+		assert.equal(hits[0].item.kind, "file_read");
+		assert.doesNotMatch(hits[0].item.text, /SECRET FILE BODY/);
+		assert.deepEqual(index.search("SECRET").hits, [], "contents are not searchable");
+	});
+
+	it("REGRESSION: reading one file repeatedly is ONE item", () => {
+		// 165 read events over 100 distinct paths on the real corpus, with one
+		// file appearing 14 times. Twenty reads of a file is one fact observed
+		// twenty times; keeping twenty items pads the corpus and crowds the
+		// other kinds out of the ranking.
+		const index = new ResearchIndex();
+		for (let i = 0; i < 5; i++) {
+			index.ingest(
+				log({
+					id: `distinct-log-${i}`,
+					timestamp: `2026-09-0${i + 1}T00:00:00.000Z`,
+					tool: "Read",
+					details: { tool_input: { file_path: "/w/proj/a.ts" } },
+				}),
+			);
+		}
+		assert.equal(index.size, 1, "one file, one item");
+		assert.equal(
+			index.search("a.ts").hits[0].item.timestamp,
+			"2026-09-05T00:00:00.000Z",
+			"and it carries the most recent read",
+		);
+	});
+
+	it("reports the scope it searched, never leaving breadth implicit", () => {
+		// "3 hits" means something different across one project than across
+		// eleven, so a result always says which it was.
+		const index = new ResearchIndex();
+		index.ingest(searchLog("a", "retention"));
+
+		assert.equal(index.search("retention").scope, "all");
+		const scoped = index.search("retention", {
+			projectKey: "git@github.com:me/proj.git",
+		});
+		assert.equal(scoped.scope, "project");
+		assert.equal(scoped.projectKey, "git@github.com:me/proj.git");
+	});
+
 	it("filters by kind and by date", () => {
 		const index = new ResearchIndex();
 		index.ingest(searchLog("s", "retention"));

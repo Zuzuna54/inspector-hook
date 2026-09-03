@@ -23,7 +23,8 @@ export type ResearchKind =
 	| "subagent_task"
 	| "subagent_report"
 	| "user_prompt"
-	| "conclusion";
+	| "conclusion"
+	| "file_read";
 
 /**
  * One indexed unit of research history.
@@ -72,6 +73,19 @@ export interface ResearchHit {
 }
 
 export interface ResearchSearchResult {
+	/**
+	 * Which corpus was actually searched.
+	 *
+	 * M4 specifies a per-project index with opt-in cross-project search. One
+	 * core serves every project on the machine, so it has no single "current"
+	 * project to default to — the caller does. The scope is therefore supplied
+	 * by the caller and REPORTED here, so a result set never leaves its own
+	 * breadth implicit: "3 hits" means something different across one project
+	 * than across eleven.
+	 */
+	scope: "project" | "all";
+	/** The project searched, when scope is "project". */
+	projectKey?: string;
 	hits: ResearchHit[];
 	/** How many items matched before the limit was applied. */
 	total: number;
@@ -83,6 +97,12 @@ export interface ResearchSearchResult {
 
 /** Index size and composition, for the UI and for capacity questions. */
 export interface ResearchIndexStats {
+	/**
+	 * The project this core's workspace belongs to, so a caller can default its
+	 * search scope to "here" without guessing. Undefined when the core has no
+	 * workspace.
+	 */
+	defaultProjectKey?: string;
 	items: number;
 	/** Distinct terms in the vocabulary. */
 	terms: number;

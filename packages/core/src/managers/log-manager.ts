@@ -41,6 +41,28 @@ export interface LogManagerEvents {
 	"log:blocked": (log: LogEntry) => void;
 }
 
+/**
+ * Read the effort level.
+ *
+ * The shipped hook flattens `.effort.level` to a string before sending, but the
+ * native payload nests it under `{ level }`. Accepting both means a raw
+ * forwarder -- an HTTP hook posting the payload unchanged, which is where M2 is
+ * headed -- does not silently store an object in a string field.
+ */
+function readEffort(
+	data: Record<string, unknown>,
+	details: Record<string, unknown>,
+): string | undefined {
+	for (const candidate of [data.effort, details.effort]) {
+		if (typeof candidate === "string" && candidate) return candidate;
+		if (candidate && typeof candidate === "object") {
+			const level = (candidate as { level?: unknown }).level;
+			if (typeof level === "string" && level) return level;
+		}
+	}
+	return undefined;
+}
+
 export class LogManager extends EventEmitter {
 	private logs: LogEntry[] = [];
 	private options: LogManagerOptions;
@@ -142,6 +164,13 @@ export class LogManager extends EventEmitter {
 			// whenever prompts were logged before the field existed.
 			promptId: ((data as Record<string, unknown>).prompt_id ||
 				(data as Record<string, unknown>).promptId) as string | undefined,
+			// Both forwarded by the hook since M2 and read by nothing until now.
+			// Accepted under either the native snake_case name or the camelCase
+			// one the hook emits, because the hook renames them on the way out.
+			permissionMode: ((data as Record<string, unknown>).permission_mode ||
+				(data as Record<string, unknown>).permissionMode ||
+				details.permissionMode) as string | undefined,
+			effort: readEffort(data, details),
 			details: Object.keys(details).length > 0 ? details : undefined,
 		};
 

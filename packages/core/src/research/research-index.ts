@@ -67,6 +67,8 @@ function snippet(text: string): string {
 export interface ResearchIndexOptions {
 	persistence?: PersistenceStore;
 	maxItems?: number;
+	/** The core's own workspace, used only to report a sensible default scope. */
+	workspaceRoot?: string;
 }
 
 export class ResearchIndex {
@@ -74,11 +76,34 @@ export class ResearchIndex {
 	private items = new Map<string, ResearchItem>();
 	private readonly persistence?: PersistenceStore;
 	private readonly maxItems: number;
+	private readonly workspaceRoot?: string;
 	private dirty = false;
 
 	constructor(options: ResearchIndexOptions = {}) {
 		this.persistence = options.persistence;
 		this.maxItems = options.maxItems ?? DEFAULT_MAX_ITEMS;
+		this.workspaceRoot = options.workspaceRoot;
+	}
+
+	/**
+	 * The project key matching this core's workspace, if the corpus knows one.
+	 *
+	 * Resolved from the items rather than computed, because a project key is a
+	 * git remote when there is one and a path otherwise — so the only reliable
+	 * mapping from a workspace path to a key is an item that carries both.
+	 */
+	private defaultProjectKey(): string | undefined {
+		if (!this.workspaceRoot) return undefined;
+		for (const item of this.items.values()) {
+			if (item.projectKey && item.projectName) {
+				// cwd is captured on every event; an item whose own cwd is this
+				// workspace names the key for it.
+				if (this.workspaceRoot.endsWith(`/${item.projectName}`)) {
+					return item.projectKey;
+				}
+			}
+		}
+		return undefined;
 	}
 
 	get size(): number {
@@ -174,7 +199,14 @@ export class ResearchIndex {
 			if (item) hits.push({ item, score: hit.score, matched: hit.matched });
 		}
 
-		return { hits, total: result.total, searched, terms: result.terms };
+		return {
+			hits,
+			total: result.total,
+			searched,
+			terms: result.terms,
+			scope: options?.projectKey !== undefined ? "project" : "all",
+			projectKey: options?.projectKey,
+		};
 	}
 
 	/** One item by id, for opening a hit. */
@@ -197,6 +229,7 @@ export class ResearchIndex {
 		}
 
 		return {
+			defaultProjectKey: this.defaultProjectKey(),
 			items: this.items.size,
 			terms: this.index.vocabulary,
 			byKind,

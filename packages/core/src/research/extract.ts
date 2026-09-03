@@ -132,6 +132,40 @@ export function extractResearchItem(log: LogEntry): ResearchItem | null {
 		};
 	}
 
+	// --- Which files were read ---------------------------------------------
+	//
+	// Named in M4's capture list alongside web lookups and subagent reports,
+	// and missed on the first pass. Only the PATH is indexed, never the
+	// contents: a Read result is the file itself, so indexing it would put a
+	// copy of the codebase into the research corpus -- enormous, redundant with
+	// the files on disk, and it would drown every other kind of item in the
+	// ranking. The useful question is "which files did I look at when working
+	// on X", and the path answers it.
+	if (isPost && log.tool === "Read") {
+		const path = str(input?.file_path) ?? str(log.file);
+		if (!path) return null;
+		return {
+			...base,
+			// A stable id per file, NOT the log id.
+			//
+			// Reading a file twenty times is one fact observed twenty times, not
+			// twenty facts. Measured on the real corpus: 165 read events over
+			// 100 distinct paths, with ipc-server.ts alone appearing 14 times.
+			// Keying on the path makes a re-read REPLACE, so the item carries the
+			// most recent read and the corpus is not padded with duplicates that
+			// crowd out the other kinds in the ranking.
+			id: `read:${base.projectKey ?? "-"}:${path}`,
+			kind: "file_read",
+			title: path,
+			// The path is split on separators by the tokeniser, so a search for
+			// "file-tracker" finds it. The offset/limit are included because
+			// "which part of the file" is part of what was looked at.
+			text: [path, str(input?.offset), str(input?.limit)]
+				.filter(Boolean)
+				.join(" "),
+		};
+	}
+
 	// --- What a subagent reported back ------------------------------------
 	if (log.hook === "SubagentStop" || log.event === "subagent.stop") {
 		const message = str(details?.lastAssistantMessage);
@@ -191,4 +225,5 @@ export const RESEARCH_KINDS: readonly ResearchKind[] = [
 	"subagent_report",
 	"user_prompt",
 	"conclusion",
+	"file_read",
 ];

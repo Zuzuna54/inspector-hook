@@ -45,6 +45,25 @@ export interface LogEntry {
 	 * grouping exact rather than inferred from prompt boundaries.
 	 */
 	promptId?: string;
+	/**
+	 * The permission mode the session was in when this event fired
+	 * (`default`, `acceptEdits`, `bypassPermissions`, `plan`).
+	 *
+	 * M2 lists this among the fields to persist. The hook has forwarded it from
+	 * the start — it is present on 2087 of 3868 captured events — and until now
+	 * it was declared nowhere and read by nothing. It matters because the same
+	 * tool call means different things under different modes: an edit in
+	 * `bypassPermissions` was never offered for approval, and a reader that
+	 * cannot see the mode cannot tell that from an approved one.
+	 */
+	permissionMode?: string;
+	/**
+	 * The reasoning effort level in force when this event fired.
+	 *
+	 * Also forwarded from the start and read by nothing. Useful for explaining
+	 * why one turn took far longer than another.
+	 */
+	effort?: string;
 	/** Additional structured data */
 	details?: Record<string, unknown>;
 }

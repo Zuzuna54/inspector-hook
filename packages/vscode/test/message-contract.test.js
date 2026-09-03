@@ -55,12 +55,11 @@ describe("every command the webview sends is handled", () => {
 	 * of only in a message thread, and the check below forces it to be cleaned up
 	 * rather than lingering once the cases exist.
 	 */
-	const AWAITING_EXTENSION_WIRING = {
-		"memory-stage-context": "picker: memory.stageContext exists in the core",
-		"memory-get-staged": "picker: memory.getStagedContext exists in the core",
-		"memory-clear-staged": "picker: memory.clearStagedContext exists in the core",
-		"memory-build-digest": "digest preview: memory.buildDigest exists in the core",
-	};
+	// Empty: every message the webview posts now has a panel.ts case. The four
+	// picker/digest entries that lived here were wired and removed, which is the
+	// lifecycle this list is for -- an exemption that outlives its gap starts
+	// covering nothing.
+	const AWAITING_EXTENSION_WIRING = {};
 
 	it("has a panel.ts case for each, or is a recorded pending gap", () => {
 		const orphaned = [...new Set(sent)].filter(

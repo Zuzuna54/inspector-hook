@@ -101,12 +101,23 @@ function toolMetadata(log: LogEntry): {
 	durationMs?: number;
 	agentId?: string;
 	agentType?: string;
+	permissionMode?: string;
+	effort?: string;
 } {
 	const d = log.details ?? {};
 	return {
 		durationMs: typeof d.durationMs === "number" ? d.durationMs : undefined,
 		agentId: typeof d.agentId === "string" ? d.agentId : undefined,
 		agentType: typeof d.agentType === "string" ? d.agentType : undefined,
+		// Read from the entry, not from details: they are lifted at ingest and
+		// details is the fallback path, so taking them from the entry means one
+		// place decides where they come from.
+		//
+		// permissionMode changes what a tool call MEANS -- an edit made under
+		// bypassPermissions was never offered for approval, and a reader who
+		// cannot see the mode cannot distinguish it from one that was.
+		permissionMode: log.permissionMode,
+		effort: log.effort,
 	};
 }
 // NOTE: promptId is deliberately NOT read here. The hook emits `prompt_id` at
@@ -657,7 +668,7 @@ export class IpcServer {
 			const rec = asRec(params) ?? {};
 			const query = asStr(rec.query);
 			if (!query) {
-				return { hits: [], total: 0, searched: 0, terms: [] };
+				return { hits: [], total: 0, searched: 0, terms: [], scope: "all" };
 			}
 			const kinds = Array.isArray(rec.kinds)
 				? (rec.kinds.filter((k) => typeof k === "string") as string[])
