@@ -99,5 +99,26 @@ export {
 	type SessionDigest,
 } from "./memory/session-digest.js";
 
+// Export research history + search (Milestone 4)
+export {
+	B,
+	Bm25Index,
+	K1,
+	tokenize,
+	type Bm25Snapshot,
+} from "./research/bm25.js";
+export {
+	MAX_ITEM_TEXT,
+	RESEARCH_KINDS,
+	extractResearchItem,
+	projectKeyFor,
+} from "./research/extract.js";
+export {
+	DEFAULT_MAX_ITEMS,
+	ResearchIndex,
+	SNIPPET_LENGTH,
+	type ResearchIndexOptions,
+} from "./research/research-index.js";
+
 // Export version
 export const VERSION = "0.1.0";

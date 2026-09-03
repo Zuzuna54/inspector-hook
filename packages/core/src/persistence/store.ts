@@ -16,7 +16,7 @@ import {
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface PersistenceStoreOptions {
 	basePath: string;
@@ -42,6 +42,9 @@ export class PersistenceStore {
 		// before their raw record is deleted, so ageing out bounds storage
 		// without destroying the answer to "what happened".
 		summaries: "summaries",
+		// The research index. Durable by design: it is built as events arrive
+		// and must outlive the logs retention deletes.
+		research: "research",
 	};
 
 	constructor(options: PersistenceStoreOptions) {
@@ -107,7 +110,15 @@ export class PersistenceStore {
 			await rename(tmpPath, filePath);
 		} catch (error) {
 			await unlink(tmpPath).catch(() => {});
-			throw error;
+			// A category whose directory initialize() did not create fails with
+			// ENOENT. Creating it and retrying once removes a whole class of
+			// bug: adding a new category otherwise means remembering to add it
+			// to `dirs`, and forgetting shows up only as a write that throws at
+			// runtime, in whatever code path happened to save first.
+			if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+			await mkdir(dirname(filePath), { recursive: true });
+			await writeFile(tmpPath, content, "utf-8");
+			await rename(tmpPath, filePath);
 		}
 	}
 

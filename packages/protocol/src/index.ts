@@ -17,3 +17,4 @@ export * from "./query.js";
 export * from "./hooks.js";
 export * from "./ipc.js";
 export * from "./memory.js";
+export * from "./research.js";

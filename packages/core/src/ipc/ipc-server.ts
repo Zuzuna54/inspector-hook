@@ -644,6 +644,43 @@ export class IpcServer {
 			return { summaries: out.slice(0, limit), total: out.length };
 		});
 
+		// ---------------------------------------------------------------------
+		// Research history search (M4)
+		//
+		// The corpus is far too large to preload into a session, so it lives
+		// behind a query. Scope is opt-in: searching across projects is the
+		// thing a machine-wide core can do that per-project native memory
+		// structurally cannot.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("research.search", async (params) => {
+			const rec = asRec(params) ?? {};
+			const query = asStr(rec.query);
+			if (!query) {
+				return { hits: [], total: 0, searched: 0, terms: [] };
+			}
+			const kinds = Array.isArray(rec.kinds)
+				? (rec.kinds.filter((k) => typeof k === "string") as string[])
+				: undefined;
+			return this.core.getResearchIndex().search(query, {
+				limit: asNum(rec.limit),
+				projectKey: asStr(rec.projectKey),
+				kinds: kinds as never,
+				since: asStr(rec.since),
+			});
+		});
+
+		/** One item by id, for opening a hit whose log entry may be long gone. */
+		this.methods.set("research.get", async (params) => {
+			const id = asStr(asRec(params)?.id);
+			return id ? this.core.getResearchIndex().get(id) : null;
+		});
+
+		/** Size and composition, for the UI and for capacity questions. */
+		this.methods.set("research.getStats", async () =>
+			this.core.getResearchIndex().stats(),
+		);
+
 		// File change operations
 		this.methods.set("fileChanges.getPending", async (params) =>
 			this.fileTracker.getPendingChanges(params as any),

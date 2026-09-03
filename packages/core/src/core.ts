@@ -20,6 +20,7 @@ import { resolveMemoryDir, writeMemoryFile } from "./memory/native-memory.js";
 import { buildSessionDigest } from "./memory/session-digest.js";
 import { migrateStore } from "./persistence/migrations.js";
 import { PersistenceStore } from "./persistence/store.js";
+import { ResearchIndex } from "./research/research-index.js";
 import { HttpServer } from "./server/http-server.js";
 
 export class InspectorCore {
@@ -29,6 +30,17 @@ export class InspectorCore {
 	private sessionManager: SessionManager;
 	private fileTracker: FileTracker;
 	private persistence: PersistenceStore;
+	private researchIndex: ResearchIndex;
+
+	/**
+	 * Periodic index flush.
+	 *
+	 * Without it the index is written only on a clean shutdown, so a crash or a
+	 * kill loses everything indexed since start — and the index is the thing
+	 * that is supposed to outlive the logs. unref'd so it cannot hold the
+	 * process open, which is the leaked-timer bug this branch already fixed once.
+	 */
+	private researchFlushInterval?: NodeJS.Timeout;
 
 	private startTime: number = 0;
 	private status: CoreStatus["status"] = "starting";
@@ -68,6 +80,11 @@ export class InspectorCore {
 			persistence: this.persistence,
 		});
 
+		// Research history index (M4). Built as events arrive and persisted
+		// separately from the logs, because retention deletes those and the
+		// index has to outlive them.
+		this.researchIndex = new ResearchIndex({ persistence: this.persistence });
+
 		// Initialize servers
 		this.httpServer = new HttpServer({
 			port: params.config.httpPort,
@@ -95,6 +112,12 @@ export class InspectorCore {
 		// When a new log is added, broadcast to VS Code for live updates
 		this.logManager.on("log:added", (log) => {
 			this.ipcServer.sendNotification("log", log);
+		});
+
+		// Index anything research-shaped as it arrives. Most entries yield
+		// nothing, which is the normal case; the call is a cheap field check.
+		this.logManager.on("log:added", (log) => {
+			this.researchIndex.ingest(log);
 		});
 
 		// Broadcast stats updates periodically (every new log triggers stats update)
@@ -223,11 +246,42 @@ export class InspectorCore {
 			await this.fileTracker.load();
 			await this.logManager.load();
 
+			// Restore the research index, and adopt an existing store on first
+			// run: everything captured before the index existed is still in the
+			// log, and re-reading it once beats telling a user their history
+			// starts today.
+			const restored = await this.researchIndex.load();
+			if (restored.items === 0) {
+				const { logs } = await this.logManager.getLogs({
+					pagination: { limit: 100_000, offset: 0 },
+				});
+				const built = this.researchIndex.backfill(logs);
+				if (built.indexed > 0) {
+					process.stderr.write(
+						`[Research] indexed ${built.indexed} items from ${built.scanned} existing logs\n`,
+					);
+					await this.researchIndex.flush();
+				}
+			} else if (restored.rebuilt) {
+				process.stderr.write(
+					`[Research] index was inconsistent with its items; rebuilt ${restored.items}\n`,
+				);
+				await this.researchIndex.flush();
+			}
+
 			// Start HTTP server for hook ingestion
 			await this.httpServer.start();
 
 			// Start IPC server for wrapper communication
 			await this.ipcServer.start();
+
+			this.researchFlushInterval = setInterval(
+				() => {
+					void this.researchIndex.flush().catch(() => {});
+				},
+				5 * 60 * 1000,
+			);
+			this.researchFlushInterval.unref?.();
 
 			this.status = "running";
 		} catch (error) {
@@ -251,8 +305,13 @@ export class InspectorCore {
 			// created and never cleared.
 			this.sessionManager.stopStaleSessionCheck();
 			this.logManager.destroy();
+			if (this.researchFlushInterval) {
+				clearInterval(this.researchFlushInterval);
+				this.researchFlushInterval = undefined;
+			}
 
 			// Persist any pending data
+			await this.researchIndex.flush();
 			await this.logManager.flush();
 			await this.sessionManager.flush();
 			await this.fileTracker.flush();
@@ -433,6 +492,13 @@ export class InspectorCore {
 	 */
 	getFileTracker(): FileTracker {
 		return this.fileTracker;
+	}
+
+	/**
+	 * Get the research index
+	 */
+	getResearchIndex(): ResearchIndex {
+		return this.researchIndex;
 	}
 
 	/**
