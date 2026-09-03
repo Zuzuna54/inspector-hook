@@ -1,14 +1,108 @@
-<!DOCTYPE html>
+/**
+ * Webview HTML.
+ *
+ * Extracted from panel.ts, which had grown to 850 lines with ~350 of them a
+ * single template literal.
+ *
+ * It also removes a real duplication hazard: an identical copy of this markup
+ * lived at `media/index.html`, referenced by nothing — panel.ts always built
+ * the page inline. Two copies of the UI shell, one of them dead, is a trap for
+ * anyone who edits the obvious-looking file and sees no effect. The dead copy
+ * is deleted; this is the only one.
+ */
+
+import * as vscode from "vscode";
+/**
+ * Generate a random nonce
+ */
+function getNonce(): string {
+	let text = "";
+	const possible =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	for (let i = 0; i < 32; i++) {
+		text += possible.charAt(Math.floor(Math.random() * possible.length));
+	}
+	return text;
+}
+
+/**
+ * A per-render nonce. The Content-Security-Policy allows only scripts carrying
+ * it, so an injected inline script cannot execute.
+ */
+
+/**
+ * Build the panel's HTML.
+ *
+ * Asset URIs must be resolved through `webview.asWebviewUri`, and every script
+ * carries the CSP nonce — the webview refuses to execute a script without it.
+ */
+export function buildWebviewHtml(
+	webview: vscode.Webview,
+	extensionUri: vscode.Uri,
+): string {
+	// Helper to get webview URI
+	const getUri = (...paths: string[]) =>
+		webview.asWebviewUri(
+			vscode.Uri.joinPath(extensionUri, "media", ...paths),
+		);
+
+	// CSS URIs
+	const variablesCss = getUri("styles", "variables.css");
+	const layoutCss = getUri("styles", "layout.css");
+	const componentsCss = getUri("styles", "components.css");
+	const prismThemeCss = getUri("styles", "prism-theme.css");
+	const dashboardCss = getUri("styles", "views", "dashboard.css");
+	const logsCss = getUri("styles", "views", "logs.css");
+	const sessionsCss = getUri("styles", "views", "sessions.css");
+	// Note: file-changes.css, history.css, archived.css created by Agent 2
+	const fileChangesCss = getUri("styles", "views", "file-changes.css");
+	const historyCss = getUri("styles", "views", "history.css");
+	const archivedCss = getUri("styles", "views", "archived.css");
+
+	// JS URIs (order matters - dependencies first)
+	const stateJs = getUri("scripts", "state.js");
+	const routerJs = getUri("scripts", "router.js");
+	const apiJs = getUri("scripts", "api.js");
+	const dashboardJs = getUri("scripts", "views", "dashboard.js");
+	const logsJs = getUri("scripts", "views", "logs.js");
+	const sessionsJs = getUri("scripts", "views", "sessions.js");
+	// sessions.js is being split into modules under scripts/views/sessions/.
+	// These load before it and are individually optional: a missing file is a
+	// 404 the webview ignores, so the tags can land before the files do.
+	const sessionUtilsJs = getUri("scripts", "session-utils.js");
+	const sessionListJs = getUri("scripts", "views", "sessions", "session-list.js");
+	const activityFeedJs = getUri("scripts", "views", "sessions", "activity-feed.js");
+	const activityItemsJs = getUri("scripts", "views", "sessions", "activity-items.js");
+	const toolDetailJs = getUri("scripts", "views", "sessions", "tool-detail.js");
+	const sessionDetailJs = getUri("scripts", "views", "sessions", "session-detail.js");
+	// Note: file-changes.js, history.js, archived.js created by Agent 2
+	const fileChangesJs = getUri("scripts", "views", "file-changes.js");
+	// file-changes.js is being split into modules under scripts/views/file-changes/.
+	// Loaded before it, and individually optional -- a file that does not exist
+	// yet is a 404 the webview ignores, so the tags can land before the files.
+	const fcSessionListJs = getUri("scripts", "views", "file-changes", "fc-session-list.js");
+	const fcDiffViewJs = getUri("scripts", "views", "file-changes", "fc-diff-view.js");
+	const fcEditorJs = getUri("scripts", "views", "file-changes", "fc-editor.js");
+	const fcActionsJs = getUri("scripts", "views", "file-changes", "fc-actions.js");
+	const historyJs = getUri("scripts", "views", "history.js");
+	const archivedJs = getUri("scripts", "views", "archived.js");
+	const mainJs = getUri("scripts", "main.js");
+
+	// Use a nonce to only allow specific scripts to run
+	const nonce = getNonce();
+
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
 
   <!-- CSS Files -->
   <link href="${variablesCss}" rel="stylesheet">
   <link href="${layoutCss}" rel="stylesheet">
   <link href="${componentsCss}" rel="stylesheet">
+  <link href="${prismThemeCss}" rel="stylesheet">
   <link href="${dashboardCss}" rel="stylesheet">
   <link href="${logsCss}" rel="stylesheet">
   <link href="${sessionsCss}" rel="stylesheet">
@@ -265,16 +359,27 @@
     </main>
   </div>
 
-  <!-- Scripts (loaded in order) -->
+  <!-- Scripts (loaded in order - dependencies first) -->
   <script nonce="${nonce}" src="${stateJs}"></script>
   <script nonce="${nonce}" src="${routerJs}"></script>
   <script nonce="${nonce}" src="${apiJs}"></script>
   <script nonce="${nonce}" src="${dashboardJs}"></script>
   <script nonce="${nonce}" src="${logsJs}"></script>
+  <script nonce="${nonce}" src="${sessionUtilsJs}"></script>
+  <script nonce="${nonce}" src="${sessionListJs}"></script>
+  <script nonce="${nonce}" src="${activityItemsJs}"></script>
+  <script nonce="${nonce}" src="${activityFeedJs}"></script>
+  <script nonce="${nonce}" src="${toolDetailJs}"></script>
+  <script nonce="${nonce}" src="${sessionDetailJs}"></script>
   <script nonce="${nonce}" src="${sessionsJs}"></script>
+  <script nonce="${nonce}" src="${fcSessionListJs}"></script>
+  <script nonce="${nonce}" src="${fcDiffViewJs}"></script>
+  <script nonce="${nonce}" src="${fcEditorJs}"></script>
+  <script nonce="${nonce}" src="${fcActionsJs}"></script>
   <script nonce="${nonce}" src="${fileChangesJs}"></script>
   <script nonce="${nonce}" src="${historyJs}"></script>
   <script nonce="${nonce}" src="${archivedJs}"></script>
   <script nonce="${nonce}" src="${mainJs}"></script>
 </body>
-</html>
+</html>`;
+}
