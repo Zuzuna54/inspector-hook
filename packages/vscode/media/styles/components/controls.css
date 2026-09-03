@@ -278,3 +278,16 @@
 	background: var(--color-warning);
 	color: var(--bg-primary);
 }
+
+/* Archived view's inline view-diff button; was defined only in archived.css. */
+
+.btn-view {
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
+  border-color: var(--border);
+}
+
+.btn-view:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}

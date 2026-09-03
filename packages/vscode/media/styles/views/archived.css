@@ -534,32 +534,6 @@
 }
 
 /* ==========================================================================
-   Button Variants
-   ========================================================================== */
-
-.btn-warning {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-  border-color: var(--color-warning);
-}
-
-.btn-warning:hover {
-  background: var(--color-warning);
-  color: var(--bg-primary);
-}
-
-.btn-view {
-  background: var(--bg-tertiary);
-  color: var(--fg-secondary);
-  border-color: var(--border);
-}
-
-.btn-view:hover {
-  background: var(--bg-hover);
-  color: var(--fg-primary);
-}
-
-/* ==========================================================================
    Empty State
    ========================================================================== */
 
