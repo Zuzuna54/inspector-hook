@@ -211,6 +211,88 @@ describe("SessionManager", () => {
 		});
 	});
 
+	describe("stuck execution reconciliation", () => {
+		it("REGRESSION: resolves executions that never received a completion", async () => {
+			const mgr = await newManager();
+			mgr.trackActivity("s1", makeLog({
+				sessionId: "s1", tool: "Bash", event: "PreToolUse", executionId: "t1",
+			}));
+
+			// A PreToolUse denial produces neither PostToolUse nor
+			// PostToolUseFailure, so this execution never terminates on its own.
+			const [exec] = (await mgr.getSession("s1")).toolExecutions;
+			assert.equal(exec.status, "running");
+
+			// maxAgeMs 0 resolves everything currently running.
+			const { resolved } = await mgr.reconcileStuckExecutions({ maxAgeMs: 0 });
+
+			assert.equal(resolved, 1);
+			assert.equal(exec.status, "failed");
+			assert.ok(exec.endTime, "must be given an end time");
+			assert.match(exec.error, /outcome is unknown/i, "must be honest, not claim failure");
+		});
+
+		it("leaves a genuinely recent execution alone", async () => {
+			const mgr = await newManager();
+			mgr.trackActivity("s1", makeLog({
+				sessionId: "s1", tool: "Bash", event: "PreToolUse", executionId: "t1",
+			}));
+
+			// A long-running Bash command must not be resolved out from under itself.
+			const { resolved } = await mgr.reconcileStuckExecutions({
+				maxAgeMs: 60 * 60 * 1000,
+			});
+
+			assert.equal(resolved, 0);
+			assert.equal((await mgr.getSession("s1")).toolExecutions[0].status, "running");
+		});
+
+		it("does not touch already-resolved executions", async () => {
+			const mgr = await newManager();
+			mgr.trackActivity("s1", makeLog({
+				sessionId: "s1", tool: "Read", event: "PreToolUse", executionId: "t1",
+			}));
+			mgr.trackActivity("s1", makeLog({
+				sessionId: "s1", tool: "Read", event: "PostToolUse", executionId: "t1",
+			}));
+
+			const { resolved } = await mgr.reconcileStuckExecutions({ maxAgeMs: 0 });
+
+			assert.equal(resolved, 0);
+			assert.equal((await mgr.getSession("s1")).toolExecutions[0].status, "completed");
+		});
+
+		it("drains executions left running by a previous process on load", async () => {
+			const { PersistenceStore, SessionManager } = await import("../dist/index.js");
+			const storagePath = await makeTempStore();
+			tempDirs.push(storagePath);
+			const persistence = new PersistenceStore({ basePath: storagePath });
+			await persistence.initialize();
+
+			// A store written by a core that died mid-execution.
+			await persistence.saveJSON("sessions", "dead", {
+				id: "dead",
+				status: "active",
+				startTime: "2026-01-01T00:00:00.000Z",
+				lastActivityTime: "2026-01-01T00:00:00.000Z",
+				toolExecutions: [
+					{ id: "t1", tool: "Bash", input: {}, startTime: "2026-01-01T00:00:00.000Z", status: "running" },
+				],
+				fileChanges: [],
+			});
+
+			const mgr = new SessionManager({ storagePath, persistence });
+			await mgr.load();
+
+			const session = await mgr.getSession("dead");
+			assert.equal(
+				session.toolExecutions[0].status,
+				"failed",
+				"nothing can still be running in a store we just loaded",
+			);
+		});
+	});
+
 	describe("persistence", () => {
 		it("counts active and idle sessions in stats", async () => {
 			const mgr = await newManager();

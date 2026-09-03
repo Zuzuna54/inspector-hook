@@ -6,6 +6,7 @@
 import { createInterface, type Interface } from "node:readline";
 import type {
 	ErrorCode,
+	LogEntry,
 	SessionFilter,
 	JsonRpcError,
 	JsonRpcNotification,
@@ -26,6 +27,40 @@ export interface IpcServerOptions {
 }
 
 type MethodHandler = (params: unknown) => Promise<unknown>;
+
+/**
+ * Fields the UI needs as first-class properties on a tool_call activity item.
+ *
+ * These used to be reachable only by digging into `result`, which was built as
+ * `tool_result || result || details`. Because `details.tool_result` is always
+ * set for a tool event, `result` collapsed to just the tool output and every
+ * sibling key -- durationMs, agentType, promptId -- was silently dropped. The
+ * Activity feed consequently rendered durations derived from second-resolution
+ * hook timestamps, i.e. always a multiple of 1000ms or 0.
+ */
+function toolMetadata(log: LogEntry): {
+	durationMs?: number;
+	agentId?: string;
+	agentType?: string;
+	promptId?: string;
+} {
+	const d = log.details ?? {};
+	return {
+		durationMs: typeof d.durationMs === "number" ? d.durationMs : undefined,
+		agentId: typeof d.agentId === "string" ? d.agentId : undefined,
+		agentType: typeof d.agentType === "string" ? d.agentType : undefined,
+		promptId: typeof d.promptId === "string" ? d.promptId : undefined,
+	};
+}
+
+/** Map a log's level (and event) onto a terminal execution status. */
+function terminalStatus(
+	log: LogEntry,
+): "completed" | "failed" | "blocked" {
+	if (log.level === "error" || log.event === "PostToolUseFailure") return "failed";
+	if (log.level === "blocked") return "blocked";
+	return "completed";
+}
 
 /** Does a session match a filter's status constraint? */
 function matchesStatus(
@@ -144,19 +179,31 @@ export class IpcServer {
 			// Get session data
 			const session = await this.sessionManager.getSession(sessionId);
 
-			// Get all logs for this session
-			const logsResult = await this.logManager.getLogs({
+			// Get this session's logs.
+			//
+			// getLogs sorts BEFORE it paginates, so asking for `limit: 1000` with
+			// `order: "asc"` returned the OLDEST thousand and discarded everything
+			// newer. A session past the cap did not lose its tail -- its feed froze
+			// at the beginning, permanently, with no indication.
+			//
+			// Fetch newest-first so the cap drops the oldest, then restore
+			// chronological order for the feed. `limit` is caller-overridable so the
+			// UI can page, and `truncated` tells it when there is more.
+			const limit = Math.min(
+				Math.max(Number((params as { limit?: number }).limit) || 2000, 1),
+				10_000,
+			);
+			const newestFirst = await this.logManager.getLogs({
 				filter: { sessionId },
-				pagination: { limit: 1000, offset: 0 },
-				sort: { field: "timestamp", order: "asc" },
+				pagination: { limit, offset: 0 },
+				sort: { field: "timestamp", order: "desc" },
 			});
+			const logsResult = {
+				...newestFirst,
+				logs: [...newestFirst.logs].reverse(),
+			};
+			const truncated = newestFirst.total > newestFirst.logs.length;
 
-			// Debug: Count logs by hook type
-			const hookCounts: Record<string, number> = {};
-			for (const log of logsResult.logs) {
-				const hook = log.hook || "unknown";
-				hookCounts[hook] = (hookCounts[hook] || 0) + 1;
-			}
 
 			// Build activity items from logs
 			// Types: user_prompt, ai_response, tool_call, session_start, notification, subagent_complete, message
@@ -244,6 +291,9 @@ export class IpcServer {
 					log.tool &&
 					(log.event === "PreToolUse" ||
 						log.event === "PostToolUse" ||
+						// A distinct event from PostToolUse, fired when a tool errors.
+						// Unrecognised here, so a failed call stayed "running" forever.
+						log.event === "PostToolUseFailure" ||
 						log.event === "tool.start" ||
 						log.event === "tool.end")
 				) {
@@ -276,20 +326,28 @@ export class IpcServer {
 								file: log.file,
 								status: "running",
 								startTime: log.timestamp,
+								...toolMetadata(log),
 							},
 						});
 					} else if (existingIdx >= 0) {
-						// Update existing tool with result
+						// Update the existing item in place. The completion event is
+						// where durationMs and agent identity arrive, so its metadata is
+						// merged onto the item -- previously it rode inside `result`,
+						// which was built as `tool_result || result || details`. Since
+						// details.tool_result is always set for a tool event, `result`
+						// collapsed to the tool output and every sibling key was lost.
 						const existing = activityItems[existingIdx];
-						(existing.data as any).status =
-							log.level === "error"
-								? "failed"
-								: log.level === "blocked"
-									? "blocked"
-									: "completed";
-						(existing.data as any).result =
-							log.details?.tool_result || log.details?.result || log.details;
-						(existing.data as any).endTime = log.timestamp;
+						const data = existing.data as Record<string, unknown>;
+						data.status = terminalStatus(log);
+						data.result =
+							log.details?.tool_result ?? log.details?.result ?? log.details;
+						data.endTime = log.timestamp;
+						if (log.details?.toolError !== undefined) {
+							data.error = log.details.toolError;
+						}
+						for (const [key, value] of Object.entries(toolMetadata(log))) {
+							if (value !== undefined) data[key] = value;
+						}
 					} else {
 						// PostToolUse without matching PreToolUse, still add it
 						activityItems.push({
@@ -301,17 +359,14 @@ export class IpcServer {
 								executionId: log.executionId,
 								input: log.details?.tool_input || log.details?.input,
 								result:
-									log.details?.tool_result ||
-									log.details?.result ||
+									log.details?.tool_result ??
+									log.details?.result ??
 									log.details,
+								error: log.details?.toolError,
 								file: log.file,
-								status:
-									log.level === "error"
-										? "failed"
-										: log.level === "blocked"
-											? "blocked"
-											: "completed",
+								status: terminalStatus(log),
 								startTime: log.timestamp,
+								...toolMetadata(log),
 							},
 						});
 					}
@@ -341,6 +396,11 @@ export class IpcServer {
 				session,
 				activity: activityItems,
 				totalItems: activityItems.length,
+				// True when older logs exist beyond the fetched window, so the UI
+				// can show "earlier activity not loaded" rather than implying the
+				// session simply started here.
+				truncated,
+				totalLogs: newestFirst.total,
 			};
 		});
 

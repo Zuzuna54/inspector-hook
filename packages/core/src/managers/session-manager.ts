@@ -74,6 +74,12 @@ function isToolCompletionEvent(event: string | undefined): boolean {
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_COMPLETED_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
 const STALE_CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
+/**
+ * How long a tool execution may sit in "running" before it is treated as
+ * abandoned. Generous, because a legitimate long-running Bash command or a
+ * slow subagent must not be resolved out from under itself.
+ */
+const STUCK_EXECUTION_TIMEOUT_MS = 15 * 60 * 1000;
 
 export class SessionManager extends EventEmitter {
 	private sessions: Map<string, Session> = new Map();
@@ -110,11 +116,66 @@ export class SessionManager extends EventEmitter {
 			this.sessions.set(id, session);
 		}
 
+		// Any execution still marked "running" in a store we just loaded cannot
+		// actually be running -- the process that owned it is gone. Resolve them
+		// before anyone reads the store, or they stay "running" forever.
+		await this.reconcileStuckExecutions({ maxAgeMs: 0 });
+
 		// Start the stale session check interval
 		this.startStaleSessionCheck();
 
 		// Immediately check for stale sessions on load
 		await this.checkStaleSessions();
+	}
+
+	/**
+	 * Resolve tool executions that are stuck in "running".
+	 *
+	 * Nothing previously did this, so they accumulated without limit. Two causes
+	 * remain even with correct pairing:
+	 *  - the core restarted mid-execution, so the completion event was never seen;
+	 *  - the tool legitimately produces no terminal event at all. A PreToolUse
+	 *    denial, for instance, is followed by neither PostToolUse nor
+	 *    PostToolUseFailure.
+	 *
+	 * Marked "failed" rather than left running, because "running" is a definite
+	 * false statement while the error text is honest that the outcome is unknown.
+	 *
+	 * @param maxAgeMs Only resolve executions that started at least this long
+	 *                 ago. 0 resolves every running execution, which is correct
+	 *                 at load time.
+	 */
+	async reconcileStuckExecutions(options?: {
+		maxAgeMs?: number;
+	}): Promise<{ resolved: number }> {
+		const maxAgeMs = options?.maxAgeMs ?? STUCK_EXECUTION_TIMEOUT_MS;
+		const now = Date.now();
+		let resolved = 0;
+
+		for (const session of this.sessions.values()) {
+			let touched = false;
+
+			for (const exec of session.toolExecutions) {
+				if (exec.status !== "running") continue;
+
+				const started = new Date(exec.startTime).getTime();
+				const age = Number.isFinite(started) ? now - started : Infinity;
+				if (age < maxAgeMs) continue;
+
+				exec.status = "failed";
+				exec.endTime = new Date().toISOString();
+				exec.error =
+					"No completion event was received for this tool call, so its " +
+					"outcome is unknown.";
+				this.emit("tool:failed", { sessionId: session.id, execution: exec });
+				resolved++;
+				touched = true;
+			}
+
+			if (touched) await this.persistSession(session);
+		}
+
+		return { resolved };
 	}
 
 	/**
@@ -147,6 +208,9 @@ export class SessionManager extends EventEmitter {
 	 */
 	async checkStaleSessions(): Promise<void> {
 		const now = Date.now();
+
+		// Executions abandoned mid-flight are resolved on the same cadence.
+		await this.reconcileStuckExecutions();
 
 		for (const session of this.sessions.values()) {
 			// Skip already completed/terminated/error sessions

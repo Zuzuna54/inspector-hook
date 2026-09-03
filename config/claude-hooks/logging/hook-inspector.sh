@@ -34,7 +34,16 @@ HOOK_NAME=$(echo "$INPUT" | jq -r '.hook_event_name // "unknown"' 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""' 2>/dev/null)
-TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+# Millisecond resolution. At second resolution most events in a busy session
+# share a timestamp (measured: 1024 of 1033 logs had none, with up to 11 events
+# in one second), and every sort here is a plain timestamp comparison -- so
+# correct feed ordering survived only because the sort happened to be stable.
+# GNU date supports %3N; BSD/macOS date does not, so fall back to node.
+TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%S.%3NZ' 2>/dev/null)
+case "$TIMESTAMP" in
+    ''|*%3N*|*N*) TIMESTAMP=$(node -e 'process.stdout.write(new Date().toISOString())' 2>/dev/null) ;;
+esac
+[ -z "$TIMESTAMP" ] && TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Extract full tool_input and tool_response for detailed logging
 TOOL_INPUT=$(echo "$INPUT" | jq '.tool_input // null' 2>/dev/null)
