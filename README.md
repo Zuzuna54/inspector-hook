@@ -401,7 +401,6 @@ Configure in VS Code settings (`settings.json`):
 ```json
 {
   "inspectorHook.httpPort": 52376,
-  "inspectorHook.wsPort": 52377,
   "inspectorHook.autoStart": true,
   "inspectorHook.logRetentionDays": 7
 }
@@ -410,7 +409,6 @@ Configure in VS Code settings (`settings.json`):
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `httpPort` | 52376 | HTTP server port for receiving logs |
-| `wsPort` | 52377 | WebSocket port (future use) |
 | `autoStart` | true | Auto-start core on extension activation |
 | `logRetentionDays` | 7 | Days to retain logs |
 

@@ -55,11 +55,6 @@
           "default": 52376,
           "description": "HTTP port for hook log ingestion"
         },
-        "inspectorHook.wsPort": {
-          "type": "number",
-          "default": 52377,
-          "description": "WebSocket port for real-time events"
-        },
         "inspectorHook.autoStart": {
           "type": "boolean",
           "default": true,

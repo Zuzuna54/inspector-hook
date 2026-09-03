@@ -139,7 +139,12 @@ export interface Session {
   metadata?: SessionMetadata;
 }
 
-export type SessionStatus = 'active' | 'completed' | 'error' | 'terminated';
+export type SessionStatus =
+  | 'active'
+  | 'idle'         // no activity for idleTimeoutMs; reactivates on next event
+  | 'completed'
+  | 'error'
+  | 'terminated';
 
 export interface SessionMetadata {
   /** Working directory */

@@ -45,6 +45,17 @@ export {
 
 // Export HTTP server
 export { HttpServer } from "./server/http-server.js";
+export {
+	RateLimiter,
+	type RateLimiterOptions,
+	type RateLimitResult,
+} from "./server/rate-limiter.js";
+export {
+	redactPayload,
+	redactString,
+	REDACTED,
+	type RedactionOptions,
+} from "./server/redaction.js";
 
 // Export version
 export const VERSION = "0.1.0";

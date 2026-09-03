@@ -269,7 +269,6 @@ export class InspectorCore {
 					? Math.floor((Date.now() - this.startTime) / 1000)
 					: 0,
 			httpPort: this.httpServer.getPort(),
-			wsPort: this.config.wsPort,
 			stats: this.getStats(),
 			version: VERSION,
 		};

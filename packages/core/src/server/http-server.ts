@@ -13,12 +13,23 @@ import type { LogEntry } from "@inspector-hook/protocol";
 import type { FileTracker } from "../managers/file-tracker.js";
 import type { LogManager } from "../managers/log-manager.js";
 import type { SessionManager } from "../managers/session-manager.js";
+import { RateLimiter } from "./rate-limiter.js";
+import { redactPayload } from "./redaction.js";
 
 /** How many ports above the preferred one to try before giving up. */
 const PORT_SCAN_RANGE = 20;
 
+/**
+ * Ingest rate limit. Generous relative to real hook traffic — a busy session
+ * produces a few events per second — while still bounding a flood.
+ */
+const RATE_LIMIT = 600;
+const RATE_WINDOW_MS = 60_000;
+
 export interface HttpServerOptions {
 	port: number;
+	/** Redact credentials from payloads before storing. Default true. */
+	redactSecrets?: boolean;
 	logManager: LogManager;
 	sessionManager: SessionManager;
 	fileTracker: FileTracker;
@@ -31,9 +42,17 @@ export class HttpServer {
 	private logManager: LogManager;
 	private sessionManager: SessionManager;
 	private fileTracker: FileTracker;
+	private rateLimiter: RateLimiter;
+	private redactSecrets: boolean;
+	private pruneInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(options: HttpServerOptions) {
 		this.requestedPort = options.port;
+		this.redactSecrets = options.redactSecrets !== false;
+		this.rateLimiter = new RateLimiter({
+			limit: RATE_LIMIT,
+			windowMs: RATE_WINDOW_MS,
+		});
 		this.logManager = options.logManager;
 		this.sessionManager = options.sessionManager;
 		this.fileTracker = options.fileTracker;
@@ -91,6 +110,17 @@ export class HttpServer {
 
 			server.once("error", onError);
 
+			// The limiter's key map would otherwise grow once per distinct key
+			// forever -- an unbounded-memory bug inside the thing meant to
+			// prevent one.
+			if (!this.pruneInterval) {
+				this.pruneInterval = setInterval(
+					() => this.rateLimiter.prune(),
+					RATE_WINDOW_MS,
+				);
+				this.pruneInterval.unref?.();
+			}
+
 			server.listen(port, "127.0.0.1", () => {
 				server.removeListener("error", onError);
 				this.server = server;
@@ -112,6 +142,10 @@ export class HttpServer {
 	 * Stop the HTTP server
 	 */
 	async stop(): Promise<void> {
+		if (this.pruneInterval) {
+			clearInterval(this.pruneInterval);
+			this.pruneInterval = null;
+		}
 		return new Promise((resolve) => {
 			if (this.server) {
 				this.server.close(() => {
@@ -212,12 +246,35 @@ export class HttpServer {
 		req: IncomingMessage,
 		res: ServerResponse,
 	): Promise<void> {
+		// Rate-limited per peer. Only the write path is limited: the read
+		// endpoints are cheap and are what a status script polls.
+		const peer = req.socket.remoteAddress ?? "unknown";
+		const limit = this.rateLimiter.check(peer);
+		res.setHeader("X-RateLimit-Limit", String(RATE_LIMIT));
+		res.setHeader("X-RateLimit-Remaining", String(limit.remaining));
+		res.setHeader(
+			"X-RateLimit-Reset",
+			String(Math.ceil(limit.resetAt / 1000)),
+		);
+		if (!limit.allowed) {
+			this.sendJson(res, { success: false, error: "Rate limit exceeded" }, 429);
+			return;
+		}
+
 		const body = await this.readBody(req);
 
 		try {
-			const logData = JSON.parse(body) as Partial<LogEntry> & {
+			const parsed = JSON.parse(body) as Partial<LogEntry> & {
 				executionId?: string;
 			};
+
+			// Redact credentials BEFORE anything is stored or broadcast. Payloads
+			// carry prompts, tool I/O and file contents, so they routinely contain
+			// keys and tokens -- and everything here is written to disk in plain
+			// text and shown on screen.
+			const logData = this.redactSecrets
+				? redactPayload(parsed).value
+				: parsed;
 
 			// Validate required fields
 			if (!logData.hook || !logData.event) {

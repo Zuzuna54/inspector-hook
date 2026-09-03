@@ -31,17 +31,18 @@ Inspector Hook uses multiple communication protocols between its components:
 │  │  (Bash)     │   /api/log       │                                     │  │
 │  └─────────────┘                  │  ┌─────────┐  ┌─────────────────┐  │  │
 │                                   │  │ HTTP    │  │ IPC Server      │  │  │
-│  ┌─────────────┐    JSON-RPC      │  │ Server  │  │ (JSON-RPC 2.0)  │  │  │
+│  ┌─────────────┐    JSON-RPC      │  │ Server  │─▶│ (JSON-RPC 2.0)  │  │  │
 │  │  VS Code    │◀────────────────▶│  └─────────┘  └─────────────────┘  │  │
-│  │  Wrapper    │     stdio        │                                     │  │
-│  └─────────────┘                  │  ┌─────────────────────────────┐   │  │
-│        │                          │  │      WebSocket Server       │   │  │
-│        │ postMessage              │  │     (Real-time Events)      │   │  │
-│        ▼                          │  └─────────────────────────────┘   │  │
-│  ┌─────────────┐                  └─────────────────────────────────────┘  │
-│  │  Webview    │                                    │                      │
-│  │    UI       │◀───────────────────────────────────┘                      │
-│  └─────────────┘        WebSocket                                          │
+│  │  Extension  │     stdio        │       ingest      requests +        │  │
+│  │             │                  │                   notifications     │  │
+│  └─────────────┘                  └─────────────────────────────────────┘  │
+│        │                                                                    │
+│        │ postMessage  (the extension relays core notifications;             │
+│        ▼               there is no direct core→webview transport)           │
+│  ┌─────────────┐                                                            │
+│  │  Webview    │                                                            │
+│  │    UI       │                                                            │
+│  └─────────────┘                                                            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -52,7 +53,7 @@ Inspector Hook uses multiple communication protocols between its components:
 |----------|-----------|-----------|---------|
 | HTTP REST | TCP :52376 | Hooks → Core | Log ingestion |
 | JSON-RPC 2.0 | stdio | Wrapper ↔ Core | Bidirectional commands |
-| WebSocket | TCP :52377 | Core → UI | Real-time events |
+| JSON-RPC notifications | stdio | Core → Wrapper | Real-time events (`log`, `stats`, `session`, `fileChange`) |
 | postMessage | VS Code IPC | Wrapper ↔ Webview | UI commands |
 
 ---
@@ -132,7 +133,6 @@ Initialize the core process with configuration.
     "storagePath": "/path/to/storage",
     "config": {
       "httpPort": 52376,
-      "wsPort": 52377,
       "logRetentionDays": 7,
       "maxLogsInMemory": 10000
     }
@@ -148,8 +148,7 @@ Initialize the core process with configuration.
   "result": {
     "success": true,
     "version": "1.0.0",
-    "httpPort": 52376,
-    "wsPort": 52377
+    "httpPort": 52376
   }
 }
 ```
@@ -202,7 +201,6 @@ Get core process status and statistics.
     "status": "running",
     "uptime": 3600,
     "httpPort": 52376,
-    "wsPort": 52377,
     "stats": {
       "totalLogs": 1234,
       "activeSessions": 2,
@@ -561,7 +559,37 @@ Clear all sessions with optional filter.
 }
 ```
 
-##### `sessions.getStats`
+##### `sessions.getActivity`
+
+Reconstructs an ordered activity feed for one session from its logs.
+
+**Params:** `{ id: string, limit?: number }` — `limit` bounds the log window
+(default 2000, max 10000).
+
+**Result:**
+```typescript
+{
+  sessionId: string;
+  session: Session | null;      // @deprecated — use sessionSummary
+  sessionSummary: SessionSummary | null;
+  activity: ActivityItem[];     // chronological
+  totalItems: number;
+  truncated?: boolean;          // older logs exist beyond the window
+  availableLogs?: number;       // logs RETAINED for this session — a floor,
+                                // not a lifetime total: reads are served from
+                                // memory only
+}
+```
+
+Logs are fetched newest-first and reversed, so the window drops the OLDEST
+entries. Fetching oldest-first would freeze a long session's feed at its
+beginning rather than dropping stale history.
+
+Each item carries `promptId` when its source log had one, which groups a turn
+exactly. Items from logs recorded before that field was captured have none, and
+consumers must treat missing as "ungrouped" rather than inventing a grouping.
+
+### `sessions.getStats`
 
 Get statistics for a specific session.
 
@@ -2424,6 +2452,16 @@ Sent when a hook encounters an error.
 
 ## HTTP API
 
+> **Endpoint paths.** The ingest endpoint is `POST /log`. `POST /api/log` is
+> accepted as an alias for backwards compatibility — earlier docs disagreed on
+> which was canonical, and both are served. Read endpoints are all under
+> `/api/`: `/api/health`, `/api/stats`, `/api/logs`, `/api/sessions`,
+> `/api/changes`, `/api/debug`.
+>
+> Writes are rate-limited (600/min per peer, `X-RateLimit-*` headers, 429 on
+> exceed). Requests carrying an `Origin` header are rejected with 403: hook
+> senders are never browsers, so an Origin means a web page is calling.
+
 The HTTP API is used by hooks to send logs to the core process.
 
 ### Base URL
@@ -2538,232 +2576,18 @@ Content-Type: application/json
 
 ## WebSocket Protocol
 
-WebSocket is used for real-time event streaming from core to UI.
+**Not implemented — and no longer planned in this form.**
 
-### Connection
+This section previously specified a full event-streaming protocol (connection
+handshake, event envelope, per-event payloads, reconnection). None of it was
+ever built: there is no WebSocket server anywhere in the codebase, and the
+`wsPort` setting that accompanied it has been removed from the extension, the
+core config and the protocol types.
 
-```
-ws://localhost:52377
-```
-
-### Event Format
-
-All WebSocket messages follow this format:
-
-```typescript
-interface WebSocketEvent {
-  type: string;
-  payload: unknown;
-  timestamp: string;
-}
-```
-
-### Events
-
-#### `connected`
-
-Sent immediately after connection.
-
-```json
-{
-  "type": "connected",
-  "payload": {
-    "clientId": "ws-client-123",
-    "serverVersion": "1.0.0"
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-#### `log`
-
-New log received.
-
-```json
-{
-  "type": "log",
-  "payload": {
-    "id": "log-123",
-    "timestamp": "2026-01-15T10:00:00.000Z",
-    "hook": "PreToolUse",
-    "event": "tool.start",
-    "level": "info",
-    "message": "Starting Edit tool",
-    "sessionId": "abc-123",
-    "tool": "Edit"
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-#### `stats`
-
-Statistics updated.
-
-```json
-{
-  "type": "stats",
-  "payload": {
-    "totalLogs": 1234,
-    "errors": 23,
-    "warnings": 56,
-    "blocked": 5,
-    "logsPerMinute": 12.5,
-    "activeSessions": 2,
-    "pendingChanges": 8
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-#### `session`
-
-Session state changed.
-
-```json
-{
-  "type": "session",
-  "payload": {
-    "action": "started",
-    "session": {
-      "id": "abc-123",
-      "status": "active",
-      "startTime": "2026-01-15T10:00:00.000Z"
-    }
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-#### `fileChange`
-
-File change detected.
-
-```json
-{
-  "type": "fileChange",
-  "payload": {
-    "action": "detected",
-    "change": {
-      "id": "change-1",
-      "filePath": "/path/to/file.ts",
-      "sessionId": "abc-123",
-      "changeType": "modify"
-    }
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-#### `rule`
-
-Rule action triggered.
-
-```json
-{
-  "type": "rule",
-  "payload": {
-    "ruleId": "rule-1",
-    "ruleName": "Block dangerous commands",
-    "action": "block",
-    "triggerLog": "log-123"
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-#### `hook`
-
-Hook-related events (installed, executed, error).
-
-```json
-{
-  "type": "hook",
-  "payload": {
-    "action": "executed",
-    "hookId": "security-gate",
-    "hookName": "Security Gate",
-    "event": "PreToolUse",
-    "executionTime": 45,
-    "exitCode": 0,
-    "blocked": false
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-```json
-{
-  "type": "hook",
-  "payload": {
-    "action": "installed",
-    "hooks": [
-      {"id": "pre-tool-logger", "name": "Pre-Tool Logger", "event": "PreToolUse"}
-    ],
-    "count": 10
-  },
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
-
-```json
-{
-  "type": "hook",
-  "payload": {
-    "action": "error",
-    "hookId": "my-custom-hook",
-    "hookName": "My Custom Hook",
-    "event": "PostToolUse",
-    "error": "Script timed out after 10000ms"
-  },
-  "timestamp": "2026-01-15T10:30:00.000Z"
-}
-```
-
-### Client Commands
-
-Clients can send commands to the WebSocket server.
-
-#### `subscribe`
-
-Subscribe to specific event types.
-
-```json
-{
-  "command": "subscribe",
-  "events": ["log", "session", "fileChange"]
-}
-```
-
-#### `unsubscribe`
-
-Unsubscribe from event types.
-
-```json
-{
-  "command": "unsubscribe",
-  "events": ["log"]
-}
-```
-
-#### `ping`
-
-Keep-alive ping.
-
-```json
-{
-  "command": "ping"
-}
-```
-
-Response:
-```json
-{
-  "type": "pong",
-  "payload": {},
-  "timestamp": "2026-01-15T10:00:00.000Z"
-}
-```
+Real-time core-to-UI streaming is delivered instead by **JSON-RPC notifications
+over stdio** (`log`, `stats`, `session`, `fileChange`) — see *IPC Protocol*
+above. If a browser-facing transport is ever needed, it should be specified
+against the ingest server that actually exists rather than restored from here.
 
 ---
 
@@ -3627,13 +3451,11 @@ Response includes server version:
 
 ### HTTP API
 
-- **Default**: 100 requests/minute per IP
+- **Default**: 600 requests/minute per peer address, sliding window
+  (hook traffic is bursty — a single tool-heavy turn can exceed 100/min)
 - **Headers**: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
-
-### WebSocket
-
-- **Connection limit**: 10 concurrent connections
-- **Message limit**: 50 messages/second per connection
+- **Over limit**: `429` with a `Retry-After` header; refused requests are not
+  counted against the window, so a caller recovers on schedule
 
 ### IPC
 
@@ -3649,11 +3471,6 @@ Response includes server version:
 - No authentication required (local only)
 - Input validation on all endpoints
 
-### WebSocket
-
-- Binds to localhost only
-- Origin header validation
-- Message size limits (1MB max)
 
 ### IPC
 
@@ -3679,10 +3496,6 @@ export * from './ipc/methods';
 // HTTP Types
 export * from './http/log-request';
 export * from './http/responses';
-
-// WebSocket Types
-export * from './ws/events';
-export * from './ws/commands';
 
 // Webview Types
 export * from './webview/messages';

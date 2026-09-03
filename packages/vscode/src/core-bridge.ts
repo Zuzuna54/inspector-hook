@@ -36,7 +36,6 @@ export interface CoreBridgeOptions {
 	 */
 	workspaceRoot?: string;
 	httpPort: number;
-	wsPort: number;
 	extensionPath?: string;
 }
 
@@ -83,7 +82,6 @@ export class CoreBridge extends EventEmitter {
 				env: {
 					...process.env,
 					INSPECTOR_HOOK_HTTP_PORT: String(this.options.httpPort),
-					INSPECTOR_HOOK_WS_PORT: String(this.options.wsPort),
 					// Omitted when there is no workspace folder, rather than sent
 					// as a placeholder the core would treat as a real root.
 					...(this.options.workspaceRoot

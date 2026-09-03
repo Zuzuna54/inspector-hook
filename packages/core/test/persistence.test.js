@@ -277,16 +277,33 @@ describe("PersistenceStore", () => {
 		});
 	});
 
-	describe("cleanup (known gap)", () => {
-		it("is still a stub returning zeroes", async () => {
-			// Documents real behaviour: nothing is ever deleted by age, which is
-			// why logRetentionDays has no effect. Invert when implemented.
+	describe("cleanup", () => {
+		it("REGRESSION: is no longer a stub — it prunes expired log entries", async () => {
+			// This test previously asserted cleanup returned zeroes and deleted
+			// nothing. It kept passing after cleanup was implemented, because the
+			// fixture entry had no timestamp and so could not be aged -- a passing
+			// test asserting behaviour that no longer existed.
 			const { store } = await newStore();
-			await store.appendLog("activity", { n: 1 });
+			const old = new Date(Date.now() - 60_000).toISOString();
+			await store.appendLog("activity", { n: 1, timestamp: old });
+			await store.appendLog("activity", { n: 2, timestamp: new Date().toISOString() });
 
-			const result = await store.cleanup({ maxAgeMs: 1 });
-			assert.deepEqual(result, { deletedFiles: 0, freedBytes: 0 });
-			assert.equal(await store.getLogCount("activity"), 1, "nothing removed");
+			await store.cleanup({ maxAgeMs: 1_000 });
+
+			assert.equal(
+				await store.getLogCount("activity"),
+				1,
+				"the entry older than the window must be gone",
+			);
+		});
+
+		it("keeps an entry it cannot date rather than discarding it", async () => {
+			const { store } = await newStore();
+			await store.appendLog("activity", { n: 1 }); // no timestamp
+
+			await store.cleanup({ maxAgeMs: 1 });
+
+			assert.equal(await store.getLogCount("activity"), 1, "undatable, so kept");
 		});
 	});
 });

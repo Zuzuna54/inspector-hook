@@ -291,7 +291,10 @@ describe("LogManager", () => {
 			const reloaded = new LogManager({
 				storagePath,
 				maxLogsInMemory: 1000,
-				retentionDays: 7,
+				// 0 = keep forever. seed() uses fixed 2026-01-01 timestamps, so any
+				// real retention window would age them out and this test would
+				// measure retention instead of the reload it is named for.
+				retentionDays: 0,
 				persistence,
 			});
 			await reloaded.load();
@@ -317,23 +320,34 @@ describe("LogManager", () => {
 		});
 	});
 
-	describe("retention (known gap)", () => {
-		it("does NOT yet drop logs by age — retentionDays is inert", async () => {
-			// Documents real behaviour rather than the intended behaviour.
-			// `retentionDays` is accepted, stored, and never read; the only bounds
-			// on growth are maxLogsInMemory and size-based JSONL rotation. When
-			// age-based retention is implemented, this test should be inverted.
+	describe("retention", () => {
+		it("REGRESSION: retentionDays is no longer inert", async () => {
+			// This test previously asserted the OPPOSITE -- that a six-year-old log
+			// survived -- and documented retentionDays as accepted-but-never-read.
+			// It kept passing after retention was implemented, because addLog does
+			// not enforce it; that made a passing test assert something untrue.
 			const { manager } = await newManager({ retentionDays: 1 });
 			await manager.addLog({
 				hook: "H", event: "E",
 				timestamp: "2020-01-01T00:00:00.000Z",
 			});
 
-			assert.equal(
-				manager.getStats().totalLogs,
-				1,
-				"a six-year-old log is still retained",
-			);
+			const { removed } = await manager.enforceRetention();
+
+			assert.equal(removed, 1, "a six-year-old log must be dropped");
+			assert.equal(manager.getStats().totalLogs, 0);
+		});
+
+		it("enforces retention on load, so a restart cannot resurrect old logs", async () => {
+			const { manager, storagePath, persistence } = await newManager();
+			await seed(manager); // fixed 2026-01-01 timestamps
+
+			const reloaded = new LogManager({
+				storagePath, maxLogsInMemory: 1000, retentionDays: 7, persistence,
+			});
+			await reloaded.load();
+
+			assert.equal(reloaded.getStats().totalLogs, 0, "all four are long expired");
 		});
 	});
 });

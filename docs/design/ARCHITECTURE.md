@@ -135,10 +135,10 @@ All communication uses predefined protocols:
 │  │                                                                         │   │
 │  │  ┌─────────────────────────────────────────────────────────────────┐    │   │
 │  │  │                      INBOUND LAYER                              │    │   │
-│  │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │    │   │
-│  │  │  │ HTTP Server │  │ IPC Server  │  │ WebSocket Server        │  │    │   │
-│  │  │  │ (Hooks)     │  │ (Wrappers)  │  │ (Real-time)             │  │    │   │
-│  │  │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │    │   │
+│  │  │  ┌─────────────┐  ┌─────────────────────────────────────────┐  │    │   │
+│  │  │  │ HTTP Server │  │ IPC Server                              │  │    │   │
+│  │  │  │ (Hooks)     │  │ (Wrappers; also pushes notifications)   │  │    │   │
+│  │  │  └─────────────┘  └─────────────────────────────────────────┘  │    │   │
 │  │  └─────────────────────────────────────────────────────────────────┘    │   │
 │  │                                   │                                     │   │
 │  │  ┌─────────────────────────────────────────────────────────────────┐    │   │
@@ -209,7 +209,7 @@ Output: 200 OK / 4xx Error
 
 Endpoints:
   POST /log          - Receive log entry
-  POST /file-changed - Notify file modification
+  POST /log - Notify file modification
   GET  /health       - Health check
 ```
 

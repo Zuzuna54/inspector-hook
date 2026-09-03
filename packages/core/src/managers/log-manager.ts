@@ -54,16 +54,13 @@ export class LogManager extends EventEmitter {
 		this.cleanupInterval = setInterval(() => {
 			const cutoff = Date.now() - 60000;
 			this.logsLastMinute = this.logsLastMinute.filter((t) => t > cutoff);
+			// Retention is cheap when nothing has expired, so it rides along on
+			// the same timer rather than adding another.
+			void this.enforceRetention().catch(() => {});
 		}, 60000);
 		this.cleanupInterval.unref?.();
 	}
 
-	/**
-	 * Set persistence store after construction
-	 */
-	setPersistence(persistence: PersistenceStore): void {
-		this.persistence = persistence;
-	}
 
 	/**
 	 * Load logs from persistence
@@ -83,6 +80,10 @@ export class LogManager extends EventEmitter {
 		} catch {
 			// No logs to load or file doesn't exist
 		}
+
+		// Apply retention to what we just loaded, so a restart does not
+		// resurrect data the policy says should be gone.
+		await this.enforceRetention();
 	}
 
 	/**
@@ -269,6 +270,39 @@ export class LogManager extends EventEmitter {
 			cleared: before - this.logs.length,
 			clearedAt: new Date().toISOString(),
 		};
+	}
+
+	/**
+	 * Drop in-memory entries older than the configured retention window, and
+	 * ask the store to prune what it holds.
+	 *
+	 * `retentionDays` was previously read from the environment, threaded through
+	 * three layers, stored on this object, and never used again — so the setting
+	 * was decoration. This makes it mean what it says.
+	 *
+	 * Returns 0 immediately when retention is disabled (0 or negative), which is
+	 * how a user opts into keeping everything.
+	 */
+	async enforceRetention(): Promise<{ removed: number }> {
+		const days = this.options.retentionDays;
+		if (!days || days <= 0) return { removed: 0 };
+
+		const maxAgeMs = days * 24 * 60 * 60 * 1000;
+		const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+
+		const before = this.logs.length;
+		// An entry with an unparseable timestamp is kept: it cannot be aged, and
+		// silently discarding data is the worse failure.
+		this.logs = this.logs.filter(
+			(l) => typeof l.timestamp !== "string" || l.timestamp >= cutoff,
+		);
+		const removed = before - this.logs.length;
+
+		if (this.persistence) {
+			await this.persistence.cleanup({ maxAgeMs });
+		}
+
+		return { removed };
 	}
 
 	/**

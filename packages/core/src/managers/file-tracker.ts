@@ -103,12 +103,6 @@ export class FileTracker extends EventEmitter {
 		this.maxVersionsPerFile = options.maxVersionsPerFile || 50;
 	}
 
-	/**
-	 * Set persistence store after construction
-	 */
-	setPersistence(persistence: PersistenceStore): void {
-		this.persistence = persistence;
-	}
 
 	/**
 	 * Load data from persistence

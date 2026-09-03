@@ -61,18 +61,6 @@ export interface JsonRpcNotification {
 	params?: unknown;
 }
 
-// =============================================================================
-// WebSocket Event Types
-// =============================================================================
-
-/**
- * WebSocket event format
- */
-export interface WebSocketEvent<T = unknown> {
-	type: string;
-	payload: T;
-	timestamp: string;
-}
 
 // =============================================================================
 // Webview Message Types
@@ -142,8 +130,6 @@ export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 export interface CoreConfig {
 	/** HTTP server port */
 	httpPort: number;
-	/** WebSocket server port */
-	wsPort: number;
 	/** Log retention in days */
 	logRetentionDays: number;
 	/** Maximum logs to keep in memory */
@@ -168,7 +154,6 @@ export interface CoreStatus {
 	status: "running" | "starting" | "stopping" | "error";
 	uptime: number;
 	httpPort: number;
-	wsPort: number;
 	stats: Stats;
 	version: string;
 }

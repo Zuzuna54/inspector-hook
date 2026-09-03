@@ -511,12 +511,132 @@ export class PersistenceStore {
 	/**
 	 * Clean up old data
 	 */
+	/**
+	 * Delete data older than maxAgeMs.
+	 *
+	 * This was a stub returning zeros, which is why `logRetentionDays` had no
+	 * effect: the setting was read from the environment, passed through three
+	 * layers, and never acted on. Nothing was ever deleted for being old — the
+	 * only bounds on growth were an in-memory cap and size-triggered rotation.
+	 *
+	 * Age is taken from record content where available (a log entry's timestamp,
+	 * a session's last activity) and from file mtime otherwise, because a
+	 * rotated log's name encodes its rotation time, not its contents' age.
+	 */
 	async cleanup(options?: {
 		maxAgeMs?: number;
 		keepMinVersions?: number;
 	}): Promise<{ deletedFiles: number; freedBytes: number }> {
-		// TODO: Implement cleanup logic
-		return { deletedFiles: 0, freedBytes: 0 };
+		await this.ensureInitialized();
+
+		const maxAgeMs = options?.maxAgeMs;
+		if (!maxAgeMs || maxAgeMs <= 0) {
+			return { deletedFiles: 0, freedBytes: 0 };
+		}
+
+		const cutoffMs = Date.now() - maxAgeMs;
+		const cutoffIso = new Date(cutoffMs).toISOString();
+		let deletedFiles = 0;
+		let freedBytes = 0;
+
+		// 1. Rotated log files whose newest entry predates the cutoff.
+		const logDir = join(this.basePath, this.dirs.logs);
+		let logFiles: string[] = [];
+		try {
+			logFiles = await readdir(logDir);
+		} catch {
+			logFiles = [];
+		}
+
+		for (const file of logFiles) {
+			if (!file.endsWith(".jsonl")) continue;
+			// Never touch a live log by name; it is pruned line-by-line below.
+			if (!/\.\d{4}-\d{2}-\d{2}T[\d-]+\.jsonl$/.test(file)) continue;
+
+			const full = join(logDir, file);
+			try {
+				const info = await stat(full);
+				if (info.mtimeMs >= cutoffMs) continue;
+				freedBytes += info.size;
+				await unlink(full);
+				deletedFiles++;
+			} catch {
+				// Raced with something else; nothing to do.
+			}
+		}
+
+		// 2. Prune old entries from every live log, keeping newer ones.
+		for (const file of logFiles) {
+			if (!file.endsWith(".jsonl")) continue;
+			if (/\.\d{4}-\d{2}-\d{2}T[\d-]+\.jsonl$/.test(file)) continue;
+			const name = file.replace(/\.jsonl$/, "");
+			const before = await stat(join(logDir, file)).then(
+				(i) => i.size,
+				() => 0,
+			);
+			const { removed } = await this.filterLog<{ timestamp?: string }>(
+				name,
+				(entry) =>
+					typeof entry?.timestamp !== "string" || entry.timestamp >= cutoffIso,
+			);
+			if (removed > 0) {
+				const after = await stat(join(logDir, file)).then(
+					(i) => i.size,
+					() => 0,
+				);
+				freedBytes += Math.max(0, before - after);
+			}
+		}
+
+		// 3. Sessions whose last activity predates the cutoff, and the archived
+		//    changes belonging to them. Pending changes are deliberately NOT
+		//    aged out: they are awaiting a human decision, and silently
+		//    discarding one would lose work.
+		const sessions = await this.loadAllJSON<{
+			id?: string;
+			startTime?: string;
+			lastActivityTime?: string;
+			endTime?: string;
+		}>(this.dirs.sessions);
+
+		const expiredSessionIds = new Set<string>();
+		for (const [id, session] of sessions) {
+			const last =
+				session?.lastActivityTime ?? session?.endTime ?? session?.startTime;
+			if (typeof last !== "string" || last >= cutoffIso) continue;
+			const path = this.getJSONPath(this.dirs.sessions, id);
+			try {
+				freedBytes += (await stat(path)).size;
+			} catch {
+				// size unknown; the delete still counts
+			}
+			if (await this.deleteJSON(this.dirs.sessions, id)) {
+				deletedFiles++;
+				expiredSessionIds.add(id);
+			}
+		}
+
+		const archives = await this.loadAllJSON<{
+			sessionId?: string;
+			archivedAt?: string;
+		}>(this.dirs.archives);
+		for (const [id, archive] of archives) {
+			const tooOld =
+				typeof archive?.archivedAt === "string" && archive.archivedAt < cutoffIso;
+			const orphaned =
+				typeof archive?.sessionId === "string" &&
+				expiredSessionIds.has(archive.sessionId);
+			if (!tooOld && !orphaned) continue;
+			const path = this.getJSONPath(this.dirs.archives, id);
+			try {
+				freedBytes += (await stat(path)).size;
+			} catch {
+				// as above
+			}
+			if (await this.deleteJSON(this.dirs.archives, id)) deletedFiles++;
+		}
+
+		return { deletedFiles, freedBytes };
 	}
 
 	// =========================================================================

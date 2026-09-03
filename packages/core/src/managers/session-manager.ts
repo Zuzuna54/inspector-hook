@@ -104,12 +104,6 @@ export class SessionManager extends EventEmitter {
 			options.completedTimeoutMs ?? DEFAULT_COMPLETED_TIMEOUT_MS;
 	}
 
-	/**
-	 * Set the persistence store after construction
-	 */
-	setPersistence(persistence: PersistenceStore): void {
-		this.persistence = persistence;
-	}
 
 	/**
 	 * Load sessions from persistence
@@ -606,7 +600,19 @@ export class SessionManager extends EventEmitter {
 	/**
 	 * Get statistics for a specific session
 	 */
-	async getSessionStats(id: string): Promise<SessionStats> {
+	/**
+	 * Statistics for one session.
+	 *
+	 * `logCount` and `warnings` used to be hardcoded to 0 regardless of the
+	 * session, so a UI showing "0 logs" for a session with hundreds was not a
+	 * rendering bug — the number was fabricated. They are now supplied by
+	 * IpcServer, which owns the LogManager; SessionManager has no reference to
+	 * it and cannot count logs itself.
+	 */
+	async getSessionStats(
+		id: string,
+		logCounts?: { logCount: number; warnings: number },
+	): Promise<SessionStats> {
 		const session = this.sessions.get(id);
 		if (!session) {
 			throw new Error(`Session not found: ${id}`);
@@ -623,11 +629,11 @@ export class SessionManager extends EventEmitter {
 			sessionId: id,
 			status: session.status,
 			duration: Math.floor(duration / 1000),
-			logCount: 0, // TODO: Count actual logs
+			logCount: logCounts?.logCount ?? 0,
 			toolExecutions: executions.length,
 			fileChangesCount: session.fileChanges.length,
 			errors: executions.filter((e) => e.status === "failed").length,
-			warnings: 0,
+			warnings: logCounts?.warnings ?? 0,
 			blocked: executions.filter((e) => e.status === "blocked").length,
 		};
 	}

@@ -232,9 +232,20 @@ export class IpcServer {
 			}
 			return result;
 		});
-		this.methods.set("sessions.getStats", async (params) =>
-			this.sessionManager.getSessionStats((params as any).id),
-		);
+		// logCount/warnings are counted here because SessionManager holds no
+		// reference to the LogManager -- the same reason the cascade in
+		// sessions.delete lives here. They were previously hardcoded to 0.
+		this.methods.set("sessions.getStats", async (params) => {
+			const id = (params as { id: string }).id;
+			const { logs } = await this.logManager.getLogs({
+				filter: { sessionId: id },
+				pagination: { limit: Number.MAX_SAFE_INTEGER, offset: 0 },
+			});
+			return this.sessionManager.getSessionStats(id, {
+				logCount: logs.length,
+				warnings: logs.filter((l) => l.level === "warn").length,
+			});
+		});
 
 		// Session activity - combines logs and tool executions for activity feed
 		this.methods.set("sessions.getActivity", async (params) => {
