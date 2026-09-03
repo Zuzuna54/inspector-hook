@@ -35,6 +35,13 @@ export type StopReason = "complete" | "user_abort" | "error" | "timeout";
  * Base activity item structure
  */
 export interface ActivityItemBase {
+	/**
+	 * Groups every item belonging to one user turn. Supplied by the CLI on every
+	 * hook event except SessionStart, which fires before the first user input.
+	 * Absent on items recorded before the field was captured; consumers must
+	 * treat missing as "ungrouped" rather than inventing a grouping.
+	 */
+	promptId?: string;
 	id: string;
 	type: ActivityType;
 	timestamp: string;
@@ -54,7 +61,25 @@ export interface UserPromptActivityData {
  */
 export interface AiResponseActivityData {
 	message: string;
+	/**
+	 * @deprecated No Claude Code event carries a stop reason. Failure reasons
+	 * arrive on StopFailure and are surfaced through MessageActivityData's
+	 * stopError instead. Retained so existing readers still compile.
+	 */
 	stopReason?: StopReason;
+	/**
+	 * Claude's actual reply text, from Stop's last_assistant_message. Without it
+	 * this item can only show a placeholder. NEVER populated from StopFailure:
+	 * that event reuses the same field for the API error string.
+	 */
+	assistantMessage?: string;
+	/** True when the turn ended while a stop hook was already continuing it. */
+	stopHookActive?: boolean;
+	/**
+	 * Count of background tasks still outstanding. Non-zero means the turn is
+	 * paused waiting on work, not finished.
+	 */
+	backgroundTasks?: number;
 }
 
 
@@ -70,6 +95,18 @@ export interface ToolCallActivityData {
 	status: "running" | "completed" | "failed" | "blocked";
 	startTime: string;
 	endTime?: string;
+	/**
+	 * Measured duration reported by the hook. Prefer this over subtracting
+	 * timestamps: hook timestamps were second-resolution until recently, so a
+	 * derived duration is a multiple of 1000ms or 0.
+	 */
+	durationMs?: number;
+	/** Error text when status is "failed". */
+	error?: string;
+	/** Subagent that issued this call; absent on the main session's own calls. */
+	agentId?: string;
+	/** Subagent type, e.g. a named agent. Basis for per-agent attribution. */
+	agentType?: string;
 }
 
 
@@ -113,6 +150,16 @@ export interface MessageActivityData {
 	level?: LogLevel;
 	message: string;
 	details?: Record<string, unknown>;
+	/**
+	 * Set when this item represents a StopFailure - a turn that ended on an API
+	 * error rather than completing. Values are the documented StopFailure error
+	 * codes (rate_limit, overloaded, max_output_tokens, server_error, and
+	 * others). Its presence is what distinguishes a failed turn from an
+	 * ordinary hook message, so it must not render as something Claude said.
+	 */
+	stopError?: string;
+	/** Human-readable detail accompanying stopError. */
+	errorDetails?: string;
 }
 
 
