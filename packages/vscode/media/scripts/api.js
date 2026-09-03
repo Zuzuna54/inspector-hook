@@ -595,6 +595,20 @@ const API = {
 				}
 				break;
 
+			// A deleted session produces no push event from the core - unlike a
+			// kept or reverted change, which arrives as "fileChange" - so without
+			// this the sidebar keeps showing the session until the 30s list poll.
+			case "delete-session-result":
+				if (payload?.success !== false) this.getSessions();
+				break;
+
+			// Same gap for versions: the core emits version:created and
+			// version:restored but nothing for a delete, so History would keep
+			// listing a version that is gone.
+			case "delete-version-result":
+				if (payload?.success !== false) this.getTrackedFiles();
+				break;
+
 			case "memory-projects":
 				State.update("contextView", {
 					...State.contextView,
