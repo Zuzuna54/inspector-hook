@@ -115,6 +115,13 @@
   border-left-color: var(--color-error);
 }
 
+/* SessionManager.terminate() sets this status, but nothing styled it, so a
+   terminated session was indistinguishable from one still starting up. */
+.sv-card.terminated {
+  border-left-color: var(--color-error);
+  opacity: 0.7;
+}
+
 .sv-card-header {
   display: flex;
   align-items: center;
@@ -151,6 +158,13 @@
 
 .sv-status-dot.error {
   background: var(--color-error);
+}
+
+/* Without this the dot rendered as 8x8 of nothing: .sv-status-dot sets only
+   size and radius, so an unstyled status has no background at all. */
+.sv-status-dot.terminated {
+  background: var(--color-error);
+  opacity: 0.7;
 }
 
 .sv-status-dot.unknown {
@@ -310,6 +324,19 @@
   color: var(--color-error);
 }
 
+/* completed and terminated are both reachable statuses; neither was styled,
+   so the badge fell back to the neutral base and read as "no status". */
+.sv-detail-status.completed {
+  background: var(--bg-tertiary);
+  color: var(--fg-muted);
+}
+
+.sv-detail-status.terminated {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  opacity: 0.8;
+}
+
 .sv-git-branch {
   font-size: var(--font-size-xs);
   font-family: var(--font-family-mono);
@@ -407,7 +434,12 @@
 }
 
 .sv-tab.active .sv-tab-badge {
-  background: var(--accent-bg);
+  /* --accent-bg is not defined in variables.css (nor anywhere else). Without a
+     fallback the declaration is invalid at computed-value time and the property
+     unsets to transparent, so the active Tools badge silently lost its
+     background. The other use site, .sv-bubble.sv-user, already had this
+     fallback, which is why only this one broke. */
+  background: var(--accent-bg, rgba(59, 130, 246, 0.1));
   color: var(--accent);
 }
 
@@ -494,6 +526,19 @@
 .sv-bubble.sv-tool.failed {
   border-color: var(--color-error);
   background: var(--color-error-bg);
+}
+
+/* "blocked" is a first-class ExecutionStatus that nothing styled, so a tool
+   call denied by a hook was indistinguishable from one that succeeded. */
+.sv-bubble.sv-tool.blocked {
+  border-color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+/* sessions.js puts `expanded` on the bubble, but only .sv-tool-item.expanded
+   existed - the activity-feed bubble got no expanded affordance at all. */
+.sv-bubble.sv-tool.expanded {
+  border-color: var(--accent);
 }
 
 .sv-bubble.sv-tool.running {
@@ -705,6 +750,10 @@
   color: var(--color-error);
 }
 
+.sv-tool-status.blocked {
+  color: var(--color-warning);
+}
+
 .sv-tool-status.running {
   color: var(--color-warning);
 }
@@ -857,6 +906,10 @@
   border-color: var(--color-error);
 }
 
+.sv-tool-item.blocked {
+  border-color: var(--color-warning);
+}
+
 .sv-tool-item-header {
   display: flex;
   align-items: center;
@@ -952,7 +1005,15 @@
   background: var(--color-error-bg);
 }
 
+/* LogLevel is info|warn|error|blocked. `warning` never occurs - the renderer
+   emits log.level verbatim - so this rule could never match; `warn` is the
+   real value and `blocked` had no rule at all. */
+.sv-logs-row.warn,
 .sv-logs-row.warning {
+  background: var(--color-warning-bg);
+}
+
+.sv-logs-row.blocked {
   background: var(--color-warning-bg);
 }
 
@@ -980,7 +1041,13 @@
   color: var(--color-info);
 }
 
+.sv-level-badge.warn,
 .sv-level-badge.warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.sv-level-badge.blocked {
   background: var(--color-warning-bg);
   color: var(--color-warning);
 }
