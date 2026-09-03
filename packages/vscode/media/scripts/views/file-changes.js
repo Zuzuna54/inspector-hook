@@ -156,14 +156,17 @@ const FileChangesView = {
 	},
 
 	/**
-	 * Get session display name
+	 * Get session display name.
+	 *
+	 * Delegates to the shared derivation in session-utils.js rather than keeping
+	 * a third copy of it (Sessions view and SessionManager have the others), so
+	 * a session is named the same wherever it appears. The trailing "..." on the
+	 * id fallback is preserved from the previous local implementation.
 	 */
 	_getSessionName(session) {
-		if (session.name) return session.name;
-		if (session.metadata && session.metadata.projectName)
-			return session.metadata.projectName;
-		if (session.id) return session.id.slice(0, 8) + "...";
-		return "Unknown Session";
+		const info = window.SessionUtils.getSessionDisplayInfo(session);
+		if (info.projectName) return info.projectName;
+		return session.id ? `${info.shortId}...` : "Unknown Session";
 	},
 
 	/**
@@ -217,10 +220,13 @@ const FileChangesView = {
 				const duration = session.startTime
 					? Utils.formatDuration(session.startTime, session.endTime)
 					: "";
+				// Was metadata.projectName || metadata.cwd. SessionManager never
+				// writes a `cwd` key -- it writes workingDirectory -- so that
+				// fallback was dead, and a session without an explicit
+				// projectName showed nothing. The shared derivation reads
+				// workingDirectory and yields the folder name.
 				const projectName =
-					(session.metadata && session.metadata.projectName) ||
-					(session.metadata && session.metadata.cwd) ||
-					"";
+					window.SessionUtils.getSessionDisplayInfo(session).projectName || "";
 				const totalChanges = files.reduce(
 					(sum, f) => sum + f.changes.length,
 					0,

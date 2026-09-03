@@ -34,8 +34,10 @@ const SessionUtils = {
 			}
 		}
 
-		// Short session ID (first 8 chars)
-		const shortId = session.id.slice(0, 8);
+		// Short session ID (first 8 chars). Guarded: this is a shared helper now,
+		// and callers that previously handled an id-less session themselves would
+		// otherwise crash here instead.
+		const shortId = session.id ? session.id.slice(0, 8) : "";
 
 		// Full display combines both
 		const fullDisplay = projectName ? `${projectName} • ${shortId}` : shortId;
