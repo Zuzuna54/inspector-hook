@@ -321,8 +321,29 @@ describe("memory IPC methods", () => {
 			details: { transcriptPath },
 		});
 
-		// Give the async post-end write every chance to happen.
-		await new Promise((r) => setTimeout(r, 400));
+		// Wait for a POSITIVE signal that session-end processing ran -- the
+		// status transition that emits session:ended, which is the event the
+		// write hangs off -- rather than sleeping a fixed 400ms and hoping.
+		//
+		// A fixed sleep here is a latent false green: if the gate were broken,
+		// the write would normally land well inside 400ms, but under load it
+		// might not, and the test would pass because nothing had happened YET
+		// rather than because the gate stopped it.
+		let status;
+		for (let i = 0; i < 60; i++) {
+			const { result } = await rpc("sessions.getById", { id: sessionId });
+			status = result?.status;
+			if (status === "completed") break;
+			await new Promise((r) => setTimeout(r, 50));
+		}
+		assert.equal(
+			status,
+			"completed",
+			"the session must have ended, or this test asserts nothing",
+		);
+		// Then a short grace period, so a write that WAS going to happen has
+		// had its turn on the event loop before we conclude it did not.
+		await new Promise((r) => setTimeout(r, 250));
 
 		assert.deepEqual(
 			(await readdir(memoryDir)).sort(),
@@ -403,27 +424,39 @@ describe("memory IPC methods", () => {
 				details: { transcriptPath },
 			});
 
-			// Poll rather than sleep once: the write is fired off the session
-			// event and its timing is not something to hardcode.
+			// Poll for the COMPLETE end state, not for the first artefact.
+			//
+			// writeMemoryFile renames the digest into place and only then writes
+			// MEMORY.md (native-memory.ts: rename at the file write, then
+			// upsertIndexEntry). Polling only for the digest therefore returns
+			// mid-write, and reading the index straight afterwards raced it --
+			// this test failed roughly 1 run in 4 under full-suite load. The
+			// method awaits both writes correctly; the defect was here.
+			//
+			// The two conditions are tracked separately so a genuine ordering
+			// regression still fails with a message that says which half is
+			// missing, rather than a bare timeout.
 			let written = [];
-			for (let i = 0; i < 40; i++) {
+			let index = "";
+			for (let i = 0; i < 60; i++) {
 				written = (await readdir(dir2)).filter((f) => f.startsWith("session-"));
-				if (written.length > 0) break;
-				await new Promise((r) => setTimeout(r, 100));
+				index = await readFile(join(dir2, "MEMORY.md"), "utf-8").catch(() => "");
+				if (written.length > 0 && written.every((f) => index.includes(f))) break;
+				await new Promise((r) => setTimeout(r, 50));
 			}
 
-			assert.equal(written.length, 1, `expected one digest, found ${written}`);
+			assert.equal(written.length, 1, `expected one digest, found [${written}]`);
 			const text = await readFile(join(dir2, written[0]), "utf-8");
 			assert.match(text, new RegExp(`source: ${AUTHORED_BY}`), "must mark itself");
 			assert.match(text, /type: project/);
 			assert.match(text, /proj2/);
 			assert.match(text, /a\.ts/, "the file it changed must appear");
 
-			// And native loading only finds it if the index references it.
-			assert.match(
-				await readFile(join(dir2, "MEMORY.md"), "utf-8"),
-				new RegExp(written[0].replace(".", "\\.")),
-				"an unindexed digest is never loaded, so the index must be updated",
+			// An unindexed digest is never loaded by name, so the index write is
+			// as much a part of "written to memory" as the file itself.
+			assert.ok(
+				index.includes(written[0]),
+				`MEMORY.md does not reference ${written[0]}; index contents: ${JSON.stringify(index)}`,
 			);
 		} finally {
 			gated.kill();
