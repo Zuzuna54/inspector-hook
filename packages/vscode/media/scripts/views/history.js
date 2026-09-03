@@ -128,16 +128,6 @@ const HistoryView = {
 	},
 
 	/**
-	 * Get file changes from state
-	 */
-	_getFileChanges() {
-		if (typeof State !== "undefined" && State.fileChanges) {
-			return State.fileChanges;
-		}
-		return [];
-	},
-
-	/**
 	 * Get version history from state
 	 */
 	_getVersionHistory() {
@@ -1634,53 +1624,6 @@ const HistoryView = {
 		}
 	},
 
-	/**
-	 * Apply syntax highlighting to already-escaped content
-	 * This is a language-agnostic method that highlights common programming patterns
-	 */
-	_applySyntaxHighlighting(escapedContent, language) {
-		if (!escapedContent || language === "plaintext") return escapedContent;
-
-		// Simple token-based highlighting for common patterns
-		let result = escapedContent;
-
-		// Keywords (language agnostic common ones)
-		const keywords =
-			/\b(const|let|var|function|class|return|if|else|for|while|import|export|from|default|async|await|try|catch|throw|new|this|true|false|null|undefined|type|interface|enum|extends|implements|public|private|protected|static|readonly|abstract|override)\b/g;
-		result = result.replace(keywords, '<span class="token keyword">$1</span>');
-
-		// Strings (already escaped, so &quot; instead of ")
-		result = result.replace(
-			/(&quot;[^&]*&quot;|&#39;[^&]*&#39;|`[^`]*`)/g,
-			'<span class="token string">$1</span>',
-		);
-
-		// Numbers
-		result = result.replace(
-			/\b(\d+\.?\d*)\b/g,
-			'<span class="token number">$1</span>',
-		);
-
-		// Comments (single line // and # style)
-		result = result.replace(
-			/(\/\/.*$|#.*$)/gm,
-			'<span class="token comment">$1</span>',
-		);
-
-		// Function calls (word followed by opening paren)
-		result = result.replace(
-			/\b([a-zA-Z_]\w*)\s*(?=\()/g,
-			'<span class="token function">$1</span>',
-		);
-
-		// Types (PascalCase words that aren't already wrapped)
-		result = result.replace(
-			/(?<!<span[^>]*>)\b([A-Z][a-zA-Z0-9]*)\b(?![^<]*<\/span>)/g,
-			'<span class="token type">$1</span>',
-		);
-
-		return result;
-	},
 };
 
 // Register with Router if available
@@ -1689,4 +1632,8 @@ if (typeof Router !== "undefined" && Router.register) {
 }
 
 // Export to window for global access
+// Shared with the other diff-rendering view; see scripts/shared/diff-render.js.
+// Assigned after the literal so it cannot be shadowed by a stale local copy.
+Object.assign(HistoryView, window.DiffRenderMixin);
+
 window.HistoryView = HistoryView;
