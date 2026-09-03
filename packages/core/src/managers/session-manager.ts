@@ -109,6 +109,8 @@ export class SessionManager extends EventEmitter {
 		this.staleCheckInterval = setInterval(() => {
 			this.checkStaleSessions();
 		}, STALE_CHECK_INTERVAL_MS);
+		// Housekeeping only: must not keep the process alive by itself.
+		this.staleCheckInterval.unref?.();
 	}
 
 	/**
@@ -310,7 +312,11 @@ export class SessionManager extends EventEmitter {
 			(log.event === "tool.start" || log.event === "PreToolUse")
 		) {
 			const execution: ToolExecution = {
-				id: `exec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+				// Prefer Claude Code's own tool_use_id so the Pre/Post pair can be
+				// matched exactly. Only fall back to a synthetic id when absent.
+				id:
+					log.executionId ||
+					`exec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
 				tool: log.tool,
 				input:
 					(log.details?.input as Record<string, unknown>) || log.details || {},
@@ -322,29 +328,35 @@ export class SessionManager extends EventEmitter {
 			this.emit("tool:started", { sessionId, execution });
 		}
 
-		// Update tool execution on completion (supports both tool.end and PostToolUse)
+		// Update tool execution on completion (supports both tool.end and PostToolUse).
+		// "blocked" is resolved here rather than in a later pass: this branch used to
+		// mark every non-error completion "completed", which meant the blocked branch
+		// below could no longer find the execution as running, and blocked tool calls
+		// were silently recorded as successful.
 		if (log.tool && (log.event === "tool.end" || log.event === "PostToolUse")) {
-			const exec = session.toolExecutions.find(
-				(e) => e.tool === log.tool && e.status === "running",
-			);
+			const exec = this.findRunningExecution(session, log);
 			if (exec) {
 				exec.endTime = log.timestamp;
-				exec.status = log.level === "error" ? "failed" : "completed";
 				exec.result = log.details;
 
-				if (exec.status === "completed") {
-					this.emit("tool:completed", { sessionId, execution: exec });
-				} else {
+				if (log.level === "error") {
+					exec.status = "failed";
 					this.emit("tool:failed", { sessionId, execution: exec });
+				} else if (log.level === "blocked") {
+					exec.status = "blocked";
+					exec.error = log.message;
+					this.emit("tool:blocked", { sessionId, execution: exec });
+				} else {
+					exec.status = "completed";
+					this.emit("tool:completed", { sessionId, execution: exec });
 				}
 			}
 		}
 
-		// Track blocked operations
-		if (log.level === "blocked") {
-			const exec = session.toolExecutions.find(
-				(e) => e.tool === log.tool && e.status === "running",
-			);
+		// Track operations blocked without a completion event of their own
+		// (e.g. a PreToolUse denial, which never produces a PostToolUse).
+		else if (log.level === "blocked") {
+			const exec = this.findRunningExecution(session, log);
 			if (exec) {
 				exec.status = "blocked";
 				exec.error = log.message;
@@ -362,18 +374,44 @@ export class SessionManager extends EventEmitter {
 			}
 		}
 
-		// Check for session end
-		if (
-			log.event === "session.end" ||
-			log.hook === "SessionEnd" ||
-			log.hook === "Stop"
-		) {
+		// Check for session end.
+		// NOTE: the "Stop" hook is deliberately NOT treated as a session end. Stop
+		// fires every time Claude finishes a response, so ending on it marked live
+		// sessions "completed" after every single turn, emitted a spurious
+		// session:ended (which the core logs as "Session ended"), and then relied on
+		// reactivateSession to silently resurrect the session on the next event.
+		// Only a real SessionEnd ends a session; idle/completed transitions are
+		// handled by checkStaleSessions().
+		if (log.event === "session.end" || log.hook === "SessionEnd") {
 			session.status = "completed";
 			session.endTime = log.timestamp;
 			this.emit("session:ended", session);
 		}
 
 		this.persistSession(session);
+	}
+
+	/**
+	 * Find the running execution a completion/blocked log belongs to.
+	 *
+	 * Matches on Claude Code's tool_use_id when the log carries one, which is exact
+	 * even when several calls to the same tool run in parallel. Falls back to
+	 * "first running execution with this tool name" only for logs from older hooks
+	 * that predate tool_use_id.
+	 */
+	private findRunningExecution(
+		session: Session,
+		log: LogEntry,
+	): ToolExecution | undefined {
+		if (log.executionId) {
+			const byId = session.toolExecutions.find(
+				(e) => e.id === log.executionId && e.status === "running",
+			);
+			if (byId) return byId;
+		}
+		return session.toolExecutions.find(
+			(e) => e.tool === log.tool && e.status === "running",
+		);
 	}
 
 	/**

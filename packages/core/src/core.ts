@@ -14,6 +14,7 @@ import { IpcServer } from "./ipc/ipc-server.js";
 import { FileTracker } from "./managers/file-tracker.js";
 import { LogManager } from "./managers/log-manager.js";
 import { SessionManager } from "./managers/session-manager.js";
+import { migrateStore } from "./persistence/migrations.js";
 import { PersistenceStore } from "./persistence/store.js";
 import { HttpServer } from "./server/http-server.js";
 
@@ -141,51 +142,14 @@ export class InspectorCore {
 			this.ipcServer.sendNotification("session", session);
 		});
 
-		// When a tool starts, capture file content before changes
-		this.sessionManager.on("tool:started", async ({ sessionId, execution }) => {
-			if (
-				execution.affectedFiles &&
-				(execution.tool === "Edit" || execution.tool === "Write")
-			) {
-				for (const filePath of execution.affectedFiles) {
-					await this.fileTracker.captureBeforeContent(
-						filePath,
-						sessionId,
-						execution.tool,
-					);
-				}
-			}
-		});
-
-		// When a tool completes, track the file change
-		this.sessionManager.on(
-			"tool:completed",
-			async ({ sessionId, execution }) => {
-				if (
-					execution.affectedFiles &&
-					(execution.tool === "Edit" || execution.tool === "Write")
-				) {
-					for (const filePath of execution.affectedFiles) {
-						const change = await this.fileTracker.trackFromLog({
-							id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-							timestamp: execution.endTime || new Date().toISOString(),
-							level: "info",
-							hook: "ToolEnd",
-							message: `File modified: ${filePath}`,
-							sessionId,
-							tool: execution.tool,
-							file: filePath,
-							event: "tool.end",
-						});
-
-						if (change) {
-							// Link the change to the session
-							this.sessionManager.addFileChange(sessionId, change.id);
-						}
-					}
-				}
-			},
-		);
+		// NOTE: file capture/tracking is deliberately NOT wired to the
+		// "tool:started"/"tool:completed" session events. HttpServer.handleLogPost
+		// already drives captureBeforeContent on PreToolUse and trackFromLog on
+		// PostToolUse. Doing it here as well raced that path: trackActivity emits
+		// these events synchronously, the async handler yielded at its first await,
+		// and both readers saw the same entry in the shared pendingCaptures map
+		// before either deleted it -- producing two FileChange records per edit.
+		// The HTTP ingest path is the single source of truth for file tracking.
 
 		// When a file change is tracked, broadcast via IPC
 		this.fileTracker.on("change:tracked", (change) => {
@@ -230,6 +194,17 @@ export class InspectorCore {
 			// Initialize persistence first
 			await this.persistence.initialize();
 
+			// Repair any records left by previously-fixed bugs before the managers
+			// read them into memory.
+			const migration = await migrateStore(this.storagePath);
+			if (migration.applied.length > 0) {
+				process.stderr.write(
+					`[Migration] ${migration.fromVersion} -> ${migration.toVersion}: ${
+						migration.notes.join("; ") || "no changes needed"
+					}\n`,
+				);
+			}
+
 			// Load persisted data
 			await this.sessionManager.load();
 			await this.fileTracker.load();
@@ -257,6 +232,12 @@ export class InspectorCore {
 		try {
 			await this.httpServer.stop();
 			await this.ipcServer.stop();
+
+			// Release the managers' housekeeping timers. Without this the process
+			// stays alive after a shutdown request, because both intervals were
+			// created and never cleared.
+			this.sessionManager.stopStaleSessionCheck();
+			this.logManager.destroy();
 
 			// Persist any pending data
 			await this.logManager.flush();

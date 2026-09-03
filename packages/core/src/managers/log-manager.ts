@@ -48,11 +48,14 @@ export class LogManager extends EventEmitter {
 		this.options = options;
 		this.persistence = options.persistence;
 
-		// Clean up old rate tracking entries every minute
+		// Clean up old rate tracking entries every minute.
+		// unref() so this housekeeping timer never keeps the process (or a test
+		// run) alive on its own -- it is bookkeeping, not work worth waiting for.
 		this.cleanupInterval = setInterval(() => {
 			const cutoff = Date.now() - 60000;
 			this.logsLastMinute = this.logsLastMinute.filter((t) => t > cutoff);
 		}, 60000);
+		this.cleanupInterval.unref?.();
 	}
 
 	/**
@@ -116,10 +119,12 @@ export class LogManager extends EventEmitter {
 			sessionId: data.sessionId,
 			tool: data.tool,
 			file: data.file,
-			// Preserve executionId for correlating PreToolUse/PostToolUse
-			executionId: (data as Record<string, unknown>).executionId as
-				| string
-				| undefined,
+			// Correlates PreToolUse with PostToolUse. Claude Code supplies
+			// `tool_use_id` natively on both events, which is exact even for
+			// parallel calls to the same tool; `executionId` is the legacy field
+			// name accepted for hooks that still send it.
+			executionId: ((data as Record<string, unknown>).tool_use_id ||
+				(data as Record<string, unknown>).executionId) as string | undefined,
 			details: Object.keys(details).length > 0 ? details : undefined,
 		};
 

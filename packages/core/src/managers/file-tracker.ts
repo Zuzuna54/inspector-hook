@@ -12,6 +12,7 @@ import type {
 	ArchiveDeleteResult,
 	ArchivedChange,
 	ArchiveFilter,
+	ArchiveResolution,
 	ArchiveStats,
 	DiffResult,
 	FileChange,
@@ -275,8 +276,27 @@ export class FileTracker extends EventEmitter {
 		const captureId = `${log.file}:${log.sessionId}`;
 		const pending = this.pendingCaptures.get(captureId);
 
-		// Get before content from pending capture or try to read it
-		const beforeContent = pending?.beforeContent || "";
+		// Establish the "before" content. The PreToolUse capture is authoritative
+		// (it also records "" for a file that did not exist yet, which is how a
+		// genuine file creation is represented).
+		//
+		// Without a capture we must NOT assume "": doing so made every duplicate
+		// PostToolUse - a retried hook, a hook registered twice in settings.json,
+		// or the ingest race that used to exist - fabricate a phantom change
+		// claiming the AI created the whole file from nothing. Fall back to the
+		// last content we recorded in version history, and if we have never seen
+		// the file, decline to guess.
+		let beforeContent: string;
+		if (pending) {
+			beforeContent = pending.beforeContent;
+		} else {
+			const history = this.history.get(log.file);
+			const lastVersion = history?.versions[history.versions.length - 1];
+			if (lastVersion?.content === undefined) {
+				return null;
+			}
+			beforeContent = lastVersion.content;
+		}
 
 		// Get after content (current file state)
 		let afterContent = "";
@@ -546,9 +566,28 @@ export class FileTracker extends EventEmitter {
 		}
 
 		change.status = "kept";
+		const archivedAt = await this.archiveResolvedChange(change, "kept");
+
+		this.emit("change:kept", change);
+
+		return { success: true, archivedAt };
+	}
+
+	/**
+	 * Move a resolved change out of the pending map and into the archive.
+	 *
+	 * Shared by keepChange and revertChange so both resolutions land in the
+	 * archive. Previously only "kept" changes were archived, so reverted ones
+	 * lingered in the pending map with status "reverted" -- invisible to the
+	 * pending list (which filters on "pending"), never shown in the Archived
+	 * view, and accumulating on disk forever.
+	 */
+	private async archiveResolvedChange(
+		change: FileChange,
+		resolution: ArchiveResolution,
+	): Promise<string> {
 		const archivedAt = new Date().toISOString();
 
-		// Move to archive
 		const archived: ArchivedChange = {
 			id: change.id,
 			filePath: change.filePath,
@@ -557,21 +596,20 @@ export class FileTracker extends EventEmitter {
 			originalTimestamp: change.timestamp,
 			beforeContent: change.beforeContent,
 			afterContent: change.afterContent,
+			resolution,
 		};
 
 		this.archived.set(archived.id, archived);
-		this.changes.delete(changeId);
+		this.changes.delete(change.id);
 
-		this.emit("change:kept", change);
 		this.emit("archive:added", archived);
 
-		// Persist
 		await this.persistArchived(archived);
 		if (this.persistence) {
-			await this.persistence.deleteJSON("changes", changeId);
+			await this.persistence.deleteJSON("changes", change.id);
 		}
 
-		return { success: true, archivedAt };
+		return archivedAt;
 	}
 
 	/**
@@ -593,12 +631,9 @@ export class FileTracker extends EventEmitter {
 		}
 
 		change.status = "reverted";
-		const revertedAt = new Date().toISOString();
+		const revertedAt = await this.archiveResolvedChange(change, "reverted");
 
 		this.emit("change:reverted", change);
-
-		// Persist the status change
-		await this.persistChange(change);
 
 		return {
 			success: true,
@@ -1167,6 +1202,12 @@ export class FileTracker extends EventEmitter {
 			}
 			if (f.olderThan) {
 				changes = changes.filter((c) => c.archivedAt < f.olderThan!);
+			}
+			if (f.resolution) {
+				// Archives written before `resolution` existed were kept-only.
+				changes = changes.filter(
+					(c) => (c.resolution ?? "kept") === f.resolution,
+				);
 			}
 		}
 

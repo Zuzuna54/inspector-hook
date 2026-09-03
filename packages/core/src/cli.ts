@@ -13,7 +13,9 @@ import { InspectorCore } from "./core.js";
 
 // Default configuration (can be overridden via environment variables)
 const DEFAULT_CONFIG = {
-	httpPort: parseInt(process.env.INSPECTOR_HOOK_HTTP_PORT || "0", 10), // 0 = OS assigns available port
+	// Prefer the documented default so hook URLs stay stable; HttpServer scans
+	// upward if it is taken. Set to 0 explicitly to always let the OS choose.
+	httpPort: parseInt(process.env.INSPECTOR_HOOK_HTTP_PORT || "52376", 10),
 	wsPort: parseInt(process.env.INSPECTOR_HOOK_WS_PORT || "0", 10),
 	maxLogsInMemory: parseInt(process.env.INSPECTOR_HOOK_MAX_LOGS || "10000", 10),
 	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "7", 10),

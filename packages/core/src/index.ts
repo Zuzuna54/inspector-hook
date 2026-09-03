@@ -20,6 +20,11 @@ export { DiffEngine } from "./managers/diff-engine.js";
 
 // Export persistence
 export { PersistenceStore } from "./persistence/store.js";
+export {
+	migrateStore,
+	CURRENT_SCHEMA_VERSION,
+	type MigrationResult,
+} from "./persistence/migrations.js";
 
 // Export HTTP server
 export { HttpServer } from "./server/http-server.js";

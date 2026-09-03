@@ -14,6 +14,9 @@ import type { FileTracker } from "../managers/file-tracker.js";
 import type { LogManager } from "../managers/log-manager.js";
 import type { SessionManager } from "../managers/session-manager.js";
 
+/** How many ports above the preferred one to try before giving up. */
+const PORT_SCAN_RANGE = 20;
+
 export interface HttpServerOptions {
 	port: number;
 	logManager: LogManager;
@@ -37,24 +40,62 @@ export class HttpServer {
 	}
 
 	/**
-	 * Start the HTTP server
-	 * If port is 0, the OS will assign an available port
+	 * Start the HTTP server.
+	 *
+	 * Port 0 lets the OS assign any free port. A non-zero port is treated as a
+	 * preference rather than a demand: if it is taken (a second window, a stale
+	 * process), we scan upward for the next free one. Keeping the port stable in
+	 * the common case matters because `"type": "http"` hooks are configured with
+	 * a literal URL in settings.json, but refusing to start would be worse.
 	 */
 	async start(): Promise<void> {
+		if (this.requestedPort === 0) {
+			await this.listenOn(0);
+			return;
+		}
+
+		let lastError: Error | undefined;
+		for (
+			let port = this.requestedPort;
+			port <= this.requestedPort + PORT_SCAN_RANGE;
+			port++
+		) {
+			try {
+				await this.listenOn(port);
+				return;
+			} catch (error) {
+				const err = error as NodeJS.ErrnoException;
+				if (err.code !== "EADDRINUSE") throw err;
+				lastError = err;
+			}
+		}
+
+		throw new Error(
+			`No free port in range ${this.requestedPort}-${
+				this.requestedPort + PORT_SCAN_RANGE
+			} (last error: ${lastError?.message})`,
+		);
+	}
+
+	/**
+	 * Bind a single port, resolving once listening and rejecting on any error.
+	 */
+	private listenOn(port: number): Promise<void> {
 		return new Promise((resolve, reject) => {
-			this.server = createServer(this.handleRequest.bind(this));
+			const server = createServer(this.handleRequest.bind(this));
 
-			this.server.on("error", (error: NodeJS.ErrnoException) => {
-				if (error.code === "EADDRINUSE") {
-					reject(new Error(`Port ${this.requestedPort} is already in use`));
-				} else {
-					reject(error);
-				}
-			});
+			const onError = (error: NodeJS.ErrnoException) => {
+				server.close();
+				reject(error);
+			};
 
-			this.server.listen(this.requestedPort, "127.0.0.1", () => {
-				const addr = this.server?.address();
-				this.actualPort = typeof addr === "object" ? (addr?.port ?? 0) : 0;
+			server.once("error", onError);
+
+			server.listen(port, "127.0.0.1", () => {
+				server.removeListener("error", onError);
+				this.server = server;
+				const addr = server.address();
+				this.actualPort = typeof addr === "object" ? (addr?.port ?? 0) : port;
 				resolve();
 			});
 		});

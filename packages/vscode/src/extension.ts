@@ -26,6 +26,8 @@ export async function activate(
 	// Initialize core bridge
 	coreBridge = new CoreBridge({
 		storagePath: context.globalStorageUri.fsPath,
+		workspaceRoot:
+			vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
 		httpPort,
 		wsPort,
 		extensionPath: context.extensionUri.fsPath,

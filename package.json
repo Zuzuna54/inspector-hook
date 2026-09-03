@@ -1,19 +1,20 @@
 {
-  "name": "inspector-hook",
-  "private": true,
-  "scripts": {
-    "build": "pnpm -r build",
-    "dev": "pnpm -r --parallel dev",
-    "clean": "pnpm -r clean",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
-  },
-  "devDependencies": {
-    "typescript": "^5.3.0",
-    "esbuild": "^0.20.0"
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "pnpm": ">=8.0.0"
-  }
+	"name": "inspector-hook",
+	"private": true,
+	"scripts": {
+		"build": "pnpm -r build",
+		"test": "pnpm -r test",
+		"dev": "pnpm -r --parallel dev",
+		"clean": "pnpm -r clean",
+		"typecheck": "pnpm -r typecheck",
+		"lint": "pnpm -r lint"
+	},
+	"devDependencies": {
+		"typescript": "^5.3.0",
+		"esbuild": "^0.20.0"
+	},
+	"engines": {
+		"node": ">=18.0.0",
+		"pnpm": ">=8.0.0"
+	}
 }

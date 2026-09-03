@@ -1,2 +1,11 @@
 packages:
   - 'packages/*'
+
+# pnpm >= 10 refuses to run dependency lifecycle scripts unless they are explicitly
+# allowlisted, and fails the whole install with ERR_PNPM_IGNORED_BUILDS otherwise.
+# esbuild's postinstall resolves its platform-specific binary, so it must run.
+# vsce-sign/keytar are only needed to *publish* a VSIX, never to build locally.
+allowBuilds:
+  esbuild: true
+  '@vscode/vsce-sign': false
+  keytar: false

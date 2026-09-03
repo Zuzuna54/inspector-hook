@@ -403,7 +403,12 @@ export interface VersionHistory {
 // =============================================================================
 
 /**
- * An archived (kept) file change
+ * How a pending change was resolved before being archived
+ */
+export type ArchiveResolution = "kept" | "reverted";
+
+/**
+ * An archived (resolved) file change — either kept or reverted
  */
 export interface ArchivedChange {
 	/** Original change ID */
@@ -418,8 +423,14 @@ export interface ArchivedChange {
 	originalTimestamp: string;
 	/** Content before the change */
 	beforeContent: string;
-	/** Content after the change (the kept version) */
+	/** Content after the change (as the AI wrote it) */
 	afterContent: string;
+	/**
+	 * Whether the change was kept or reverted. Optional so archives written
+	 * before this field existed still load; treat a missing value as "kept",
+	 * since only kept changes were archived at all back then.
+	 */
+	resolution?: ArchiveResolution;
 	/** Optional archive notes */
 	notes?: string;
 	/** Tags for organization */
@@ -753,6 +764,8 @@ export interface ArchiveFilter {
 	filePath?: string;
 	/** Filter archives older than this timestamp */
 	olderThan?: string;
+	/** Filter by how the change was resolved (kept vs reverted) */
+	resolution?: ArchiveResolution;
 }
 
 /**

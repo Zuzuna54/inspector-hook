@@ -77,7 +77,7 @@
     "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --external:@inspector-hook/protocol --outfile=dist/extension.js",
     "dev": "pnpm build --watch",
     "package": "vsce package --no-dependencies",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist *.tsbuildinfo",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

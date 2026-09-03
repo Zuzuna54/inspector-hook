@@ -26,7 +26,10 @@ import type {
 type JsonRpcResult = JsonRpcResponse | JsonRpcError;
 
 export interface CoreBridgeOptions {
+	/** Where the core keeps its own state (VS Code global storage). */
 	storagePath: string;
+	/** The user's workspace folder — what the core treats as the project root. */
+	workspaceRoot: string;
 	httpPort: number;
 	wsPort: number;
 	extensionPath?: string;
@@ -64,12 +67,19 @@ export class CoreBridge extends EventEmitter {
 			// Find the core CLI
 			const corePath = this.findCorePath();
 
-			// Spawn the core process
+			// Spawn the core process.
+			// The configured ports are passed through here; previously they were
+			// read from settings, handed to CoreBridge, and then never used, so
+			// `inspectorHook.httpPort` had no effect at all. Workspace root is the
+			// actual workspace folder -- it used to be VS Code's global storage
+			// path, which is where core state lives, not where the user's code is.
 			this.process = spawn("node", [corePath], {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
-					INSPECTOR_HOOK_WORKSPACE: this.options.storagePath,
+					INSPECTOR_HOOK_WORKSPACE: this.options.workspaceRoot,
+					INSPECTOR_HOOK_HTTP_PORT: String(this.options.httpPort),
+					INSPECTOR_HOOK_WS_PORT: String(this.options.wsPort),
 				},
 			});
 
