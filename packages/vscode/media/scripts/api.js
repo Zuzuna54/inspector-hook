@@ -373,6 +373,12 @@ const API = {
 				State.update("sessionView", {
 					...State.sessionView,
 					sessionActivity: activities,
+					// The feed window is capped server-side. Without these the UI
+					// would imply the session simply started at the oldest item it
+					// received.
+					activityTruncated: payload?.truncated === true,
+					activityTotalLogs:
+						typeof payload?.totalLogs === "number" ? payload.totalLogs : null,
 				});
 				break;
 			}

@@ -695,6 +695,36 @@
   font-weight: var(--font-weight-medium);
 }
 
+/* Which subagent ran this call, from the hook's agent_type. Deliberately
+   quieter than the tool badge: it is attribution, not the primary label. */
+.sv-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  color: var(--color-info);
+  background: var(--color-info-bg);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The activity window is capped server-side; this states that plainly at the
+   top of the feed instead of letting the oldest item read as the session start. */
+.sv-truncation-notice {
+  margin: 0 auto var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--fg-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
 .sv-tool-badge.read {
   background: var(--color-info-bg);
   color: var(--color-info);

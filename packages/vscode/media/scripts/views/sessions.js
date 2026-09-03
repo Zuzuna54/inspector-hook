@@ -571,6 +571,7 @@ const SessionsView = {
 
 		container.innerHTML = `
       <div class="sv-activity-feed">
+        ${this.renderTruncationNotice(activities.length)}
         ${activities.map((activity, idx) => this.renderActivityItem(activity, idx)).join("")}
       </div>
     `;
@@ -810,6 +811,30 @@ const SessionsView = {
 	},
 
 	/**
+	 * Banner shown when the feed does not reach the start of the session.
+	 * The server caps the activity window; without this the oldest rendered
+	 * item reads as the moment the session began.
+	 * @param {number} shownCount
+	 * @returns {string}
+	 */
+	renderTruncationNotice(shownCount) {
+		const { activityTruncated, activityTotalLogs } = State.sessionView;
+		if (!activityTruncated) return "";
+
+		const total =
+			typeof activityTotalLogs === "number"
+				? `${activityTotalLogs} events`
+				: "more events";
+
+		return `
+      <div class="sv-truncation-notice">
+        Earlier activity not loaded &mdash; showing the most recent
+        ${shownCount} of ${total} in this session.
+      </div>
+    `;
+	},
+
+	/**
 	 * Render a single activity item
 	 * @param {Object} activity
 	 * @param {number} idx
@@ -985,6 +1010,11 @@ const SessionsView = {
       <div class="sv-bubble sv-tool ${status} ${isExpanded ? "expanded" : ""}" data-item-id="${itemId}">
         <div class="sv-bubble-header">
           <span class="sv-tool-badge ${toolType}">${Utils.escapeHtml(toolName)}</span>
+          ${
+						tool.agentType
+							? `<span class="sv-agent-badge" title="Run by subagent: ${Utils.escapeHtml(tool.agentType)}">${Utils.escapeHtml(tool.agentType)}</span>`
+							: ""
+					}
           <span class="sv-bubble-time">${timestamp}</span>
           ${isRunning ? '<span class="sv-spinner"></span>' : ""}
           ${hasError ? '<span class="sv-error-badge">Error</span>' : ""}

@@ -44,6 +44,10 @@ const State = {
 		searchQuery: "",
 		sessionActivity: [],
 		sessionLogs: [],
+		// Set from the activity response: whether older logs exist beyond the
+		// fetched window, and how many the session has in total.
+		activityTruncated: false,
+		activityTotalLogs: null,
 	},
 
 	// ==========================================================================
@@ -213,6 +217,8 @@ const State = {
 			searchQuery: "",
 			sessionActivity: [],
 			sessionLogs: [],
+			activityTruncated: false,
+			activityTotalLogs: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],
