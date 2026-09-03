@@ -330,6 +330,28 @@ export class InspectorPanel {
 				break;
 			}
 
+			case "get-version-content": {
+				// Always answer, including on a miss: history.js clears its
+				// per-version loading flag from this response, so a silent
+				// no-reply leaves that version stuck on "Loading..." forever.
+				const filePath = (message.params as any).filePath;
+				const versionNumber = (message.params as any).versionNumber;
+				const result = await this._coreBridge.getVersionContent(
+					filePath,
+					versionNumber,
+				);
+				this._sendMessage({
+					type: "version-content",
+					payload: result ?? {
+						filePath,
+						versionNumber,
+						content: null,
+						error: "Version content not found",
+					},
+				});
+				break;
+			}
+
 			case "restore-version": {
 				const result = await this._coreBridge.restoreVersion(
 					(message.params as any).filePath,

@@ -472,6 +472,33 @@ export class CoreBridge extends EventEmitter {
 	}
 
 	/**
+	 * Get the stored content of one version.
+	 *
+	 * The webview has always called this (history.js -> API.getVersionContent),
+	 * and the core has always exposed `history.getVersionContent`, but the two
+	 * middle links -- this method and the panel's message case -- did not exist,
+	 * so opening a version in the History viewer could never load anything.
+	 *
+	 * Returns null when the version is not found, which the caller must still
+	 * report to the webview: history.js clears its "loading" flag from the
+	 * response, so swallowing a miss leaves the viewer spinning forever.
+	 */
+	async getVersionContent(
+		filePath: string,
+		versionNumber: number,
+	): Promise<{
+		filePath: string;
+		versionNumber: number;
+		content: string;
+		timestamp: string;
+	} | null> {
+		return this.sendRequest("history.getVersionContent", {
+			filePath,
+			versionNumber,
+		});
+	}
+
+	/**
 	 * Restore a specific version of a file
 	 */
 	async restoreVersion(

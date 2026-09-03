@@ -46,47 +46,82 @@ export function buildWebviewHtml(
 			vscode.Uri.joinPath(extensionUri, "media", ...paths),
 		);
 
-	// CSS URIs
-	const variablesCss = getUri("styles", "variables.css");
-	const layoutCss = getUri("styles", "layout.css");
-	const componentsCss = getUri("styles", "components.css");
-	const prismThemeCss = getUri("styles", "prism-theme.css");
-	const dashboardCss = getUri("styles", "views", "dashboard.css");
-	const logsCss = getUri("styles", "views", "logs.css");
-	const sessionsCss = getUri("styles", "views", "sessions.css");
-	// Note: file-changes.css, history.css, archived.css created by Agent 2
-	const fileChangesCss = getUri("styles", "views", "file-changes.css");
-	const historyCss = getUri("styles", "views", "history.css");
-	const archivedCss = getUri("styles", "views", "archived.css");
+	// Asset manifests. Order matters for scripts: a module must load before
+	// anything that references it at parse time.
+	//
+	// Every entry is individually optional -- a path that does not exist yet is
+	// a 404 the webview ignores -- so a tag can land before the file it names.
+	// That is deliberate: it lets the split of a large view proceed one module
+	// at a time without a broken intermediate state, and it is why these are
+	// real <link>/<script> tags rather than CSS @import. An @import with a
+	// wrong path fails silently and takes the whole stylesheet with it; a
+	// missing tag here costs only the one file.
+	const styles: string[][] = [
+		["styles", "variables.css"],
+		["styles", "layout.css"],
+		["styles", "components.css"],
+		["styles", "components", "controls.css"],
+		["styles", "components", "data-display.css"],
+		["styles", "components", "feedback.css"],
+		["styles", "prism-theme.css"],
+		["styles", "shared", "diff.css"],
+		["styles", "views", "dashboard.css"],
+		["styles", "views", "logs.css"],
+		["styles", "views", "sessions.css"],
+		["styles", "views", "sessions", "list.css"],
+		["styles", "views", "sessions", "feed.css"],
+		["styles", "views", "sessions", "tool-detail.css"],
+		["styles", "views", "sessions", "detail.css"],
+		["styles", "views", "file-changes.css"],
+		["styles", "views", "file-changes", "layout.css"],
+		["styles", "views", "file-changes", "sidebar.css"],
+		["styles", "views", "file-changes", "diff.css"],
+		["styles", "views", "file-changes", "edit.css"],
+		["styles", "views", "history.css"],
+		["styles", "views", "history", "layout.css"],
+		["styles", "views", "history", "accordion.css"],
+		["styles", "views", "history", "viewer.css"],
+		["styles", "views", "history", "diff.css"],
+		["styles", "views", "archived.css"],
+		["styles", "views", "archived", "layout.css"],
+		["styles", "views", "archived", "accordion.css"],
+		["styles", "views", "archived", "preview.css"],
+	];
 
-	// JS URIs (order matters - dependencies first)
-	const stateJs = getUri("scripts", "state.js");
-	const routerJs = getUri("scripts", "router.js");
-	const apiJs = getUri("scripts", "api.js");
-	const dashboardJs = getUri("scripts", "views", "dashboard.js");
-	const logsJs = getUri("scripts", "views", "logs.js");
-	const sessionsJs = getUri("scripts", "views", "sessions.js");
-	// sessions.js is being split into modules under scripts/views/sessions/.
-	// These load before it and are individually optional: a missing file is a
-	// 404 the webview ignores, so the tags can land before the files do.
-	const sessionUtilsJs = getUri("scripts", "session-utils.js");
-	const sessionListJs = getUri("scripts", "views", "sessions", "session-list.js");
-	const activityFeedJs = getUri("scripts", "views", "sessions", "activity-feed.js");
-	const activityItemsJs = getUri("scripts", "views", "sessions", "activity-items.js");
-	const toolDetailJs = getUri("scripts", "views", "sessions", "tool-detail.js");
-	const sessionDetailJs = getUri("scripts", "views", "sessions", "session-detail.js");
-	// Note: file-changes.js, history.js, archived.js created by Agent 2
-	const fileChangesJs = getUri("scripts", "views", "file-changes.js");
-	// file-changes.js is being split into modules under scripts/views/file-changes/.
-	// Loaded before it, and individually optional -- a file that does not exist
-	// yet is a 404 the webview ignores, so the tags can land before the files.
-	const fcSessionListJs = getUri("scripts", "views", "file-changes", "fc-session-list.js");
-	const fcDiffViewJs = getUri("scripts", "views", "file-changes", "fc-diff-view.js");
-	const fcEditorJs = getUri("scripts", "views", "file-changes", "fc-editor.js");
-	const fcActionsJs = getUri("scripts", "views", "file-changes", "fc-actions.js");
-	const historyJs = getUri("scripts", "views", "history.js");
-	const archivedJs = getUri("scripts", "views", "archived.js");
-	const mainJs = getUri("scripts", "main.js");
+	const scripts: string[][] = [
+		["scripts", "state.js"],
+		["scripts", "router.js"],
+		["scripts", "api.js"],
+		// Shared helpers, before every view that uses them.
+		["scripts", "session-utils.js"],
+		["scripts", "shared", "diff-render.js"],
+		["scripts", "shared", "session-accordion.js"],
+		["scripts", "views", "dashboard.js"],
+		["scripts", "views", "logs.js"],
+		// Sessions modules load before sessions.js.
+		["scripts", "views", "sessions", "session-list.js"],
+		["scripts", "views", "sessions", "activity-items.js"],
+		["scripts", "views", "sessions", "activity-feed.js"],
+		["scripts", "views", "sessions", "tool-detail.js"],
+		["scripts", "views", "sessions", "session-detail.js"],
+		["scripts", "views", "sessions.js"],
+		// File-changes modules load before file-changes.js.
+		["scripts", "views", "file-changes", "fc-session-list.js"],
+		["scripts", "views", "file-changes", "fc-diff-view.js"],
+		["scripts", "views", "file-changes", "fc-editor.js"],
+		["scripts", "views", "file-changes", "fc-actions.js"],
+		["scripts", "views", "file-changes.js"],
+		// History modules load before history.js.
+		["scripts", "views", "history", "file-list.js"],
+		["scripts", "views", "history", "version-list.js"],
+		["scripts", "views", "history", "diff-viewer.js"],
+		["scripts", "views", "history", "virtual-scroll.js"],
+		["scripts", "views", "history", "restore.js"],
+		["scripts", "views", "history.js"],
+		["scripts", "views", "archived.js"],
+		// main.js wires everything up and must be last.
+		["scripts", "main.js"],
+	];
 
 	// Use a nonce to only allow specific scripts to run
 	const nonce = getNonce();
@@ -98,17 +133,8 @@ export function buildWebviewHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
 
-  <!-- CSS Files -->
-  <link href="${variablesCss}" rel="stylesheet">
-  <link href="${layoutCss}" rel="stylesheet">
-  <link href="${componentsCss}" rel="stylesheet">
-  <link href="${prismThemeCss}" rel="stylesheet">
-  <link href="${dashboardCss}" rel="stylesheet">
-  <link href="${logsCss}" rel="stylesheet">
-  <link href="${sessionsCss}" rel="stylesheet">
-  <link href="${fileChangesCss}" rel="stylesheet">
-  <link href="${historyCss}" rel="stylesheet">
-  <link href="${archivedCss}" rel="stylesheet">
+  <!-- Stylesheets, from the styles manifest above -->
+${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).join("\n")}
 
   <title>Inspector Hook</title>
 </head>
@@ -360,26 +386,7 @@ export function buildWebviewHtml(
   </div>
 
   <!-- Scripts (loaded in order - dependencies first) -->
-  <script nonce="${nonce}" src="${stateJs}"></script>
-  <script nonce="${nonce}" src="${routerJs}"></script>
-  <script nonce="${nonce}" src="${apiJs}"></script>
-  <script nonce="${nonce}" src="${dashboardJs}"></script>
-  <script nonce="${nonce}" src="${logsJs}"></script>
-  <script nonce="${nonce}" src="${sessionUtilsJs}"></script>
-  <script nonce="${nonce}" src="${sessionListJs}"></script>
-  <script nonce="${nonce}" src="${activityItemsJs}"></script>
-  <script nonce="${nonce}" src="${activityFeedJs}"></script>
-  <script nonce="${nonce}" src="${toolDetailJs}"></script>
-  <script nonce="${nonce}" src="${sessionDetailJs}"></script>
-  <script nonce="${nonce}" src="${sessionsJs}"></script>
-  <script nonce="${nonce}" src="${fcSessionListJs}"></script>
-  <script nonce="${nonce}" src="${fcDiffViewJs}"></script>
-  <script nonce="${nonce}" src="${fcEditorJs}"></script>
-  <script nonce="${nonce}" src="${fcActionsJs}"></script>
-  <script nonce="${nonce}" src="${fileChangesJs}"></script>
-  <script nonce="${nonce}" src="${historyJs}"></script>
-  <script nonce="${nonce}" src="${archivedJs}"></script>
-  <script nonce="${nonce}" src="${mainJs}"></script>
+${scripts.map((path) => `  <script nonce="${nonce}" src="${getUri(...path)}"></script>`).join("\n")}
 </body>
 </html>`;
 }
