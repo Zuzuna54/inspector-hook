@@ -21,9 +21,12 @@ const DEFAULT_CONFIG = {
 	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "7", 10),
 };
 
-// Get storage path (shared across sessions)
+// Get storage path (shared across sessions).
+// INSPECTOR_HOOK_STORAGE overrides it, which is what lets a second core run
+// against its own store instead of writing into the user's real history.
 function getStoragePath(): string {
-	const basePath = join(homedir(), ".inspector-hook");
+	const basePath =
+		process.env.INSPECTOR_HOOK_STORAGE || join(homedir(), ".inspector-hook");
 	if (!existsSync(basePath)) {
 		mkdirSync(basePath, { recursive: true });
 	}
@@ -35,11 +38,18 @@ function getWorkspaceRoot(): string {
 	return process.env.INSPECTOR_HOOK_WORKSPACE || process.cwd();
 }
 
-// Write port to file for hooks to discover
-// Uses fixed path /tmp/inspector-hook.port as per Phase 1 spec
+// Write the port where hooks can discover it.
+//
+// The path is overridable via INSPECTOR_HOOK_PORT_FILE. Without that, any
+// second core -- a test run, a scratch instance -- overwrites the single global
+// file and silently redirects every hook on the machine at itself, breaking
+// capture for the real instance until it restarts.
+function getPortFilePath(): string {
+	return process.env.INSPECTOR_HOOK_PORT_FILE || "/tmp/inspector-hook.port";
+}
+
 function writePortFile(port: number): void {
-	const portFile = "/tmp/inspector-hook.port";
-	writeFileSync(portFile, port.toString(), "utf-8");
+	writeFileSync(getPortFilePath(), port.toString(), "utf-8");
 }
 
 async function main(): Promise<void> {

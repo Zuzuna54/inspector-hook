@@ -3,12 +3,15 @@
 # Usage: Add to any hook event in settings.json
 
 # Debug logging
-DEBUG_LOG="/tmp/hook-inspector-debug.log"
+# Debug logging is opt-in: this file recorded every prompt and tool payload
+# forever, with no rotation, in world-readable /tmp.
+DEBUG_LOG="${INSPECTOR_HOOK_DEBUG_LOG:-/dev/null}"
 echo "$(date): Hook called" >> "$DEBUG_LOG"
 
-# Get Hook Inspector port
-# Uses fixed path /tmp/inspector-hook.port per Phase 1 spec
-PORT_FILE="/tmp/inspector-hook.port"
+# Get Hook Inspector port.
+# INSPECTOR_HOOK_PORT_FILE overrides the default so a scratch/test core can be
+# targeted without redirecting the machine's real hooks at it.
+PORT_FILE="${INSPECTOR_HOOK_PORT_FILE:-/tmp/inspector-hook.port}"
 if [[ ! -f "$PORT_FILE" ]]; then
     echo "$(date): Port file not found at $PORT_FILE" >> "$DEBUG_LOG"
     exit 0  # Extension not running, skip silently
@@ -46,8 +49,40 @@ echo "$(date): Parsed - Hook: $HOOK_NAME, Tool: $TOOL_NAME, Session: $SESSION_ID
 # Determine event type based on hook name
 EVENT="$HOOK_NAME"
 
-# Set level (default to info)
+# Derive the level from the payload. This was hardcoded to "info", so the
+# Errors / Warnings / Blocked counters could never populate from real traffic
+# no matter what actually happened.
 LEVEL="info"
+TOOL_ERROR=$(echo "$INPUT" | jq -r '.tool_error // ""' 2>/dev/null)
+RESPONSE_ERROR=$(echo "$INPUT" | jq -r '
+    if (.tool_response | type) == "object" then (.tool_response.error // "") else "" end
+' 2>/dev/null)
+
+case "$HOOK_NAME" in
+    PostToolUseFailure|StopFailure)
+        LEVEL="error"
+        ;;
+    PermissionDenied)
+        LEVEL="blocked"
+        ;;
+esac
+
+# A tool can also report failure in its own response payload.
+if [[ "$LEVEL" == "info" ]] && { [[ -n "$TOOL_ERROR" ]] || [[ -n "$RESPONSE_ERROR" ]]; }; then
+    if echo "$TOOL_ERROR$RESPONSE_ERROR" | grep -qiE "blocked|denied|not allowed|permission"; then
+        LEVEL="blocked"
+    else
+        LEVEL="error"
+    fi
+fi
+
+# Notification carries its own severity.
+if [[ "$HOOK_NAME" == "Notification" ]]; then
+    case "$(echo "$INPUT" | jq -r '.level // ""' 2>/dev/null)" in
+        error) LEVEL="error" ;;
+        warn|warning) LEVEL="warn" ;;
+    esac
+fi
 
 # Extract user prompt for UserPromptSubmit
 USER_PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
@@ -136,6 +171,16 @@ PAYLOAD=$(echo "$INPUT" | jq \
         tool: $tool,
         file: $file,
         message: $msg,
+
+        # Claude Code supplies tool_use_id on every PreToolUse/PostToolUse. It is
+        # the only reliable way to pair a completion with its start when several
+        # calls to the same tool run in parallel; without it the core falls back
+        # to matching on tool name and leaves executions stuck "running".
+        tool_use_id: .tool_use_id,
+
+        # Groups every event belonging to one user turn.
+        prompt_id: .prompt_id,
+
         details: {
             cwd: $cwd,
             transcriptPath: $transcript,
@@ -143,7 +188,28 @@ PAYLOAD=$(echo "$INPUT" | jq \
             stopReason: (if $stopReason != "" then $stopReason else null end),
             notificationType: (if $notificationType != "" then $notificationType else null end),
             tool_input: .tool_input,
-            tool_result: .tool_response
+            tool_result: .tool_response,
+
+            # Real measured duration. Hook timestamps are second-resolution, so
+            # durations derived from them are always a multiple of 1000ms or 0 --
+            # i.e. fiction. This is the actual figure.
+            durationMs: .duration_ms,
+
+            # Present on tool events fired inside a subagent, and the basis for
+            # an agent tree without needing SubagentStop wired up.
+            agentId: .agent_id,
+            agentType: .agent_type,
+
+            # Session conditions worth recording alongside the event.
+            permissionMode: .permission_mode,
+            effort: .effort.level,
+            model: .model,
+
+            # Stop carries the assistant text that just finished streaming.
+            lastAssistantMessage: .last_assistant_message,
+
+            # The error string carried by PostToolUseFailure.
+            toolError: .tool_error
         }
     }' 2>/dev/null)
 

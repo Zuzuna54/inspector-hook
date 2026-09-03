@@ -27,7 +27,7 @@ curl -s "http://localhost:$PORT/api/logs?limit=5" | jq '.logs[] | "\(.timestamp[
 
 echo ""
 echo "--- SESSIONS ---"
-curl -s "http://localhost:$PORT/api/sessions" | jq '.sessions[] | {id: .id[0:8], status: .status, tools: .toolCount}'
+curl -s "http://localhost:$PORT/api/sessions" | jq '.sessions[] | {id: .id[0:8], status: .status, tools: (.toolExecutions | length)}'
 
 echo ""
 echo "--- PENDING CHANGES ---"

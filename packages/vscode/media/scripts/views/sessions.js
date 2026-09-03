@@ -513,6 +513,10 @@ const SessionsView = {
 
 		const { activeTab } = State.sessionView;
 
+		// Install the delegated click handler for whichever tab renders below.
+		// Idempotent, so calling it per render costs nothing after the first.
+		this.setupActivityHandlers();
+
 		switch (activeTab) {
 			case "activity":
 				this.renderActivityTab(contentEl, session);
@@ -571,8 +575,6 @@ const SessionsView = {
       </div>
     `;
 
-		// Set up expand/collapse handlers
-		this.setupActivityHandlers(container);
 	},
 
 	/**
@@ -634,8 +636,8 @@ const SessionsView = {
 
 		this._lastActivityCount = activities.length;
 
-		// Re-setup handlers for new items
-		this.setupActivityHandlers(contentEl);
+		// Appended items need no wiring - the detail pane's delegated handler
+		// already covers them.
 
 		// Auto-scroll to bottom if enabled
 		if (State.sessionView.autoScroll) {
@@ -673,10 +675,9 @@ const SessionsView = {
 				const newEl = tempDiv.firstElementChild;
 
 				if (newEl) {
+					// Safe to swap: handlers are delegated on the detail pane, so
+					// the replacement is live without rebinding anything.
 					toolEl.replaceWith(newEl);
-					// The replacement carries no listeners; without this its
-					// expand and copy buttons would be inert.
-					this.setupActivityHandlers(newEl);
 				}
 			}
 		});
@@ -974,11 +975,7 @@ const SessionsView = {
 		const toolName = tool.tool || "Unknown";
 		const toolType = this.getToolType(toolName);
 
-		// Calculate duration
-		let duration = "";
-		if (tool.startTime && tool.endTime) {
-			duration = `${new Date(tool.endTime) - new Date(tool.startTime)}ms`;
-		}
+		const duration = this.formatToolDuration(tool);
 
 		return `
       <div class="sv-bubble sv-tool ${status} ${isExpanded ? "expanded" : ""}" data-item-id="${itemId}">
@@ -1092,27 +1089,47 @@ const SessionsView = {
 	 * Setup activity item handlers
 	 * @param {HTMLElement} container
 	 */
-	setupActivityHandlers(container) {
-		// Expand/collapse buttons
-		container.querySelectorAll(".sv-expand-btn").forEach((btn) => {
-			btn.addEventListener("click", (e) => {
-				e.stopPropagation();
-				const itemId = btn.dataset.itemId;
-				this.toggleExpand(itemId);
-			});
-		});
+	setupActivityHandlers() {
+		const contentEl = document.getElementById("sv-detail-content");
+		if (!contentEl || contentEl.dataset.svDelegated === "1") return;
+		contentEl.dataset.svDelegated = "1";
 
-		// Copy buttons
-		container.querySelectorAll(".sv-copy-btn").forEach((btn) => {
-			btn.addEventListener("click", (e) => {
+		// One delegated listener for the whole detail pane. Previously handlers
+		// were attached per item on every render, so a feed of several hundred
+		// items re-bound several hundred listeners on each 2s tick and on every
+		// expand click - and any node replaced in place silently lost its own.
+		contentEl.addEventListener("click", (e) => {
+			const copyBtn = e.target.closest(".sv-copy-btn");
+			if (copyBtn) {
 				e.stopPropagation();
-				const text = this._copyPayloads.get(btn.dataset.copyKey);
-				if (text === undefined) return;
-				navigator.clipboard.writeText(text).then(() => {
-					btn.textContent = "Copied!";
-					setTimeout(() => (btn.textContent = "Copy"), 1500);
-				});
-			});
+				this.handleCopyClick(copyBtn);
+				return;
+			}
+
+			const expandBtn = e.target.closest(".sv-expand-btn");
+			if (expandBtn) {
+				e.stopPropagation();
+				this.toggleExpand(expandBtn.dataset.itemId);
+				return;
+			}
+
+			const toolHeader = e.target.closest(".sv-tool-item-header");
+			if (toolHeader) {
+				this.toggleExpand(toolHeader.dataset.itemId);
+			}
+		});
+	},
+
+	/**
+	 * Copy a stashed payload to the clipboard
+	 * @param {HTMLElement} btn
+	 */
+	handleCopyClick(btn) {
+		const text = this._copyPayloads.get(btn.dataset.copyKey);
+		if (text === undefined) return;
+		navigator.clipboard.writeText(text).then(() => {
+			btn.textContent = "Copied!";
+			setTimeout(() => (btn.textContent = "Copy"), 1500);
 		});
 	},
 
@@ -1141,47 +1158,62 @@ const SessionsView = {
 
 		container.innerHTML = `
       <div class="sv-tools-list">
-        ${tools
-					.map((tool, idx) => {
-						const itemId = `tools-tab-${idx}`;
-						const isExpanded = this._expandedItems.has(itemId);
-						const timestamp = Utils.formatTime(tool.startTime);
-						const status = tool.status || "completed";
-						const toolType = this.getToolType(tool.tool);
-
-						let duration = "";
-						if (tool.startTime && tool.endTime) {
-							duration = `${new Date(tool.endTime) - new Date(tool.startTime)}ms`;
-						}
-
-						return `
-            <div class="sv-tool-item ${status} ${isExpanded ? "expanded" : ""}" data-item-id="${itemId}">
-              <div class="sv-tool-item-header" data-item-id="${itemId}">
-                <span class="sv-tool-index">${idx + 1}</span>
-                <span class="sv-tool-badge ${toolType}">${Utils.escapeHtml(tool.tool || "Unknown")}</span>
-                <span class="sv-tool-time">${timestamp}</span>
-                ${duration ? `<span class="sv-tool-duration">${duration}</span>` : ""}
-                <span class="sv-tool-status ${status}">${this.getStatusIcon(status)}</span>
-                <span class="sv-tool-expand" title="${isExpanded ? "Hide details" : "Show details"}">${isExpanded ? "▲" : "▼"}</span>
-              </div>
-              ${isExpanded ? this.renderToolDetails(tool) : ""}
-            </div>
-          `;
-					})
-					.join("")}
+        ${tools.map((tool, idx) => this.renderToolItem(tool, idx)).join("")}
       </div>
     `;
+	},
 
-		// Add click handlers for tool items
-		container.querySelectorAll(".sv-tool-item-header").forEach((header) => {
-			header.addEventListener("click", () => {
-				const itemId = header.dataset.itemId;
-				this.toggleExpand(itemId);
-			});
-		});
+	/**
+	 * Render one row of the Tools tab
+	 * @param {Object} tool
+	 * @param {number} idx
+	 * @returns {string}
+	 */
+	renderToolItem(tool, idx) {
+		const itemId = this.toolItemId(idx);
+		const isExpanded = this._expandedItems.has(itemId);
+		const timestamp = Utils.formatTime(tool.startTime);
+		const status = tool.status || "completed";
+		const toolType = this.getToolType(tool.tool);
+		const duration = this.formatToolDuration(tool);
 
-		// Setup copy handlers
-		this.setupActivityHandlers(container);
+		return `
+      <div class="sv-tool-item ${status} ${isExpanded ? "expanded" : ""}" data-item-id="${itemId}">
+        <div class="sv-tool-item-header" data-item-id="${itemId}">
+          <span class="sv-tool-index">${idx + 1}</span>
+          <span class="sv-tool-badge ${toolType}">${Utils.escapeHtml(tool.tool || "Unknown")}</span>
+          <span class="sv-tool-time">${timestamp}</span>
+          ${duration ? `<span class="sv-tool-duration">${duration}</span>` : ""}
+          <span class="sv-tool-status ${status}">${this.getStatusIcon(status)}</span>
+          <span class="sv-tool-expand" title="${isExpanded ? "Hide details" : "Show details"}">${isExpanded ? "▲" : "▼"}</span>
+        </div>
+        ${isExpanded ? this.renderToolDetails(tool) : ""}
+      </div>
+    `;
+	},
+
+	/**
+	 * Stable item id for a Tools-tab row
+	 * @param {number} idx
+	 * @returns {string}
+	 */
+	toolItemId(idx) {
+		return `tools-tab-${idx}`;
+	},
+
+	/**
+	 * Format a tool execution's duration.
+	 * Prefers the hook-reported durationMs: hook timestamps are second-resolution,
+	 * so subtracting them yields only multiples of 1000ms or 0.
+	 * @param {Object} tool
+	 * @returns {string}
+	 */
+	formatToolDuration(tool) {
+		if (typeof tool.durationMs === "number") return `${tool.durationMs}ms`;
+		if (tool.startTime && tool.endTime) {
+			return `${new Date(tool.endTime) - new Date(tool.startTime)}ms`;
+		}
+		return "";
 	},
 
 	/**
@@ -1279,12 +1311,60 @@ const SessionsView = {
 	 * @param {string} itemId
 	 */
 	toggleExpand(itemId) {
+		if (!itemId) return;
+
 		if (this._expandedItems.has(itemId)) {
 			this._expandedItems.delete(itemId);
 		} else {
 			this._expandedItems.add(itemId);
 		}
-		this.renderTabContent();
+
+		// Re-render only the item that changed. This used to call
+		// renderTabContent(), rebuilding every item's HTML and re-binding every
+		// handler for one click - on a session with hundreds of executions that
+		// is the whole feed per toggle.
+		if (!this.renderSingleItem(itemId)) {
+			this.renderTabContent();
+		}
+	},
+
+	/**
+	 * Replace one rendered item in place.
+	 * @param {string} itemId
+	 * @returns {boolean} false if the item could not be resolved (caller should
+	 *   fall back to a full render)
+	 */
+	renderSingleItem(itemId) {
+		const contentEl = document.getElementById("sv-detail-content");
+		if (!contentEl) return false;
+
+		const el = contentEl.querySelector(
+			`[data-item-id="${CSS.escape(itemId)}"]`,
+		);
+		if (!el) return false;
+
+		const session = this.getSelectedSession();
+		if (!session) return false;
+
+		const { activeTab } = State.sessionView;
+
+		if (activeTab === "tools") {
+			const idx = Number.parseInt(itemId.replace("tools-tab-", ""), 10);
+			const tool = (session.toolExecutions || [])[idx];
+			if (!tool) return false;
+			el.outerHTML = this.renderToolItem(tool, idx);
+			return true;
+		}
+
+		if (activeTab === "activity") {
+			const activities = this.buildActivityFeed(session);
+			const idx = activities.findIndex((a) => a.id === itemId);
+			if (idx === -1) return false;
+			el.outerHTML = this.renderActivityItem(activities[idx], idx);
+			return true;
+		}
+
+		return false;
 	},
 
 	/**

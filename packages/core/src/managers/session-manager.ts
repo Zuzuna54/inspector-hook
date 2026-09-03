@@ -53,6 +53,23 @@ export interface SessionManagerEvents {
 	}) => void;
 }
 
+/**
+ * Events that close out a running tool execution.
+ *
+ * PostToolUseFailure is a separate event from PostToolUse -- Claude Code fires
+ * it when a tool errors. It was not recognised here, so every failed tool call
+ * stayed "running" forever and leaked.
+ */
+const TOOL_COMPLETION_EVENTS = new Set([
+	"tool.end",
+	"PostToolUse",
+	"PostToolUseFailure",
+]);
+
+function isToolCompletionEvent(event: string | undefined): boolean {
+	return event !== undefined && TOOL_COMPLETION_EVENTS.has(event);
+}
+
 // Default timeout values
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_COMPLETED_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -333,13 +350,13 @@ export class SessionManager extends EventEmitter {
 		// mark every non-error completion "completed", which meant the blocked branch
 		// below could no longer find the execution as running, and blocked tool calls
 		// were silently recorded as successful.
-		if (log.tool && (log.event === "tool.end" || log.event === "PostToolUse")) {
+		if (log.tool && isToolCompletionEvent(log.event)) {
 			const exec = this.findRunningExecution(session, log);
 			if (exec) {
 				exec.endTime = log.timestamp;
 				exec.result = log.details;
 
-				if (log.level === "error") {
+				if (log.level === "error" || log.event === "PostToolUseFailure") {
 					exec.status = "failed";
 					this.emit("tool:failed", { sessionId, execution: exec });
 				} else if (log.level === "blocked") {
