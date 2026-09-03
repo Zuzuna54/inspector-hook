@@ -335,6 +335,50 @@ describe("installer", () => {
 		assert.equal(read(path).unrelatedSetting, 42, "unrelated settings survive");
 	});
 
+	it("REGRESSION: migrates off an earlier Inspector Hook script", () => {
+		// The project shipped three implementations under two filenames. An
+		// upgrader has an old path registered, and since the installer only
+		// recognises its own exact command, a stale entry would survive and BOTH
+		// scripts would fire — double-capturing every overlapping event.
+		const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
+		const path = join(tmp, "settings.json");
+		writeFileSync(
+			path,
+			JSON.stringify({
+				hooks: {
+					PostToolUse: [
+						{ matcher: "", hooks: [{ type: "command", command: "/home/u/.claude/hooks/logging/hook-inspector.sh" }] },
+						{ matcher: "Write", hooks: [{ type: "command", command: "/other/biome-format.sh" }] },
+					],
+					PreToolUse: [
+						{ hooks: [{ type: "command", command: "/somewhere/else/inspector-hook.sh" }] },
+					],
+				},
+			}),
+		);
+
+		run(path);
+		const cmds = allCommands(read(path));
+		const ours = cmds.filter((c) =>
+			/(hook-inspector|inspector-hook)\.sh$/.test(c),
+		);
+		const unique = [...new Set(ours)];
+
+		assert.equal(
+			unique.length,
+			1,
+			`exactly one Inspector Hook script may be registered, found: ${unique.join(", ")}`,
+		);
+		assert.ok(
+			unique[0].endsWith("packages/hooks/claude/inspector-hook.sh"),
+			"and it must be the current one",
+		);
+		assert.ok(
+			cmds.includes("/other/biome-format.sh"),
+			"a foreign hook in the same event group still survives",
+		);
+	});
+
 	it("is idempotent", () => {
 		const path = fixture();
 		run(path);
@@ -375,5 +419,103 @@ describe("installer", () => {
 		const out = run(path, "--dry-run");
 		assert.equal(readFileSync(path, "utf-8"), before, "file unchanged");
 		assert.ok(out.includes("inspector-hook"), "but prints the result");
+	});
+});
+
+
+describe("event coverage", () => {
+	/**
+	 * Every event the installer registers must survive the hook and produce a
+	 * well-formed payload. Two of these — PostToolUseFailure and StopFailure —
+	 * were handled in the core for some time while no installer registered
+	 * them, so the handling was dead in production. This locks the set.
+	 */
+	const REGISTERED = {
+		SessionStart: { start_reason: "startup", cwd: "/p" },
+		SessionEnd: { reason: "exit" },
+		UserPromptSubmit: { prompt: "go" },
+		UserPromptExpansion: { command_name: "deploy" },
+		PreToolUse: { tool_name: "Bash", tool_use_id: "x", tool_input: { command: "ls" } },
+		PostToolUse: { tool_name: "Bash", tool_use_id: "x", duration_ms: 9 },
+		PostToolUseFailure: { tool_name: "Read", tool_use_id: "y", tool_error: "ENOENT" },
+		PostToolBatch: {},
+		PermissionRequest: { tool_name: "Bash", tool_input: { command: "rm" } },
+		PermissionDenied: { tool_name: "Bash", tool_use_id: "z" },
+		SubagentStart: { agent_id: "a", agent_type: "Explore" },
+		SubagentStop: { agent_id: "a", agent_type: "Explore" },
+		TaskCreated: {},
+		TaskCompleted: {},
+		TeammateIdle: {},
+		Stop: { last_assistant_message: "done", background_tasks: [] },
+		StopFailure: { error: "rate_limit" },
+		Notification: { notification_type: "permission_prompt", message: "m" },
+		PreCompact: { trigger: "auto" },
+		PostCompact: { trigger: "auto" },
+		InstructionsLoaded: { file_path: "/p/CLAUDE.md", load_reason: "session_start" },
+		ConfigChange: { source: "user_settings" },
+		CwdChanged: { cwd: "/p/other" },
+		DirectoryAdded: { add_reason: "slash_command" },
+		FileChanged: { filename: ".env", change_type: "modified" },
+		WorktreeCreate: {},
+		WorktreeRemove: {},
+		PreModelSwitch: { from_model: "a", to_model: "b" },
+		PostModelSwitch: { from_model: "a", to_model: "b" },
+		Setup: {},
+	};
+
+	it("registers exactly the events it claims to", () => {
+		// The installer's EVENTS list and this table must not drift apart.
+		const installer = readFileSync(
+			join(REPO, "packages/hooks/scripts/install.sh"),
+			"utf-8",
+		);
+		const block = installer.slice(
+			installer.indexOf("EVENTS=("),
+			installer.indexOf(")", installer.indexOf("EVENTS=(")),
+		);
+		const declared = block.match(/[A-Z][A-Za-z]+/g).filter((w) => w !== "EVENTS");
+		assert.deepEqual(
+			declared.sort(),
+			Object.keys(REGISTERED).sort(),
+			"installer EVENTS and the test table disagree",
+		);
+	});
+
+	for (const [event, extra] of Object.entries(REGISTERED)) {
+		it(`${event} produces a well-formed payload`, () => {
+			const p = runHook({
+				hook_event_name: event,
+				session_id: "cov",
+				prompt_id: "turn-1",
+				...extra,
+			});
+
+			assert.equal(p.hook, event, "hook name preserved");
+			assert.ok(p.event, "must carry an event");
+			assert.ok(p.timestamp, "must carry a timestamp");
+			assert.match(p.timestamp, /\.\d{3}Z$/, "millisecond resolution");
+			assert.equal(p.sessionId, "cov");
+			assert.equal(p.prompt_id, "turn-1");
+			assert.ok(typeof p.message === "string" && p.message.length > 0,
+				"must carry a human-readable message");
+			assert.ok(["info", "warn", "error", "blocked"].includes(p.level),
+				`level must be valid, got ${p.level}`);
+		});
+	}
+
+	it("derives error and blocked levels on the events that warrant them", () => {
+		assert.equal(runHook({ hook_event_name: "PostToolUseFailure", session_id: "c", tool_error: "boom" }).level, "error");
+		assert.equal(runHook({ hook_event_name: "StopFailure", session_id: "c", error: "rate_limit" }).level, "error");
+		assert.equal(runHook({ hook_event_name: "PermissionDenied", session_id: "c" }).level, "blocked");
+	});
+
+	it("keeps StopFailure on a different event type from Stop", () => {
+		// StopFailure reuses last_assistant_message for the error string, so
+		// sharing an event type would render an API error as Claude's reply.
+		const stop = runHook({ hook_event_name: "Stop", session_id: "c", last_assistant_message: "hi" });
+		const fail = runHook({ hook_event_name: "StopFailure", session_id: "c", error: "overloaded" });
+		assert.notEqual(stop.event, fail.event);
+		assert.equal(stop.event, "ai.response");
+		assert.equal(fail.event, "ai.error");
 	});
 });

@@ -108,8 +108,38 @@ backup() {
 # For each event: if a hook entry with our command already exists, leave it
 # alone. Otherwise append a group carrying only our command. Other tools'
 # groups and commands in the same event are preserved untouched.
+# Remove registrations of EARLIER Inspector Hook scripts.
+#
+# The project shipped three implementations under two filenames
+# (hook-inspector.sh and inspector-hook.sh, in several locations). Anyone
+# upgrading has one of the old paths registered, and since the installer only
+# recognises its own exact command, the stale entry would survive and both
+# scripts would fire — double-capturing every overlapping event.
+#
+# Matched on filename rather than full path, because the old copies were
+# installed to whatever location the user happened to use.
+strip_legacy() {
+  jq --arg cmd "$HOOK_SCRIPT" '
+    if .hooks == null then .
+    else
+      .hooks |= with_entries(
+        .value |= (
+          map(.hooks |= (map(select(
+            # keep anything that is not one of our historical scripts,
+            # and keep our current one
+            (.command == $cmd)
+            or ((.command | test("(hook-inspector|inspector-hook)\\.sh$")) | not)
+          ))))
+          | map(select((.hooks // []) | length > 0))
+        )
+      )
+      | .hooks |= with_entries(select((.value | length) > 0))
+    end
+  '
+}
+
 build_install() {
-  local json; json="$(cat "$SETTINGS")"
+  local json; json="$(cat "$SETTINGS" | strip_legacy)"
   for event in "${EVENTS[@]}"; do
     local m; m="$(matcher_for "$event")"
     json="$(printf '%s' "$json" | jq \
@@ -177,6 +207,15 @@ if [[ "$UNINSTALL" == "1" ]]; then
   info "uninstalled"
   report "$RESULT"
   exit 0
+fi
+
+LEGACY=$(jq -r --arg cmd "$HOOK_SCRIPT" '
+  [.hooks // {} | to_entries[] | .value[] | .hooks // [] | .[]
+   | select((.command != $cmd) and (.command | test("(hook-inspector|inspector-hook)\\.sh$")))
+   | .command] | unique | .[]' "$SETTINGS" 2>/dev/null || true)
+if [[ -n "$LEGACY" ]]; then
+  warn "removing registrations of earlier Inspector Hook scripts:"
+  printf '  %s\n' $LEGACY
 fi
 
 RESULT="$(build_install)"

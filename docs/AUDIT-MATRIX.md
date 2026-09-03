@@ -14,7 +14,7 @@ a measurement, or a recorded live observation — not an assertion.
 | **untested** | Implemented and plausibly working, but not actually verified. Counted as a gap, not a pass. |
 
 Measurements were taken on macOS 25.6 / Node 22.19 at commit `903b80d`, against the built artifacts.
-`pnpm test` = 209 tests, all passing.
+`pnpm test` = 242 tests, all passing. Updated after Milestone 2.
 
 ---
 
@@ -58,7 +58,7 @@ Measurements were taken on macOS 25.6 / Node 22.19 at commit `903b80d`, against 
 | Polling updates logs automatically | verified | Live; Sessions view polls 2s/30s |
 | Log appears in webview within 2s | untested | Not instrumented end-to-end |
 | **Metric:** core starts < 500ms | **broken** | **533 ms** measured — marginal miss, 7% over |
-| **Metric:** hook log delivery < 100ms | **broken** | **357 ms** measured. Root cause: **26 `jq` + 10 `date` process spawns per invocation** at ~11 ms each. ~700 ms added per tool call (Pre+Post). See M2. |
+| **Metric:** hook log delivery < 100ms | **verified** | **37 ms** measured over 40 runs (was 357 ms). M2 rewrote the hook to one `jq` invocation and one backgrounded curl; 26 `jq` + 10 `date` spawns removed |
 | **Metric:** webview update latency < 1s | untested | — |
 | **Metric:** zero memory leaks in 1-hour test | untested | Never run. Two leaks *were* found by other means (unref'd intervals, unbounded `changes` map) |
 | **Metric:** works on macOS and Linux | broken | macOS only. Linux never run; `date -u '+…%3N'` has a node fallback specifically for BSD, untested on GNU |
@@ -117,15 +117,15 @@ The weakest phase, and the one M2 exists to fix.
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| All built-in hooks install correctly on first run | **broken** | `install.sh` writes the **legacy flat schema** Claude Code no longer accepts, and installs the generic script that reads env vars Claude Code never sets |
-| Claude settings.json updated properly | **broken** | `jq '.hooks = $hooks'` — a **destructive full replace** that would silently delete a co-installed tool's hooks (e.g. Forge's `precommit-wave-gate`) |
-| Hooks directory structure + shared libraries | partial | `config/claude-hooks/` exists with libs, but no installer places it |
+| All built-in hooks install correctly on first run | **verified** | M2 installer writes the nested schema and registers the working script. `hooks.test.js` — "writes the nested schema Claude Code requires" |
+| Claude settings.json updated properly | **verified** | Merges per-event/per-command. `hooks.test.js` — "REGRESSION: preserves another tool's hooks", plus idempotency and clean-uninstall tests. Applied live: 21 foreign hooks intact, each individually verified |
+| Hooks directory structure + shared libraries | verified | One script, no shared lib needed; installer resolves its own absolute path |
 | Installation works on macOS and Linux | untested | macOS only |
 | Create/update/delete hooks | **not-impl** | Spec-only. No `hooks.*` IPC methods exist |
 | Enable/disable toggles | **not-impl** | Spec-only |
 | Hook validation | **not-impl** | Spec-only (`HookValidationResult` declared, unused) |
 | Hook testing | **not-impl** | Spec-only |
-| Logging hooks capture all Claude Code events | **broken** | **7 of 33 registered.** Critically `PostToolUseFailure` and `StopFailure` are handled in the core (B13, B23) but **not registered**, so both are dead code in production |
+| Logging hooks capture all Claude Code events | **verified** | **30 of 33 registered** (live: 7 → 30). All 30 verified to survive ingestion end-to-end; `hooks.test.js` asserts a well-formed payload per event and that the installer's list matches. `MessageDisplay` and the `Elicitation` pair deliberately excluded |
 | Events properly sent to core | verified | Live: real `tool_use_id`, `promptId` on 30/30 logs, millisecond stamps |
 | No events missed or duplicated | verified | Duplicates were real (B1 race, 2 records per edit) and are fixed |
 | Security gate blocks dangerous commands | untested | `security-gate.py` is installed and wired, never exercised by us |
@@ -133,9 +133,9 @@ The weakest phase, and the one M2 exists to fix.
 | Notifications work on macOS and Linux | untested | macOS wired, unexercised |
 | Context loader injects project context | untested | Installed, unexercised |
 | Hook management UI | **not-impl** | Spec-only |
-| **Metric:** all 10 events supported and logged | **broken** | 7 registered, of 10 spec'd / 33 now documented |
-| **Metric:** < 50ms hook overhead | **broken** | **357 ms** measured — 7× over |
-| **Metric:** 100% built-in hooks functional on clean install | **broken** | Installer is broken on two counts |
+| **Metric:** all 10 events supported and logged | **verified** | All 10 of the originally-spec'd events registered, plus 20 more |
+| **Metric:** < 50ms hook overhead | **verified** | **37 ms** measured (was 357 ms) |
+| **Metric:** 100% built-in hooks functional on clean install | partial | Inspector Hook's own hook: verified. The `config/claude-hooks/` extras (security gate, formatters, notifiers) remain unexercised |
 | **Metric:** hook management UI operational | **not-impl** | — |
 | **Metric:** works on macOS and Linux | untested | — |
 
@@ -258,17 +258,16 @@ marked untested unless observed live.
 | UI views | 12 | 8 | 2 | 18 |
 
 **Phase 2 is fully verified** — the core data layer is the strongest part of the system, which is
-where the 14 bug fixes concentrated. **Phase 4 is the weakest**, and is exactly M2's scope.
+where the 14 bug fixes concentrated. **Phase 4 was the weakest and is now largely closed by M2**:
+event coverage 7 → 30, hook latency 357 ms → 37 ms, and an installer that merges instead of
+destroying. What remains in Phase 4 is the in-app hook-management UI, which is spec-only.
 
 ## The resulting backlog, ranked
 
-1. **Register the 26 unregistered hook events.** `PostToolUseFailure` and `StopFailure` are already
-   handled in the core and cannot fire. Fixes shipped as dead code. (M2)
-2. **Hook latency: 357 ms → target < 50 ms.** 26 `jq` + 10 `date` spawns per invocation; collapse to
-   one `jq` pass. ~700 ms per tool call today. (M2)
-3. **`install.sh`: nested schema + additive merge.** Currently produces a settings.json Claude Code
-   rejects, and would delete a co-installed tool's hooks. (M2)
-4. **Consolidate three hook implementations to one.** (M2)
+1. ~~Register the unregistered hook events~~ — **DONE (M2)**, 7 → 30, applied live.
+2. ~~Hook latency 357 ms~~ — **DONE (M2)**, 37 ms.
+3. ~~`install.sh` schema + merge~~ — **DONE (M2)**, with regression tests including legacy migration.
+4. ~~Consolidate three hook implementations~~ — **DONE (M2)**, one script.
 5. Archived view: dead View-diff, file-level Restore restoring one change, stale-after-restore. (peer)
 6. `API.getVersionContent` — called, undefined. (peer)
 7. `logRetentionDays` still inert; `PersistenceStore.cleanup()` still a stub.
