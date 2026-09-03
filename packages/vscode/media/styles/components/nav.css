@@ -1,0 +1,113 @@
+/**
+ * Grouped sidebar navigation.
+ *
+ * Replaces the horizontal tab bar. The items are still `.tab` elements carrying
+ * `data-view`, because router.js and main.js both select on that class - the
+ * grouping is markup and styling, not a routing change. These rules therefore
+ * override the horizontal `.tab` styles in layout.css, which loads earlier.
+ *
+ * Lives in components/ so the manifest loads it before every view stylesheet
+ * and no view can win on load order.
+ */
+
+/* The header stays full width; the sidebar and the main panel share the row
+   beneath it. */
+.app-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.sidebar {
+	display: flex;
+	flex-direction: column;
+	gap: var(--spacing-md);
+	flex-shrink: 0;
+	width: 168px;
+	padding: var(--spacing-md) var(--spacing-sm);
+	background: var(--bg-secondary);
+	border-right: 1px solid var(--border);
+	border-bottom: none;
+	overflow-y: auto;
+}
+
+.nav-group {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.nav-group-label {
+	padding: 0 var(--spacing-sm) var(--spacing-xs);
+	font-size: var(--font-size-xs);
+	font-weight: var(--font-weight-medium);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--fg-muted);
+}
+
+/* Override the horizontal tab presentation from layout.css: full-width rows,
+   a left active marker instead of an underline. */
+.sidebar .tab {
+	justify-content: flex-start;
+	width: 100%;
+	padding: var(--spacing-xs) var(--spacing-sm);
+	border: none;
+	border-left: 2px solid transparent;
+	border-radius: var(--radius-sm);
+	text-align: left;
+	white-space: nowrap;
+}
+
+.sidebar .tab:hover {
+	background: var(--bg-hover);
+	color: var(--fg-primary);
+}
+
+.sidebar .tab.active {
+	background: var(--bg-tertiary);
+	border-left-color: var(--accent);
+	border-bottom: none;
+	color: var(--fg-primary);
+}
+
+.sidebar .tab:focus-visible {
+	outline: 1px solid var(--accent);
+	outline-offset: -1px;
+}
+
+/* The badge sits at the trailing edge of a full-width row rather than beside
+   the label as it did in the horizontal bar. */
+.sidebar .tab-badge {
+	margin-left: auto;
+}
+
+@media (max-width: 720px) {
+	/* Collapse to a horizontal strip rather than eating half a narrow panel. */
+	.app-body {
+		flex-direction: column;
+	}
+
+	.sidebar {
+		flex-direction: row;
+		width: auto;
+		gap: var(--spacing-sm);
+		overflow-x: auto;
+		border-right: none;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.nav-group {
+		flex-direction: row;
+		gap: 1px;
+	}
+
+	.nav-group-label {
+		display: none;
+	}
+
+	.sidebar .tab {
+		width: auto;
+	}
+}

@@ -63,6 +63,7 @@ export function buildWebviewHtml(
 		["styles", "components", "controls.css"],
 		["styles", "components", "data-display.css"],
 		["styles", "components", "feedback.css"],
+		["styles", "components", "nav.css"],
 		["styles", "prism-theme.css"],
 		["styles", "shared", "diff.css"],
 		["styles", "views", "dashboard.css"],
@@ -158,28 +159,40 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
       </div>
     </header>
 
-    <!-- Tab Navigation -->
-    <nav class="tabs" role="tablist" aria-label="View navigation">
-      <button class="tab active" data-view="dashboard" role="tab" aria-selected="true" tabindex="0">
-        Dashboard
-      </button>
-      <button class="tab" data-view="logs" role="tab" aria-selected="false" tabindex="-1">
-        Logs
-        <span class="tab-badge" id="tab-logs-count">0</span>
-      </button>
-      <button class="tab" data-view="sessions" role="tab" aria-selected="false" tabindex="-1">
-        Sessions
-      </button>
-      <button class="tab" data-view="file-changes" role="tab" aria-selected="false" tabindex="-1">
-        File Changes
-        <span class="tab-badge" id="tab-changes-count">0</span>
-      </button>
-      <button class="tab" data-view="history" role="tab" aria-selected="false" tabindex="-1">
-        History
-      </button>
-      <button class="tab" data-view="archived" role="tab" aria-selected="false" tabindex="-1">
-        Archived
-      </button>
+    <div class="app-body">
+    <!-- Grouped navigation.
+         Items keep class="tab" and data-view: router.js and main.js both select
+         on .tab, so grouping is a markup and styling change only. The groups are
+         sized for what is coming - Knowledge holds Context (M3) and Build holds
+         Agents/Builds/Quality (M5-M7) - and an unbuilt view is simply absent
+         rather than stubbed, so nothing in the nav points at nothing. -->
+    <nav class="sidebar" role="tablist" aria-label="View navigation">
+      <div class="nav-group">
+        <div class="nav-group-label" id="nav-group-monitor">Monitor</div>
+        <button class="tab active" data-view="dashboard" role="tab" aria-selected="true" tabindex="0">
+          Dashboard
+        </button>
+        <button class="tab" data-view="logs" role="tab" aria-selected="false" tabindex="-1">
+          Logs
+          <span class="tab-badge" id="tab-logs-count">0</span>
+        </button>
+        <button class="tab" data-view="sessions" role="tab" aria-selected="false" tabindex="-1">
+          Sessions
+        </button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label" id="nav-group-changes">Changes</div>
+        <button class="tab" data-view="file-changes" role="tab" aria-selected="false" tabindex="-1">
+          File Changes
+          <span class="tab-badge" id="tab-changes-count">0</span>
+        </button>
+        <button class="tab" data-view="history" role="tab" aria-selected="false" tabindex="-1">
+          History
+        </button>
+        <button class="tab" data-view="archived" role="tab" aria-selected="false" tabindex="-1">
+          Archived
+        </button>
+      </div>
     </nav>
 
     <!-- Main Content -->
@@ -385,6 +398,7 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         </div>
       </div>
     </main>
+    </div>
   </div>
 
   <!-- Scripts (loaded in order - dependencies first) -->
