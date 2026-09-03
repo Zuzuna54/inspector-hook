@@ -287,6 +287,61 @@ describe("session activity feed", () => {
 		assert.ok(types.includes("notification"));
 	});
 
+	it("REGRESSION: promptId lands on EVERY item type, not just tool calls", async () => {
+		const sid = "act-turns";
+		const turn = "prompt-turn-1";
+
+		// prompt_id is a root-level hook field, present on every event but
+		// SessionStart. It previously reached only tool_call items, so a client
+		// had no anchor on the user_prompt item to group a turn against.
+		await ingest({
+			hook: "UserPromptSubmit", event: "user.prompt", level: "info",
+			message: "asked", sessionId: sid, prompt_id: turn,
+			details: { prompt: "do the thing" },
+		});
+		await ingest({
+			hook: "PreToolUse", event: "PreToolUse", level: "info", message: "t",
+			sessionId: sid, tool: "Bash", tool_use_id: "turn-t1", prompt_id: turn,
+		});
+		await ingest({
+			hook: "PostToolUse", event: "PostToolUse", level: "info", message: "t",
+			sessionId: sid, tool: "Bash", tool_use_id: "turn-t1", prompt_id: turn,
+			details: { tool_result: "ok" },
+		});
+		await ingest({
+			hook: "Notification", event: "notification", level: "info",
+			message: "heads up", sessionId: sid, prompt_id: turn,
+		});
+		await ingest({
+			hook: "Stop", event: "ai.response", level: "info",
+			message: "done", sessionId: sid, prompt_id: turn,
+		});
+
+		const items = await activityFor(sid);
+		const byType = new Map(items.map((i) => [i.type, i]));
+
+		for (const type of ["user_prompt", "tool_call", "notification", "ai_response"]) {
+			const item = byType.get(type);
+			assert.ok(item, `${type} item should exist`);
+			assert.equal(
+				item.data.promptId,
+				turn,
+				`${type} must carry promptId so turns group exactly, not by inference`,
+			);
+		}
+	});
+
+	it("does not invent a promptId when the hook sent none", async () => {
+		const sid = "act-noturn";
+		await ingest({
+			hook: "UserPromptSubmit", event: "user.prompt", level: "info",
+			message: "asked", sessionId: sid, details: { prompt: "old log" },
+		});
+
+		const [item] = await activityFor(sid);
+		assert.equal(item.data.promptId, undefined);
+	});
+
 	it("returns items in chronological order", async () => {
 		const items = await activityFor("act");
 		const stamps = items.map((i) => i.timestamp);

@@ -36,6 +36,12 @@ export interface LogEntry {
 	file?: string;
 	/** Execution ID for correlating PreToolUse/PostToolUse events */
 	executionId?: string;
+	/**
+	 * Groups every event belonging to one user turn. Claude Code supplies
+	 * `prompt_id` on every hook event except SessionStart, which makes turn
+	 * grouping exact rather than inferred from prompt boundaries.
+	 */
+	promptId?: string;
 	/** Additional structured data */
 	details?: Record<string, unknown>;
 }

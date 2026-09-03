@@ -233,6 +233,9 @@ export class IpcServer {
 				logs: [...newestFirst.logs].reverse(),
 			};
 			const truncated = newestFirst.total > newestFirst.logs.length;
+			// Activity items keep the log id they came from, so the turn id can be
+			// applied to every item type in one pass rather than in each branch.
+			const logsById = new Map(logsResult.logs.map((l) => [l.id, l]));
 
 
 			// Build activity items from logs
@@ -442,6 +445,21 @@ export class IpcServer {
 						},
 					});
 				}
+			}
+
+			// Stamp the turn id onto every item, not just tool calls.
+			//
+			// Applied uniformly here rather than per-branch: prompt_id is on every
+			// event except SessionStart, and grouping needs it on the user_prompt
+			// item above all -- that is the anchor a turn is grouped against.
+			// Without it a client must infer turns from prompt boundaries, which
+			// collapses a whole session into one turn whenever the prompts predate
+			// the field (one live session has 361 tool events and 1 logged prompt).
+			for (let i = 0; i < activityItems.length; i++) {
+				const promptId = logsById.get(activityItems[i].id)?.promptId;
+				if (promptId === undefined) continue;
+				const data = activityItems[i].data as Record<string, unknown>;
+				if (data.promptId === undefined) data.promptId = promptId;
 			}
 
 			// Sort by timestamp

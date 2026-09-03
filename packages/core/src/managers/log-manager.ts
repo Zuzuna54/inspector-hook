@@ -130,6 +130,12 @@ export class LogManager extends EventEmitter {
 			// name accepted for hooks that still send it.
 			executionId: ((data as Record<string, unknown>).tool_use_id ||
 				(data as Record<string, unknown>).executionId) as string | undefined,
+			// Groups every event in one user turn. The hook was already sending
+			// this and nothing read it, so turn grouping had to be inferred from
+			// prompt boundaries -- which collapses a whole session into one turn
+			// whenever prompts were logged before the field existed.
+			promptId: ((data as Record<string, unknown>).prompt_id ||
+				(data as Record<string, unknown>).promptId) as string | undefined,
 			details: Object.keys(details).length > 0 ? details : undefined,
 		};
 
