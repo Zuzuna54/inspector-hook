@@ -5,11 +5,19 @@
 
 import { createInterface, type Interface } from "node:readline";
 import type {
+	ActivityItem,
+	AiResponseActivityData,
 	ErrorCode,
 	LogEntry,
+	MessageActivityData,
+	NotificationActivityData,
 	Session,
 	SessionFilter,
+	SessionStartActivityData,
 	SessionSummary,
+	SubagentCompleteActivityData,
+	ToolCallActivityData,
+	UserPromptActivityData,
 	JsonRpcError,
 	JsonRpcNotification,
 	JsonRpcRequest,
@@ -29,6 +37,33 @@ export interface IpcServerOptions {
 }
 
 type MethodHandler = (params: unknown) => Promise<unknown>;
+
+// Narrowing readers for `log.details`, which is Record<string, unknown> --
+// i.e. hook-supplied and untrusted. Typing this producer against the protocol
+// revealed it had been assigning `unknown` straight into fields the contract
+// declares as string/number/boolean, so the declared shape was never actually
+// guaranteed. These make the narrowing explicit and drop anything of the
+// wrong type rather than passing it through mislabelled.
+const asStr = (v: unknown): string | undefined =>
+	typeof v === "string" ? v : undefined;
+const asNum = (v: unknown): number | undefined =>
+	typeof v === "number" ? v : undefined;
+const asBool = (v: unknown): boolean | undefined =>
+	typeof v === "boolean" ? v : undefined;
+const asRec = (v: unknown): Record<string, unknown> | undefined =>
+	v !== null && typeof v === "object" && !Array.isArray(v)
+		? (v as Record<string, unknown>)
+		: undefined;
+
+/** Every payload shape an activity item can carry. */
+type ActivityData =
+	| UserPromptActivityData
+	| AiResponseActivityData
+	| ToolCallActivityData
+	| SessionStartActivityData
+	| NotificationActivityData
+	| SubagentCompleteActivityData
+	| MessageActivityData;
 
 /**
  * Fields the UI needs as first-class properties on a tool_call activity item.
@@ -240,21 +275,14 @@ export class IpcServer {
 			const logsById = new Map(logsResult.logs.map((l) => [l.id, l]));
 
 
-			// Build activity items from logs
-			// Types: user_prompt, ai_response, tool_call, session_start, notification, subagent_complete, message
-			const activityItems: Array<{
-				id: string;
-				type:
-					| "user_prompt"
-					| "ai_response"
-					| "tool_call"
-					| "session_start"
-					| "notification"
-					| "subagent_complete"
-					| "message";
-				timestamp: string;
-				data: unknown;
-			}> = [];
+			// Build activity items from logs.
+			//
+			// Typed against the protocol's declarations rather than an inline
+			// anonymous shape. The eight *ActivityData interfaces had no consumers
+			// at all for a long time: the contract was asserted on the client and
+			// produced untyped here, so a producer/consumer mismatch could not be
+			// caught by the compiler. Importing them closes that.
+			const activityItems: ActivityItem<ActivityData>[] = [];
 
 			for (const log of logsResult.logs) {
 				// User prompts
@@ -265,8 +293,8 @@ export class IpcServer {
 						type: "user_prompt",
 						timestamp: log.timestamp,
 						data: {
-							prompt: log.details?.prompt || log.message,
-						},
+							prompt: asStr(log.details?.prompt) ?? log.message,
+						} satisfies UserPromptActivityData,
 					});
 				}
 				// A turn that ended on an API error. StopFailure runs INSTEAD of
@@ -283,11 +311,9 @@ export class IpcServer {
 							event: log.event,
 							level: "error",
 							message: log.message || "Turn failed",
-							details: {
-								stopError: log.details?.stopError,
-								errorDetails: log.details?.errorDetails,
-							},
-						},
+							stopError: asStr(log.details?.stopError),
+							errorDetails: asStr(log.details?.errorDetails),
+						} satisfies MessageActivityData,
 					});
 				}
 				// AI response completion (Stop hook) -- the clean-finish path only.
@@ -301,10 +327,10 @@ export class IpcServer {
 							// Stop carries no reason field at all. What it does carry is
 							// whether background work is still outstanding, which
 							// distinguishes "done" from "paused waiting on tasks".
-							stopHookActive: log.details?.stopHookActive,
-							backgroundTasks: log.details?.backgroundTasks,
-							assistantMessage: log.details?.lastAssistantMessage,
-						},
+							stopHookActive: asBool(log.details?.stopHookActive),
+							backgroundTasks: asNum(log.details?.backgroundTasks),
+							assistantMessage: asStr(log.details?.lastAssistantMessage),
+						} satisfies AiResponseActivityData,
 					});
 				}
 				// Notifications
@@ -315,8 +341,8 @@ export class IpcServer {
 						timestamp: log.timestamp,
 						data: {
 							message: log.message,
-							notificationType: log.details?.notificationType,
-						},
+							notificationType: asStr(log.details?.notificationType),
+						} satisfies NotificationActivityData,
 					});
 				}
 				// Session start
@@ -327,10 +353,10 @@ export class IpcServer {
 						timestamp: log.timestamp,
 						data: {
 							event: "start",
-							projectName: log.details?.projectName,
-							gitBranch: log.details?.gitBranch,
-							workingDirectory: log.details?.cwd,
-						},
+							projectName: asStr(log.details?.projectName),
+							gitBranch: asStr(log.details?.gitBranch),
+							workingDirectory: asStr(log.details?.cwd),
+						} satisfies SessionStartActivityData,
 					});
 				}
 				// Subagent completion (Task tool)
@@ -340,11 +366,15 @@ export class IpcServer {
 						type: "subagent_complete",
 						timestamp: log.timestamp,
 						data: {
-							subagentType: log.details?.subagent_type,
-							success: log.details?.success,
+							subagentType:
+								asStr(log.details?.agentType) ??
+								asStr(log.details?.subagent_type),
+							// A subagent that reported no explicit failure is treated as
+							// having succeeded; the level carries the real signal.
+							success: log.level !== "error",
 							result: log.details?.result,
 							message: log.message,
-						},
+						} satisfies SubagentCompleteActivityData,
 					});
 				}
 				// Tool calls
@@ -383,7 +413,9 @@ export class IpcServer {
 								tool: log.tool,
 								executionId: log.executionId,
 								input:
-									log.details?.tool_input || log.details?.input || log.details,
+									asRec(log.details?.tool_input) ??
+									asRec(log.details?.input) ??
+									asRec(log.details),
 								file: log.file,
 								status: "running",
 								startTime: log.timestamp,
@@ -398,13 +430,13 @@ export class IpcServer {
 						// details.tool_result is always set for a tool event, `result`
 						// collapsed to the tool output and every sibling key was lost.
 						const existing = activityItems[existingIdx];
-						const data = existing.data as Record<string, unknown>;
+						const data = existing.data as unknown as Record<string, unknown>;
 						data.status = terminalStatus(log);
 						data.result =
 							log.details?.tool_result ?? log.details?.result ?? log.details;
 						data.endTime = log.timestamp;
 						if (log.details?.toolError !== undefined) {
-							data.error = log.details.toolError;
+							data.error = asStr(log.details.toolError);
 						}
 						for (const [key, value] of Object.entries(toolMetadata(log))) {
 							if (value !== undefined) data[key] = value;
@@ -418,12 +450,13 @@ export class IpcServer {
 							data: {
 								tool: log.tool,
 								executionId: log.executionId,
-								input: log.details?.tool_input || log.details?.input,
+								input:
+									asRec(log.details?.tool_input) ?? asRec(log.details?.input),
 								result:
 									log.details?.tool_result ??
 									log.details?.result ??
 									log.details,
-								error: log.details?.toolError,
+								error: asStr(log.details?.toolError),
 								file: log.file,
 								status: terminalStatus(log),
 								startTime: log.timestamp,
@@ -444,7 +477,7 @@ export class IpcServer {
 							level: log.level,
 							message: log.message,
 							details: log.details,
-						},
+						} satisfies MessageActivityData,
 					});
 				}
 			}
@@ -457,11 +490,20 @@ export class IpcServer {
 			// Without it a client must infer turns from prompt boundaries, which
 			// collapses a whole session into one turn whenever the prompts predate
 			// the field (one live session has 361 tool events and 1 logged prompt).
-			for (let i = 0; i < activityItems.length; i++) {
-				const promptId = logsById.get(activityItems[i].id)?.promptId;
+			for (const item of activityItems) {
+				const promptId = logsById.get(item.id)?.promptId;
 				if (promptId === undefined) continue;
-				const data = activityItems[i].data as Record<string, unknown>;
-				if (data.promptId === undefined) data.promptId = promptId;
+
+				// Canonical location, per ActivityItemBase: the turn id describes the
+				// item, not its payload.
+				item.promptId ??= promptId;
+
+				// Also mirrored into `data` for now. The webview reads it from there,
+				// and typing this producer revealed the two had diverged -- the
+				// declaration said item-level while this emitted data-level. Kept
+				// until the client moves to item.promptId, then removed.
+				const data = item.data as unknown as Record<string, unknown>;
+				data.promptId ??= promptId;
 			}
 
 			// Sort by timestamp

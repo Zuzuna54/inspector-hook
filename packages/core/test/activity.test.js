@@ -346,6 +346,39 @@ describe("session activity feed", () => {
 		assert.equal(item.data.promptId, undefined);
 	});
 
+	it("puts promptId at the item level too, per ActivityItemBase", async () => {
+		// Typing this producer against the protocol revealed the declaration said
+		// item-level while the producer emitted data-level. Both are emitted while
+		// the client migrates; item level is canonical.
+		const sid = "act-itemlevel";
+		await ingest({
+			hook: "UserPromptSubmit", event: "user.prompt", level: "info",
+			message: "asked", sessionId: sid, prompt_id: "turn-x",
+			details: { prompt: "hello" },
+		});
+
+		const [item] = await activityFor(sid);
+		assert.equal(item.promptId, "turn-x", "canonical: on the item");
+		assert.equal(item.data.promptId, "turn-x", "mirrored for the client");
+	});
+
+	it("drops a wrongly-typed detail rather than passing it through mislabelled", async () => {
+		// details is hook-supplied and untrusted. The producer used to assign it
+		// straight into fields the contract declares as string/number/boolean.
+		const sid = "act-badtypes";
+		await ingest({
+			hook: "PreToolUse", event: "PreToolUse", level: "info", message: "t",
+			sessionId: sid, tool: "Bash", tool_use_id: "bad",
+			details: { durationMs: "not-a-number", agentType: 42 },
+		});
+
+		const call = (await activityFor(sid)).find(
+			(i) => i.data.executionId === "bad",
+		);
+		assert.equal(call.data.durationMs, undefined, "a string duration is dropped");
+		assert.equal(call.data.agentType, undefined, "a numeric agentType is dropped");
+	});
+
 	it("returns items in chronological order", async () => {
 		const items = await activityFor("act");
 		const stamps = items.map((i) => i.timestamp);
