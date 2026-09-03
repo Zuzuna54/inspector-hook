@@ -268,11 +268,33 @@ destroying. What remains in Phase 4 is the in-app hook-management UI, which is s
 2. ~~Hook latency 357 ms~~ — **DONE (M2)**, 37 ms.
 3. ~~`install.sh` schema + merge~~ — **DONE (M2)**, with regression tests including legacy migration.
 4. ~~Consolidate three hook implementations~~ — **DONE (M2)**, one script.
-5. Archived view: dead View-diff, file-level Restore restoring one change, stale-after-restore. (peer)
-6. `API.getVersionContent` — called, undefined. (peer)
-7. `logRetentionDays` still inert; `PersistenceStore.cleanup()` still a stub.
-8. `getSessionStats` still hardcodes `logCount`/`warnings`.
-9. Rate limiting, ingest path scoping, global error handler. (Phase 6)
-10. Doc drift: README install flow, `DATA_MODELS` `SessionStatus`, `API_CONTRACTS` `getActivity`.
-11. Dead code: `setPersistence()` ×3, WebSocket types, `media/index.html`, unreachable render paths.
+5. ~~Archived view: dead View-diff, file-level Restore restoring one change,
+   stale-after-restore~~ — **DONE** (`ca63d59`, peer). Two were worse than recorded
+   here: the diff preview could not appear by *either* route, and there was no
+   `diff-error` handler at all, so a failed diff sat on "Loading..." forever.
+6. ~~`API.getVersionContent` — called, undefined~~ — **DONE** (`ca63d59` + `cf8f4c5`).
+   The chain was broken in three of four links, not one: the api.js sender, the
+   panel case and the CoreBridge method were all missing; only the core method existed.
+7. ~~`logRetentionDays` inert; `PersistenceStore.cleanup()` a stub~~ — **DONE** (`3971923`).
+   `cleanup()` now deletes expired rotated logs, prunes live logs, and removes expired
+   sessions and archives — never a pending change. `LogManager.enforceRetention()` runs
+   on load and on the 60 s interval. Two tests that asserted the *old* behaviour were
+   still passing and had to be inverted.
+8. ~~`getSessionStats` hardcodes `logCount`/`warnings`~~ — **DONE** (`3971923`), real
+   counts supplied by the caller that owns the log index.
+9. Rate limiting ~~and global error handler~~ — **rate limiting DONE** (`3971923`):
+   600/min per peer, sliding window, `X-RateLimit-*` + `429`/`Retry-After`. Secret
+   redaction on ingest also landed. **Still open:** ingest path scoping, global error handler.
+10. ~~Doc drift~~ — **DONE** (`3971923`): `SessionStatus` gained `idle`, `getActivity`
+    documented, `wsPort` removed from README and `API_CONTRACTS`, the 231-line WebSocket
+    section replaced with a note, the architecture diagram and protocol table corrected to
+    the stdio transport that exists, and the rate-limit figure reconciled to the
+    implementation (was 100/min, documented for a limiter that did not exist).
+    Phase docs keep their WebSocket references — historical plan record, not live contracts.
+11. ~~Dead code: `setPersistence()` ×3, WebSocket types, `media/index.html`~~ — **DONE**
+    (`37b8d74`, `3971923`). **Still open:** unreachable render paths in `file-changes.js`
+    and `history.js` (peer, folded into the de-duplication pass).
 12. Untested-but-implemented: Linux, themes, watch mode, VSIX packaging, UI interaction latency.
+13. File sizes above target: `file-changes.js` 2093, `file-tracker.ts` 1445, `ipc-server.ts` 766,
+    `session-manager.ts` 726, `store.ts` 619. Backend files are mine; `file-changes.js` is the peer's.
+14. Core start 533 ms against a <500 ms target; macOS-only — Linux has never been run.
