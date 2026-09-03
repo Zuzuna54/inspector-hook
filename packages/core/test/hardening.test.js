@@ -139,7 +139,15 @@ describe("retention", () => {
 		const { store } = await newStore();
 		await store.saveJSON("sessions", "s", { id: "s", startTime: daysAgo(999) });
 
-		assert.deepEqual(await store.cleanup(), { deletedFiles: 0, freedBytes: 0 });
+		// Every counter, so a no-op stays provably a no-op as the result shape
+		// grows. Retention later gained collapse counters; asserting only the
+		// two original fields would have let a collapse run unnoticed here.
+		assert.deepEqual(await store.cleanup(), {
+			deletedFiles: 0,
+			freedBytes: 0,
+			collapsed: 0,
+			collapseFailures: 0,
+		});
 		assert.ok(await store.loadJSON("sessions", "s"), "left alone");
 	});
 });

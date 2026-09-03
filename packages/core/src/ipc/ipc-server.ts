@@ -619,6 +619,31 @@ export class IpcServer {
 			};
 		});
 
+		/**
+		 * Summaries of sessions that have aged out.
+		 *
+		 * A session past the retention window is collapsed into one of these
+		 * before its raw record is deleted, so history does not simply end at
+		 * the retention horizon. Merged with live sessions by a caller that
+		 * wants the full timeline.
+		 */
+		this.methods.set("sessions.getSummaries", async (params) => {
+			const rec = asRec(params) ?? {};
+			const summaries = await this.core
+				.getPersistence()
+				.loadAllJSON<Record<string, unknown>>("summaries");
+			let out = [...summaries.values()];
+
+			const sessionId = asStr(rec.sessionId);
+			if (sessionId) out = out.filter((x) => x.id === sessionId);
+
+			out.sort((a, b) =>
+				String(b.startTime ?? "").localeCompare(String(a.startTime ?? "")),
+			);
+			const limit = Math.min(Math.max(asNum(rec.limit) ?? 100, 1), 1000);
+			return { summaries: out.slice(0, limit), total: out.length };
+		});
+
 		// File change operations
 		this.methods.set("fileChanges.getPending", async (params) =>
 			this.fileTracker.getPendingChanges(params as any),

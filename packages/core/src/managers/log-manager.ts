@@ -18,6 +18,11 @@ export interface LogManagerOptions {
 	storagePath: string;
 	maxLogsInMemory: number;
 	retentionDays: number;
+	/**
+	 * Called for each session about to be aged out, so it can be preserved in a
+	 * durable form first. Returning false cancels that session's deletion.
+	 */
+	collapseSession?: (id: string, session: unknown) => Promise<boolean> | boolean;
 	persistence?: PersistenceStore;
 }
 
@@ -299,7 +304,14 @@ export class LogManager extends EventEmitter {
 		const removed = before - this.logs.length;
 
 		if (this.persistence) {
-			await this.persistence.cleanup({ maxAgeMs });
+			// The collapse hook is supplied by the core, which owns the session
+			// data and the digest builder. LogManager only forwards it: it runs
+			// the retention timer, but it must not be the thing that decides
+			// what a preserved session looks like.
+			await this.persistence.cleanup({
+				maxAgeMs,
+				collapseSession: this.options.collapseSession,
+			});
 		}
 
 		return { removed };

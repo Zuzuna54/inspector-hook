@@ -426,6 +426,63 @@ export class CoreBridge extends EventEmitter {
 		});
 	}
 
+	// ==========================================================================
+	// Native auto memory (Milestone 3)
+	//
+	// Thin pass-throughs. Every refusal reason from the core is returned
+	// untouched: these operate on files the user wrote by hand, so "why not"
+	// is the most useful thing the UI can show, and paraphrasing it here would
+	// put a second, drifting explanation between the core and the reader.
+	// ==========================================================================
+
+	/** Every project on the machine that has memory. */
+	async getMemoryProjects(includeEmpty = false): Promise<unknown> {
+		return this.sendRequest("memory.getProjects", { includeEmpty });
+	}
+
+	/** Reference an existing file from MEMORY.md, without touching the file. */
+	async addMemoryToIndex(
+		memoryDir: string,
+		fileName: string,
+	): Promise<unknown> {
+		return this.sendRequest("memory.addToIndex", { memoryDir, fileName });
+	}
+
+	/** Drop a file's index line, leaving the file in place. */
+	async removeMemoryFromIndex(
+		memoryDir: string,
+		fileName: string,
+	): Promise<unknown> {
+		return this.sendRequest("memory.removeFromIndex", { memoryDir, fileName });
+	}
+
+	/**
+	 * Create or update a memory entry.
+	 *
+	 * `userInitiated` is what allows editing a note the user wrote by hand; the
+	 * core refuses otherwise, which is correct for anything automated.
+	 */
+	async writeMemory(params: {
+		memoryDir: string;
+		name: string;
+		description?: string;
+		type?: string;
+		body?: string;
+		title?: string;
+		userInitiated?: boolean;
+	}): Promise<unknown> {
+		return this.sendRequest("memory.write", params);
+	}
+
+	/** Delete a memory entry. `force` is required for a file we did not author. */
+	async deleteMemory(
+		memoryDir: string,
+		fileName: string,
+		force = false,
+	): Promise<unknown> {
+		return this.sendRequest("memory.delete", { memoryDir, fileName, force });
+	}
+
 	/**
 	 * Keep all pending changes
 	 */

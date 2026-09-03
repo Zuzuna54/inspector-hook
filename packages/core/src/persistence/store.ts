@@ -38,6 +38,10 @@ export class PersistenceStore {
 		archives: "archives",
 		changes: "changes",
 		snapshots: "snapshots",
+		// What survives retention. Sessions are collapsed into a summary here
+		// before their raw record is deleted, so ageing out bounds storage
+		// without destroying the answer to "what happened".
+		summaries: "summaries",
 	};
 
 	constructor(options: PersistenceStoreOptions) {
@@ -526,18 +530,42 @@ export class PersistenceStore {
 	async cleanup(options?: {
 		maxAgeMs?: number;
 		keepMinVersions?: number;
-	}): Promise<{ deletedFiles: number; freedBytes: number }> {
+		/**
+		 * Collapse an expiring session into something durable BEFORE its raw
+		 * record is deleted.
+		 *
+		 * Retention was shipped as the destructive half of a two-part design:
+		 * the plan pairs "drop raw rows" with "collapse to session summaries
+		 * first", and only the dropping existed. Without this, ageing out is
+		 * indistinguishable from data loss.
+		 *
+		 * Returning false, or throwing, CANCELS the delete for that session.
+		 * Preserving is the point; pruning something we failed to preserve
+		 * would be worse than leaving it on disk.
+		 */
+		collapseSession?: (
+			id: string,
+			session: unknown,
+		) => Promise<boolean> | boolean;
+	}): Promise<{
+		deletedFiles: number;
+		freedBytes: number;
+		collapsed: number;
+		collapseFailures: number;
+	}> {
 		await this.ensureInitialized();
 
 		const maxAgeMs = options?.maxAgeMs;
 		if (!maxAgeMs || maxAgeMs <= 0) {
-			return { deletedFiles: 0, freedBytes: 0 };
+			return { deletedFiles: 0, freedBytes: 0, collapsed: 0, collapseFailures: 0 };
 		}
 
 		const cutoffMs = Date.now() - maxAgeMs;
 		const cutoffIso = new Date(cutoffMs).toISOString();
 		let deletedFiles = 0;
 		let freedBytes = 0;
+		let collapsed = 0;
+		let collapseFailures = 0;
 
 		// 1. Rotated log files whose newest entry predates the cutoff.
 		const logDir = join(this.basePath, this.dirs.logs);
@@ -604,6 +632,25 @@ export class PersistenceStore {
 			const last =
 				session?.lastActivityTime ?? session?.endTime ?? session?.startTime;
 			if (typeof last !== "string" || last >= cutoffIso) continue;
+
+			// Preserve before pruning. A session that cannot be collapsed is
+			// left alone: storage stays bounded by everything else that expires,
+			// and the alternative is deleting the only copy of something we
+			// undertook to summarise.
+			if (options?.collapseSession) {
+				let preserved = false;
+				try {
+					preserved = (await options.collapseSession(id, session)) !== false;
+				} catch {
+					preserved = false;
+				}
+				if (!preserved) {
+					collapseFailures++;
+					continue;
+				}
+				collapsed++;
+			}
+
 			const path = this.getJSONPath(this.dirs.sessions, id);
 			try {
 				freedBytes += (await stat(path)).size;
@@ -636,7 +683,7 @@ export class PersistenceStore {
 			if (await this.deleteJSON(this.dirs.archives, id)) deletedFiles++;
 		}
 
-		return { deletedFiles, freedBytes };
+		return { deletedFiles, freedBytes, collapsed, collapseFailures };
 	}
 
 	// =========================================================================

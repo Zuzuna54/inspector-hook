@@ -8,6 +8,7 @@ import type {
 	CoreInitParams,
 	CoreStatus,
 	Session,
+	SessionSummaryRecord,
 	Stats,
 } from "@inspector-hook/protocol";
 import { VERSION } from "./index.js";
@@ -51,6 +52,9 @@ export class InspectorCore {
 			maxLogsInMemory: params.config.maxLogsInMemory,
 			retentionDays: params.config.logRetentionDays,
 			persistence: this.persistence,
+			// Retention must preserve before it prunes. Bound as a method so the
+			// managers it needs are the ones on this instance.
+			collapseSession: (id, session) => this.collapseSession(id, session),
 		});
 
 		this.sessionManager = new SessionManager({
@@ -300,6 +304,61 @@ export class InspectorCore {
 			activeSessions: sessionStats.activeSessions,
 			pendingChanges: fileStats.pendingChanges,
 		};
+	}
+
+	/**
+	 * Collapse an expiring session into a durable summary.
+	 *
+	 * Retention shipped as the destructive half of a two-part design: the plan
+	 * pairs dropping raw rows with collapsing to session summaries first, and
+	 * only the dropping existed. So ageing out deleted the only record of a
+	 * session, and any memory digest citing it became unresolvable — which the
+	 * corpus already shows happening for Claude Code's own memory, where 0 of
+	 * 11 cited sessions still exist anywhere.
+	 *
+	 * The summary is the same digest the memory path uses, stored in the store
+	 * rather than in the user's memory corpus: this is Inspector Hook's own
+	 * record, written without asking, so it does not belong in files that shape
+	 * what future Claude sessions are told.
+	 *
+	 * Returns false on failure, which cancels that session's deletion. A
+	 * session we could not preserve is worth more on disk than freed.
+	 */
+	private async collapseSession(
+		id: string,
+		session: unknown,
+	): Promise<boolean> {
+		try {
+			const record = session as Session | undefined;
+			if (!record || typeof record !== "object") return false;
+
+			const digest = buildSessionDigest({ session: record });
+			const summary: SessionSummaryRecord = {
+				id,
+				collapsedAt: new Date().toISOString(),
+				startTime: record.startTime,
+				endTime: record.endTime,
+				status: record.status,
+				name: record.name,
+				metadata: record.metadata,
+				toolExecutionCount: Array.isArray(record.toolExecutions)
+					? record.toolExecutions.length
+					: 0,
+				fileChangeCount: Array.isArray(record.fileChanges)
+					? record.fileChanges.length
+					: 0,
+				// Even a session judged not worth a MEMORY entry gets a summary
+				// here: the bar for "keep a record" is far lower than the bar for
+				// "tell a future Claude about it".
+				description: digest.description,
+				digest: digest.worthKeeping ? digest.body : undefined,
+			};
+
+			await this.persistence.saveJSON("summaries", id, summary);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	/**

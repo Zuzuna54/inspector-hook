@@ -278,6 +278,74 @@ export class InspectorPanel {
 				break;
 			}
 
+			// ----------------------------------------------------------------
+			// Native auto memory (Milestone 3)
+			//
+			// The four mutating cases all reply as "memory-result" with the
+			// core's response passed through UNCHANGED, including `reason`. The
+			// view renders refusals verbatim, so rewording one here would mean
+			// two explanations of the same refusal drifting apart.
+			// ----------------------------------------------------------------
+
+			case "memory-get-projects": {
+				const projects = await this._coreBridge.getMemoryProjects(
+					Boolean((message.params as any)?.includeEmpty),
+				);
+				this._sendMessage({ type: "memory-projects", payload: projects });
+				break;
+			}
+
+			case "memory-add-to-index": {
+				const p = message.params as { memoryDir: string; fileName: string };
+				const result = await this._coreBridge.addMemoryToIndex(
+					p.memoryDir,
+					p.fileName,
+				);
+				this._sendMessage({ type: "memory-result", payload: result });
+				break;
+			}
+
+			case "memory-remove-from-index": {
+				const p = message.params as { memoryDir: string; fileName: string };
+				const result = await this._coreBridge.removeMemoryFromIndex(
+					p.memoryDir,
+					p.fileName,
+				);
+				this._sendMessage({ type: "memory-result", payload: result });
+				break;
+			}
+
+			case "memory-write": {
+				const result = await this._coreBridge.writeMemory(
+					message.params as {
+						memoryDir: string;
+						name: string;
+						description?: string;
+						type?: string;
+						body?: string;
+						title?: string;
+						userInitiated?: boolean;
+					},
+				);
+				this._sendMessage({ type: "memory-result", payload: result });
+				break;
+			}
+
+			case "memory-delete": {
+				const p = message.params as {
+					memoryDir: string;
+					fileName: string;
+					force?: boolean;
+				};
+				const result = await this._coreBridge.deleteMemory(
+					p.memoryDir,
+					p.fileName,
+					Boolean(p.force),
+				);
+				this._sendMessage({ type: "memory-result", payload: result });
+				break;
+			}
+
 			case "delete-session": {
 				const result = await this._coreBridge.deleteSession(
 					(message.params as any).sessionId,

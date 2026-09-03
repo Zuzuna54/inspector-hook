@@ -175,3 +175,29 @@ export interface SessionStats {
 	warnings: number;
 	blocked: number;
 }
+
+
+/**
+ * What survives retention when a session's raw record is deleted.
+ *
+ * Deliberately small and self-contained: the point is that ageing out bounds
+ * storage without destroying the answer to "what happened". It carries counts
+ * rather than the arrays they came from, which is where a session's size
+ * actually lives.
+ */
+export interface SessionSummaryRecord {
+	id: string;
+	/** When the raw session was collapsed into this. */
+	collapsedAt: string;
+	startTime?: string;
+	endTime?: string;
+	status?: SessionStatus;
+	name?: string;
+	metadata?: SessionMetadata;
+	toolExecutionCount: number;
+	fileChangeCount: number;
+	/** One-line description, always present. */
+	description: string;
+	/** The full digest body, when the session had enough in it to warrant one. */
+	digest?: string;
+}
