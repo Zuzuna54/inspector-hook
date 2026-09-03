@@ -28,6 +28,13 @@ const SessionsView = {
 	_copyPayloads: new Map(),
 	_copyKeySeq: 0,
 
+	// Turn grouping: which turns the user has collapsed, the turn keys currently
+	// rendered (to detect a new turn, which changes structure rather than just
+	// contents), and the session the default collapse was seeded for.
+	_collapsedTurns: new Set(),
+	_renderedTurnKeys: [],
+	_turnsSeededFor: null,
+
 	/**
 	 * Stash text for a copy button and return the key to reference it by
 	 * @param {string} text
@@ -663,25 +670,57 @@ const SessionsView = {
 			return;
 		}
 
-		// Append new items
-		const startIdx = this._lastActivityCount;
-		newActivities.forEach((activity, i) => {
-			const idx = startIdx + i;
-
-			// Create new element
-			const tempDiv = document.createElement("div");
-			tempDiv.innerHTML = this.renderActivityItem(activity, idx);
-			const newEl = tempDiv.firstElementChild;
-
-			if (newEl) {
-				// Add slide-in animation
-				newEl.classList.add("sv-new-item");
-				feedEl.appendChild(newEl);
-
-				// Track as rendered
-				this._renderedActivityIds.add(activity.id);
+		// A new turn changes the structure, not just the contents, so it needs a
+		// full render. Appending within the current turn stays incremental, which
+		// is the common case - a turn opens once per user message but accumulates
+		// tool calls continuously.
+		const turns = this.groupIntoTurns(activities);
+		const grouped = turns.length > 1;
+		if (grouped) {
+			const keys = turns.map((t) => t.key);
+			const known = this._renderedTurnKeys || [];
+			const structureChanged =
+				keys.length !== known.length ||
+				keys.some((key, i) => key !== known[i]);
+			if (structureChanged) {
+				this.renderActivityTab(contentEl, session);
+				return;
 			}
-		});
+		}
+
+		if (grouped) {
+			// Re-render just the open turn. It already contains the new items and
+			// its header counts have changed, so replacing it in one step beats
+			// appending and then patching the header. Bounded by one turn's size,
+			// not the whole feed.
+			const lastTurn = turns[turns.length - 1];
+			const turnEl = feedEl.querySelector(".sv-turn:last-child");
+			if (!turnEl) {
+				this.renderActivityTab(contentEl, session);
+				return;
+			}
+			const tempDiv = document.createElement("div");
+			tempDiv.innerHTML = this.renderTurn(
+				lastTurn,
+				activities.length - lastTurn.items.length,
+			);
+			const fresh = tempDiv.firstElementChild;
+			if (fresh) turnEl.replaceWith(fresh);
+			newActivities.forEach((a) => this._renderedActivityIds.add(a.id));
+		} else {
+			// Flat feed: append the new items with the slide-in animation.
+			const startIdx = this._lastActivityCount;
+			newActivities.forEach((activity, i) => {
+				const tempDiv = document.createElement("div");
+				tempDiv.innerHTML = this.renderActivityItem(activity, startIdx + i);
+				const newEl = tempDiv.firstElementChild;
+				if (newEl) {
+					newEl.classList.add("sv-new-item");
+					feedEl.appendChild(newEl);
+					this._renderedActivityIds.add(activity.id);
+				}
+			});
+		}
 
 		this._lastActivityCount = activities.length;
 
@@ -1392,6 +1431,12 @@ const SessionsView = {
 			const toolHeader = e.target.closest(".sv-tool-item-header");
 			if (toolHeader) {
 				this.toggleExpand(toolHeader.dataset.itemId);
+				return;
+			}
+
+			const turnHeader = e.target.closest(".sv-turn-header");
+			if (turnHeader) {
+				this.toggleTurn(turnHeader.dataset.turnKey);
 			}
 		});
 	},
@@ -1701,6 +1746,9 @@ const SessionsView = {
 		this._expandedItems.clear();
 		this._renderedActivityIds.clear();
 		this._copyPayloads.clear();
+		this._collapsedTurns.clear();
+		this._renderedTurnKeys = [];
+		this._turnsSeededFor = null;
 		this._lastActivityCount = 0;
 
 		State.update("sessionView", {

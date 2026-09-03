@@ -712,6 +712,84 @@
   white-space: nowrap;
 }
 
+/* ==========================================================================
+   Turns - one user message and everything that followed it, grouped by the
+   CLI's prompt_id. A long session is otherwise an undifferentiated wall of
+   several hundred bubbles.
+   ========================================================================== */
+
+.sv-turn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
+  overflow: hidden;
+}
+
+.sv-turn-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.sv-turn-header:hover {
+  background: var(--bg-hover);
+}
+
+.sv-turn-caret {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.sv-turn-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--fg-primary);
+}
+
+.sv-turn-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.sv-turn-stats .sv-turn-errors {
+  color: var(--color-error);
+}
+
+.sv-turn-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+}
+
+.sv-turn.collapsed .sv-turn-body {
+  display: none;
+}
+
+/* The API error that ended a turn. StopFailure reuses last_assistant_message
+   for the error string, so this must never read as something Claude said. */
+.sv-stop-error-code {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  color: var(--color-error);
+  background: var(--color-error-bg);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
 /* The activity window is capped server-side; this states that plainly at the
    top of the feed instead of letting the oldest item read as the session start. */
 .sv-truncation-notice {
