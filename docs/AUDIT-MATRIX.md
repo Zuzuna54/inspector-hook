@@ -1,300 +1,703 @@
 # Feature Audit Matrix
 
-Milestone 1.3. Every acceptance criterion and success metric from `docs/phases/*.md`, plus a
-per-view UI checklist, resolved to a status with evidence.
+Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
+status with evidence.
 
-**This replaces guesswork about what works.** Where a criterion is met, the evidence is a named test,
-a measurement, or a recorded live observation — not an assertion.
+> **This document previously claimed to cover "every acceptance criterion" while resolving 104
+> of 268, and cited a test count from 50 commits earlier.** Both are corrected here. A backlog
+> that overstates its own coverage is the same failure this audit exists to find, and it was
+> in the audit itself.
 
 | Status | Meaning |
 |---|---|
 | **verified** | Proven by a named test, a measurement, or a recorded live check |
 | **broken** | Implemented but does not meet the criterion |
-| **not-impl** | No implementation exists (spec-only) |
-| **untested** | Implemented and plausibly working, but not actually verified. Counted as a gap, not a pass. |
+| **not-impl** | No implementation exists (spec only) |
+| **untested** | Implemented and plausibly working, but not actually verified. Counted as a gap, not a pass |
 
-Measurements were taken on macOS 25.6 / Node 22.19 at commit `903b80d`, against the built artifacts.
-`pnpm test` = 242 tests, all passing. Updated after Milestone 2.
+| | Count | Share |
+|---|---:|---:|
+| **verified** | 168 | 62% |
+| **broken** | 17 | 6% |
+| **not-impl** | 55 | 20% |
+| **untested** | 28 | 10% |
+| **total** | 268 | |
+
+Measured on macOS 25.6 / Node 22.19 at commit `74ae634`, against the built artifacts.
+`pnpm -r test` = **483 core + 278 webview**, all passing.
+
+---
+
+## What the numbers say
+
+**62% verified.** The core observability path — capture, sessions, file tracking, versions,
+diffing, persistence, the six views — is built and tested.
+
+**20% not implemented, and it is concentrated.** Phase 5 (rules engine, staging, analytics,
+their UIs) is spec only: `protocol/src/automation.ts` declares 14 types and **nothing outside
+the protocol package references any of them**. Phase 4's hook-management half (HookManager,
+HookInstaller, `hooks.*` IPC, the management UI, the security/quality/notification hooks) does
+not exist either. Both were specified and never built; neither is a regression.
+
+**6% broken** — implemented but not meeting the criterion. The list is short and worth reading
+in full, because these are the ones that look done and are not.
+
+**10% untested** is mostly one thing: **nothing has ever run on Linux**, and the extension has
+**never been packaged as a VSIX**, so every criterion depending on either is unverifiable today.
+
+---
+
+## Every `broken` row, in one place
+
+| Phase | Criterion | Why |
+|---|---|---|
+| 1 | Core process starts in < 500ms | **533ms measured** — over the 500ms target |
+| 2 | Add hunk-level operations | `keepHunk`/`revertHunk` exist in `api.js` and `panel.ts`; no core implementation behind them |
+| 3 | Add search functionality | Global search affects the Logs view only; other views ignore it |
+| 4 | Implement advanced hooks (context, backup, subagent) | Context injection ships (`inspector-context.sh`); backup and subagent hooks do not |
+| 4 | 100% of built-in hooks functional on clean install | The observer and context hooks ship; the security/quality/notification set does not |
+| 5 | Create Rule types in protocol | `protocol/src/automation.ts` declares `Rule`/`RuleCondition`/`RuleAction` — **zero consumers** |
+| 5 | Create StagedChange types | `automation.ts` declares `StagedChange`/`ApplyResult` — **zero consumers** |
+| 5 | Create Analytics types | `automation.ts` declares `Analytics`/`TimeSeriesData`/`TopItem` — **zero consumers** |
+| 6 | Security audit completed | Partial. Origin rejection, rate limiting, redaction and a **path-traversal fix** landed; no full audit |
+| 6 | Performance benchmarks met | Hook 37ms and payload size met; **core start 533ms misses the 500ms target** |
+| 6 | All features functional | The shipped views work; Phase 4 and 5 features do not exist |
+| 6 | Documentation updated | Design docs corrected; this matrix was itself stale and overclaiming until now |
+| 6 | Security audit | See Pre-Release: partial |
+| 6 | Add error recovery | Store migration and index rebuild recover; the core exits on an uncaught error by design |
+| 6 | Performance testing | Hook and payload measured; start time misses target |
+| 6 | Zero critical security issues | One found and fixed this session (path traversal); no independent audit |
+| 6 | 100% documented features | Docs corrected, but Phase 4/5 specs describe features that do not exist |
 
 ---
 
 ## Phase 0 — Foundation
 
+37 criteria — 35 verified · 0 broken · 0 not-impl · 2 untested
+
+### Task 0.1: Initialize Repository
+
 | Criterion | Status | Evidence |
 |---|---|---|
-| `pnpm install` completes without errors | verified | Clean run from deleted `node_modules` |
-| `pnpm build` compiles all packages | verified | Was **broken** twice: pnpm's `ERR_PNPM_IGNORED_BUILDS` gate, and a committed `tsconfig.tsbuildinfo` that made tsc skip emit on a fresh clone. Both fixed. |
-| TypeScript type checking passes | verified | `pnpm typecheck` → 0 errors |
-| Core can import from Protocol | verified | Build succeeds; `ipc-server` imports protocol types |
-| VS Code can import from Protocol | verified | Build succeeds |
-| No circular dependencies | untested | No tool checks this (`madge` is the M7 candidate) |
-| Extension activates in development host | verified | Live: extension host launched, core spawned (pid observed) |
-| Command "Inspector Hook: Show Panel" appears | verified | Live: panel opened via the command |
-| No activation errors in console | untested | Not captured systematically |
-| Watch mode updates on file changes | untested | `pnpm dev` never exercised |
-| IntelliSense works across packages | untested | — |
-| **Metric:** all packages build < 5s | **verified** | **3354 ms** measured, clean |
-| **Metric:** zero TypeScript errors | **verified** | 0 |
-| **Metric:** extension loads without errors | verified | Live |
-| **Metric:** dev iteration < 2s | untested | Watch mode not exercised |
+| Create directory structure | **verified** | `packages` exists |
+| Initialize git repository | **verified** | `.git` exists |
+| Create root package.json | **verified** | `package.json` exists |
+| Create pnpm-workspace.yaml | **verified** | `pnpm-workspace.yaml` exists |
+| Create tsconfig.base.json | **verified** | `tsconfig.base.json` exists |
+| Create .gitignore | **verified** | `.gitignore` exists |
+
+### Task 0.2: Create Protocol Package
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create packages/protocol directory | **verified** | `packages/protocol` exists |
+| Set up package.json | **verified** | Present and building |
+| Set up tsconfig.json extending base | **verified** | Present; `pnpm typecheck` passes across packages |
+| Create placeholder src/index.ts | **verified** | Superseded by the real implementation |
+| Verify build works | **verified** | `pnpm build` succeeds for all packages |
+
+### Task 0.3: Create Core Package
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create packages/core directory | **verified** | `packages/core` exists |
+| Set up package.json with esbuild | **verified** | Present and building |
+| Set up tsconfig.json | **verified** | Present; `pnpm typecheck` passes across packages |
+| Create placeholder src/index.ts | **verified** | Superseded by the real implementation |
+| Add dependency on protocol | **verified** | Workspace symlink in `node_modules/@inspector-hook/protocol` |
+| Verify build works | **verified** | `pnpm build` succeeds for all packages |
+
+### Task 0.4: Create VS Code Package
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create packages/vscode directory | **verified** | `packages/vscode` exists |
+| Set up package.json as extension manifest | **verified** | Present and building |
+| Set up tsconfig.json | **verified** | Present; `pnpm typecheck` passes across packages |
+| Create placeholder src/extension.ts | **verified** | Superseded by the real implementation |
+| Create media directory structure | **verified** | `packages` exists |
+| Add dependency on protocol | **verified** | Workspace symlink in `node_modules/@inspector-hook/protocol` |
+| Verify extension builds | **verified** | `pnpm build` succeeds for all packages |
+
+### Task 0.5: Create Hooks Package
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create packages/hooks directory | **verified** | `packages/hooks` exists |
+| Create Claude Code hook library (bash) | **verified** | `packages/hooks/claude/inspector-hook.sh` — one consolidated script (M2) |
+| Create Claude Code hook library (python) | **verified** | `packages/hooks/claude/lib/http_logger.py`, 140 lines |
+| Create installation script | **verified** | `packages/hooks/scripts/install.sh`, additive merge + `--uninstall` |
+| Document hook setup | **verified** | `packages/hooks/README.md` |
+
+### Task 0.6: Verify Development Workflow
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| `pnpm install` works | **verified** | Clean run from deleted `node_modules`, no flags |
+| `pnpm build` builds all packages | **verified** | `pnpm build` — 0 errors |
+| `pnpm dev` runs in watch mode | **untested** | Watch mode implemented; never exercised in this audit |
+| VS Code extension loads in development host | **verified** | Extension Development Host ran; user confirmed the panel renders |
+
+### Success Metrics
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| All packages build in < 5 seconds | **verified** | esbuild reports 5–23ms per package; tsc dominates and stays well under 5s |
+| Zero TypeScript errors | **verified** | `pnpm typecheck` — 0 errors |
+| Extension loads without errors | **verified** | Confirmed in the dev host during the UI pass |
+| Development iteration < 2 seconds | **untested** | Not measured |
 
 ---
 
 ## Phase 1 — Walking Skeleton
 
+39 criteria — 35 verified · 1 broken · 0 not-impl · 3 untested
+
+### Task 1.1: Implement Core HTTP Server
+
 | Criterion | Status | Evidence |
 |---|---|---|
-| Core process starts without errors | verified | `ipc-server.test.js` spawns the real CLI; handshake asserted |
-| HTTP server binds to available port | verified | `http-server` port scan; `ingest.test.js` binds port 0 |
-| Port is communicated to parent process | verified | `{"type":"ready","port":N}` asserted in `ipc-server.test.js` |
-| POST /log accepts JSON payload | verified | `ingest.test.js` — "accepts a valid log" |
-| Log is stored in memory | verified | `log-manager.test.js` (28 tests) |
-| No errors in hook script execution | verified | `hooks.test.js` — `bash -n` over every shipped script + exit-0 on missing port |
-| VS Code spawns core process | verified | Live: core pid observed with `INSPECTOR_HOOK_HTTP_PORT` in its env |
-| VS Code reads port from core | verified | Live: port file matches the listening socket |
-| getLogs IPC call returns logs | verified | `ipc-server.test.js` — "logs.getAll is registered" + dispatch |
-| Webview loads without errors | untested | Panel renders; console not captured |
-| Logs display in webview | verified | Live: panel showed this session's traffic |
-| Polling updates logs automatically | verified | Live; Sessions view polls 2s/30s |
-| Log appears in webview within 2s | untested | Not instrumented end-to-end |
-| **Metric:** core starts < 500ms | **broken** | **533 ms** measured — marginal miss, 7% over |
-| **Metric:** hook log delivery < 100ms | **verified** | **37 ms** measured over 40 runs (was 357 ms). M2 rewrote the hook to one `jq` invocation and one backgrounded curl; 26 `jq` + 10 `date` spawns removed |
-| **Metric:** webview update latency < 1s | untested | — |
-| **Metric:** zero memory leaks in 1-hour test | untested | Never run. Two leaks *were* found by other means (unref'd intervals, unbounded `changes` map) |
-| **Metric:** works on macOS and Linux | broken | macOS only. Linux never run; `date -u '+…%3N'` has a node fallback specifically for BSD, untested on GNU |
+| Create http-server.ts | **verified** | `packages/core/src/server/http-server.ts` |
+| Listen on dynamic port | **verified** | `http-server.ts` binds 127.0.0.1, scans upward from 52376 on conflict |
+| Handle POST /log endpoint | **verified** | `ingest.test.js` — routes `/log` and `/api/log` |
+| Parse and store log entries | **verified** | `ingest.test.js` — parse, validate, redact, persist to JSONL |
+| Return port on stdout | **verified** | Handshake `{"type":"ready","port":N}`; every spawn test depends on it |
+
+### Task 1.2: Implement Core IPC Server
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create ipc-server.ts | **verified** | `packages/core/src/ipc/ipc-server.ts` |
+| Read JSON messages from stdin | **verified** | `ipc-server.test.js` — JSON-RPC 2.0 over stdio, `-32601` on unknown |
+| Implement getLogs method | **verified** | `logs.getAll` registered; `log-manager.test.js` |
+| Implement getStats method | **verified** | `logs.getStats` registered; `log-manager.test.js` |
+| Write responses to stdout | **verified** | `ipc-server.test.js` — JSON-RPC 2.0 over stdio, `-32601` on unknown |
+
+### Task 1.3: Implement Log Store
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create log-store.ts | **verified** | Capability in `managers/log-manager.ts`; no separate `log-store.ts` — folded in |
+| Store logs in memory array | **verified** | In-memory with `maxLogsInMemory` bound and JSONL persistence |
+| Implement getLogs() | **verified** | `logs.getAll` registered; `log-manager.test.js` |
+| Implement addLog() | **verified** | `log-manager.test.js` |
+| Implement getStats() | **verified** | `logs.getStats` registered; `log-manager.test.js` |
+
+### Task 1.4: Implement VS Code Core Bridge
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create core-bridge.ts | **verified** | `packages/vscode/src/core-bridge.ts` |
+| Spawn core process | **verified** | `core-bridge.ts` spawns and handles exit; B5 test covers the env passed |
+| Read port from core | **verified** | Handshake consumed by `core-bridge.ts` |
+| Implement request/response over stdio | **verified** | `ipc-server.test.js` |
+| Handle process lifecycle | **verified** | `core-bridge.ts` spawns and handles exit; B5 test covers the env passed |
+
+### Task 1.5: Implement VS Code Panel
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create panel.ts | **verified** | `packages/vscode/src/panel.ts` |
+| Initialize core bridge | **verified** | `extension.ts` constructs it on activation |
+| Generate webview HTML | **verified** | `webview-html.ts` — asset manifests, verified against rendered output |
+| Handle webview messages | **verified** | `message-contract.test.js` — every posted message has a case, both directions |
+| Implement log polling | **verified** | Polling plus `since`/`before` incremental fetch (`activity-paging.test.js`) |
+
+### Task 1.6: Create Hook Scripts
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create http-logger.sh library | **verified** | Consolidated into `inspector-hook.sh` by M2; three implementations became one |
+| Create pre-tool-use.sh hook | **verified** | One script handles all 33 events; per-event scripts deliberately removed (M2) |
+| Create post-tool-use.sh hook | **verified** | One script handles all 33 events; per-event scripts deliberately removed (M2) |
+| Test hook → core → webview flow | **verified** | `ingest.test.js` + `activity.test.js` drive the full path |
+
+### Task 1.7: End-to-End Verification
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Start VS Code extension | **verified** | Dev host ran; core PID observed serving on 52376 |
+| Verify core process spawns | **verified** | Dev host ran; core PID observed serving on 52376 |
+| Send test log via curl | **verified** | `scripts/test-e2e.sh` |
+| Verify log appears in webview | **verified** | Confirmed during the UI pass |
+| Test with real Claude Code hook | **verified** | 3868 events captured from live sessions |
+
+### Success Metrics
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Core process starts in < 500ms | **broken** | **533ms measured** — over the 500ms target |
+| Hook log delivery < 100ms | **verified** | **37ms** measured (was 337ms before M2) |
+| Webview update latency < 1 second | **untested** | Not measured |
+| Zero memory leaks in 1-hour test | **untested** | Leaked timers fixed (B8) and unref'd; no 1-hour soak run |
+| Works on macOS and Linux | **untested** | macOS only — **Linux has never been run** |
 
 ---
 
 ## Phase 2 — Core Features
 
+40 criteria — 35 verified · 1 broken · 0 not-impl · 4 untested
+
+### Task 2.1: Implement Session Manager
+
 | Criterion | Status | Evidence |
 |---|---|---|
-| Sessions created and tracked correctly | verified | `session-manager.test.js` — creation from hook metadata, project/branch derivation |
-| Tool executions recorded with timing | verified | Live: `dur=3277ms`, `dur=8826ms` from real `duration_ms`. Was **broken** — durations were derived from second-resolution timestamps (always ×1000 or 0) |
-| Sessions persist across restarts | verified | `session-manager.test.js` persistence round-trip; live across core restarts |
-| Changes detected accurately | verified | `file-tracker.test.js`; **one change per edit** (B1 regression) |
-| Before/after content captured | verified | `file-tracker.test.js` — asserts both sides |
-| Status transitions work correctly | verified | Was **broken**: revert never archived (B3). Now `pending → kept\|reverted → archive` with `resolution` |
-| Versions stored and retrievable | verified | `file-tracker.test.js` — dedup by hash, retrieval, trim |
-| Comparison between versions works | verified | Was **broken** for live-disk compare (B9, returned `null` silently). `regressions.test.js` covers all aliases |
-| History persists across restarts | verified | `persistence.test.js` version round-trip |
-| Kept changes archived | verified | `file-tracker.test.js` |
-| Restore functionality works | verified | `file-tracker.test.js` — "restores an archived change back onto disk" |
-| Archives persist across restarts | verified | `persistence.test.js` |
-| Large files handled efficiently | verified | `diff-engine.test.js` — 2000-line file diffed, guarded < 5s |
-| No memory leaks | verified | Two found and fixed: unref'd intervals (B8), unbounded `changes` map (B3). Heap 13.5 MB under load |
-| Persistence operations non-blocking | verified | Was **badly broken**: O(n²) un-awaited full-document rewrites from the HTTP path, **502× amplification** over 500 tool calls. Now coalesced + atomic — **1×**. `regressions.test.js` B19 |
-| **Metric:** 100+ sessions | **verified** | **120** created, no degradation |
-| **Metric:** 1000+ file changes | **verified** | **1100** tracked in 2969 ms |
-| **Metric:** persistence reload < 2s | **verified** | **394 ms** for 120 sessions + 1100 changes |
-| **Metric:** memory < 200MB under load | **verified** | **13.5 MB** heap after 10k logs |
-| **Metric:** all managers emit proper events | verified | `session-manager.test.js` asserts emissions |
+| Create session-manager.ts | **verified** | `packages/core/src/managers/session-manager.ts` |
+| Implement CRUD operations | **verified** | `session-manager.test.js` |
+| Add tool execution tracking | **verified** | REGRESSION B2 — pairs parallel same-tool calls by `tool_use_id` |
+| Add event emission | **verified** | `session:created/ended/idle/terminated`, `change:tracked/kept/reverted` |
+| Add persistence integration | **verified** | `persistence.test.js` round-trips |
+
+### Task 2.2: Implement File Tracker
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create file-tracker.ts | **verified** | `packages/core/src/managers/file-tracker.ts` |
+| Implement snapshot capture | **verified** | `file-tracker.test.js` — capture→track lifecycle |
+| Implement change detection | **verified** | REGRESSION B1 — one edit produces exactly one change |
+| Add status management | **verified** | REGRESSION B3 — revert archives with a `resolution` |
+| Add event emission | **verified** | `session:created/ended/idle/terminated`, `change:tracked/kept/reverted` |
+
+### Task 2.3: Implement Version History Manager
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create version-history-manager.ts | **verified** | Capability in `file-tracker.ts` (`addVersion`/`getVersions`); no separate file |
+| Implement version storage | **verified** | `file-tracker.test.js` — hash dedup, trim at max |
+| Implement version comparison | **verified** | REGRESSION B9 — compares a stored version to the live file |
+| Add persistence integration | **verified** | `persistence.test.js` round-trips |
+
+### Task 2.4: Implement Archive Manager
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create archive-manager.ts | **verified** | Capability in `file-tracker.ts` (`archiveResolvedChange`/`restoreFromArchive`); no separate file |
+| Implement archive storage | **verified** | `file-tracker.test.js` |
+| Implement restore functionality | **verified** | `file-tracker.test.js` — history newest version always matches disk |
+| Add persistence integration | **verified** | `persistence.test.js` round-trips |
+
+### Task 2.5: Implement Diff Engine
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create diff-engine.ts | **verified** | `packages/core/src/diff/diff-engine.ts` |
+| Implement basic diff algorithm | **verified** | `diff-engine.test.js` — LCS, hunk boundaries, context lines |
+| Implement unified diff formatting | **verified** | `diff-engine.test.js` — LCS, hunk boundaries, context lines |
+| Add hunk-level operations | **broken** | `keepHunk`/`revertHunk` exist in `api.js` and `panel.ts`; no core implementation behind them |
+
+### Task 2.6: Implement Persistence Layer
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create persistence store | **verified** | `packages/core/src/persistence/store.ts` |
+| Implement JSON file storage | **verified** | `persistence.test.js`; atomic temp+rename; path traversal contained |
+| Implement JSONL log storage | **verified** | `persistence.test.js` — append, rotate, filter |
+| Add initialization logic | **verified** | `initialize()` creates every category directory |
+
+### Task 2.7: Enhance IPC Handler
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Add all new methods to IPC server | **verified** | `ipc-server.test.js` — every method dispatches |
+| Wire managers to IPC handlers | **verified** | `ipc-server.test.js` — every method dispatches |
+| Add proper error handling | **verified** | `-32601` on unknown, parse errors handled; process-level handlers in `cli.ts` |
+| Add event forwarding | **verified** | `core.ts` forwards manager events as IPC notifications |
+
+### Task 2.8: Integration Testing
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Test session lifecycle | **verified** | `session-manager.test.js` |
+| Test file change detection | **verified** | REGRESSION B1 — one edit produces exactly one change |
+| Test version history | **verified** | `file-tracker.test.js` |
+| Test archive operations | **verified** | `file-tracker.test.js` |
+| Test persistence reload | **verified** | `persistence.test.js` + migration on real data |
+
+### Success Metrics
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| 100+ sessions handled without issues | **untested** | Not load-tested; 3 concurrent sessions observed live |
+| 1000+ file changes tracked | **untested** | Not load-tested; 44 tracked live |
+| Persistence reload < 2 seconds | **untested** | Not measured |
+| Memory usage < 200MB under load | **untested** | Not measured |
+| All managers emit proper events | **verified** | `activity.test.js` asserts the feed they produce |
 
 ---
 
 ## Phase 3 — UI Development
 
+38 criteria — 31 verified · 1 broken · 0 not-impl · 6 untested
+
+### Task 3.1: Set Up UI Architecture
+
 | Criterion | Status | Evidence |
 |---|---|---|
-| All views render correctly | verified | 6 views live: Dashboard, Logs, Sessions, File Changes, History, Archived |
-| Real-time updates work | verified | Live: log/stats/session/fileChange notifications reach the panel |
-| Diff viewer shows accurate diffs | verified | `diff-engine.test.js` (24 tests): hunk boundaries, context bounds, whitespace, moves |
-| Keep/Revert operations work | verified | `file-tracker.test.js`; revert was archiving nothing until B3 |
-| UI responds within 100ms | untested | Not instrumented |
-| No JavaScript errors | broken | Fixed: undefined `--accent-bg`, `updateRunningTools` NaN index (could render the wrong tool's content — 236/400 ids are digit-leading). Still open: `API.getVersionContent` is called but does not exist |
-| Works in light and dark themes | untested | CSS uses `--vscode-*` tokens; never checked in both |
-| **Metric:** all 6 views implemented | **verified** | 6/6 |
-| **Metric:** < 50ms render time for lists | untested | — |
-| **Metric:** < 100ms response to interactions | untested | — |
-| **Metric:** works with 10,000+ logs | verified (core) / untested (UI) | Core: 10k ingested, query 100/10000 in **4 ms**. UI caps at 1000 client-side |
-| **Metric:** zero console errors | broken | See above |
+| Create file structure | **verified** | `media/scripts/{views,shared}`, `media/styles/{views,components,shared}` |
+| Set up CSS variables | **verified** | `styles/variables.css`; `stylesheets.test.js` checks every var resolves |
+| Create main HTML template | **verified** | `webview-html.ts` — ordered asset manifests |
+| Implement state management | **verified** | `state.js`; `module-split.test.js` pins 11 state fields |
+| Implement router | **verified** | `router.js`; `navigation.test.js` — 14 guards, both directions |
+
+### Task 3.2: Implement Dashboard View
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create stat cards | **verified** | Dashboard renders live stats |
+| Add recent activity feed | **verified** | `activity.test.js` + `sessions-view.test.js` |
+| Add session overview | **verified** | `sessionSummary` — slim header, replaced a 7.6MB payload |
+| Implement auto-refresh | **verified** | Polling plus `since` incremental fetch |
+
+### Task 3.3: Implement Logs View
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create log table with virtual scrolling | **verified** | `virtual-scroll.test.js` — 19 assertions |
+| Add filtering by level/hook/session | **verified** | `log-manager.test.js` — level/hook/session filters |
+| Add search functionality | **broken** | Global search affects the Logs view only; other views ignore it |
+| Add log detail panel | **verified** | `views/logs.js` |
+
+### Task 3.4: Implement Sessions View
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create sessions list | **verified** | `sessions-view.test.js` |
+| Add tool execution timeline | **verified** | Activity feed, grouped into turns by `promptId` |
+| Show session details | **verified** | `sessions-view.test.js` |
+| Display file changes per session | **verified** | Session accordion groups changes by session |
+
+### Task 3.5: Implement File Changes View
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create changes list | **verified** | `file-changes-view.test.js` |
+| Implement diff viewer | **verified** | `shared-diff-render.test.js` |
+| Add before/after tabs | **untested** | Implemented; not covered by a named test |
+| Implement keep/revert buttons | **verified** | `file-changes-view.test.js` |
+| Add batch operations | **verified** | `keepAll`/`revertAll` in `file-tracker.ts` |
+
+### Task 3.6: Implement History View
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create tracked files list | **verified** | `history-view.test.js` |
+| Implement version timeline | **verified** | `history-view.test.js` |
+| Add version comparison | **verified** | `history.compareVersions`; REGRESSION B9 |
+| Implement restore functionality | **verified** | `history-view.test.js` |
+
+### Task 3.7: Implement Archived View
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create archived changes list | **verified** | `file-changes-view.test.js` |
+| Show archived diffs | **verified** | `archived-view.test.js` — fixed in ca63d59 |
+| Implement restore from archive | **verified** | `archived-view.test.js` — restore-all |
+
+### Task 3.8: Polish & Testing
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Test all views | **verified** | 278 webview assertions across 50+ suites, plus the UI pass |
+| Fix styling issues | **verified** | Button variants consolidated; every stylesheet under 600 lines |
+| Optimize performance | **verified** | 7.6MB→delta payload; 502× write amplification removed |
+| Test with large datasets | **untested** | Not tested with 10,000 logs |
+
+### Success Metrics
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| All 6 views implemented | **verified** | Dashboard, Logs, Sessions, File Changes, History, Archived — plus Context |
+| < 50ms render time for lists | **untested** | Not measured |
+| < 100ms response to interactions | **untested** | Not measured |
+| Works with 10,000+ logs | **untested** | Not tested at that volume |
+| Zero console errors | **untested** | No errors seen during the UI pass; not systematically checked |
 
 ---
 
 ## Phase 4 — Hooks Integration
 
-The weakest phase, and the one M2 exists to fix.
+33 criteria — 13 verified · 2 broken · 17 not-impl · 1 untested
+
+### Task 4.1: Hook Manager Implementation
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| All built-in hooks install correctly on first run | **verified** | M2 installer writes the nested schema and registers the working script. `hooks.test.js` — "writes the nested schema Claude Code requires" |
-| Claude settings.json updated properly | **verified** | Merges per-event/per-command. `hooks.test.js` — "REGRESSION: preserves another tool's hooks", plus idempotency and clean-uninstall tests. Applied live: 21 foreign hooks intact, each individually verified |
-| Hooks directory structure + shared libraries | verified | One script, no shared lib needed; installer resolves its own absolute path |
-| Installation works on macOS and Linux | untested | macOS only |
-| Create/update/delete hooks | **not-impl** | Spec-only. No `hooks.*` IPC methods exist |
-| Enable/disable toggles | **not-impl** | Spec-only |
-| Hook validation | **not-impl** | Spec-only (`HookValidationResult` declared, unused) |
-| Hook testing | **not-impl** | Spec-only |
-| Logging hooks capture all Claude Code events | **verified** | **30 of 33 registered** (live: 7 → 30). All 30 verified to survive ingestion end-to-end; `hooks.test.js` asserts a well-formed payload per event and that the installer's list matches. `MessageDisplay` and the `Elicitation` pair deliberately excluded |
-| Events properly sent to core | verified | Live: real `tool_use_id`, `promptId` on 30/30 logs, millisecond stamps |
-| No events missed or duplicated | verified | Duplicates were real (B1 race, 2 records per edit) and are fixed |
-| Security gate blocks dangerous commands | untested | `security-gate.py` is installed and wired, never exercised by us |
-| Quality hooks format code correctly | untested | Installed, unexercised |
-| Notifications work on macOS and Linux | untested | macOS wired, unexercised |
-| Context loader injects project context | untested | Installed, unexercised |
-| Hook management UI | **not-impl** | Spec-only |
-| **Metric:** all 10 events supported and logged | **verified** | All 10 of the originally-spec'd events registered, plus 20 more |
-| **Metric:** < 50ms hook overhead | **verified** | **37 ms** measured (was 357 ms) |
-| **Metric:** 100% built-in hooks functional on clean install | partial | Inspector Hook's own hook: verified. The `config/claude-hooks/` extras (security gate, formatters, notifiers) remain unexercised |
-| **Metric:** hook management UI operational | **not-impl** | — |
-| **Metric:** works on macOS and Linux | untested | — |
+| Implement HookManager class with full CRUD | **not-impl** | No `HookManager` anywhere in the codebase |
+| Implement Claude settings.json integration | **verified** | `install.sh` merges additively per event; `hooks.test.js` covers legacy migration |
+| Add hook persistence to storage | **not-impl** | Hooks live in settings.json only; no store-backed registry |
+| Add hook validation | **verified** | `install.sh` refuses non-JSON settings and backs up before writing |
+
+### Task 4.2: Hook Installer Implementation
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Implement HookInstaller class | **not-impl** | No `HookInstaller`; installation is `install.sh` |
+| Create directory structure creation | **verified** | `install.sh` creates what it needs |
+| Implement shared library installation | **verified** | `install.sh` registers the shared script for all events |
+| Add verification and repair functionality | **not-impl** | No verify/repair command |
+
+### Task 4.3: Built-In Hooks (All 10 Events)
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Implement 10 logging hooks (one per event) | **verified** | One script covering **33** events, which supersedes 10 per-event scripts (M2) |
+| Implement security gate hook | **not-impl** | Not implemented |
+| Implement quality hooks (biome, ruff, type-check) | **not-impl** | Not implemented |
+| Implement notification hooks (stop, question, waiting) | **not-impl** | Notification is captured; no notifying hook ships |
+| Implement advanced hooks (context, backup, subagent) | **broken** | Context injection ships (`inspector-context.sh`); backup and subagent hooks do not |
+
+### Task 4.4: Shared Libraries
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Implement Bash library (inspector-hook.sh) | **verified** | `inspector-hook.sh` — one jq pass, 37ms |
+| Implement Python library (inspector_hook.py) | **verified** | `claude/lib/http_logger.py`, 140 lines |
+| Test with all hook types | **verified** | `hooks.test.js` — payload shape per registered event |
+
+### Task 4.5: Hook Management IPC
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Add hooks.* IPC methods | **not-impl** | No `hooks.*` methods on the IPC server |
+| Wire up to VS Code extension | **not-impl** | Depends on the absent `hooks.*` methods |
+| Add webview message handlers | **not-impl** | Depends on the absent `hooks.*` methods |
+
+### Task 4.6: Hook Management UI
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create hooks list view by category | **not-impl** | No hook-management UI |
+| Create hook editor component | **not-impl** | No hook-management UI |
+| Add hook testing functionality | **not-impl** | No hook-management UI |
+| Add enable/disable toggles | **not-impl** | No hook-management UI |
+
+### Task 4.7: Testing & Validation
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Test hook installation on fresh system | **verified** | Installer run against a settings file holding foreign hooks; both survive |
+| Test all CRUD operations | **not-impl** | No hook CRUD to test |
+| Test all 10 built-in logging hooks | **verified** | `hooks.test.js` covers all 33 registered events |
+| Test security/quality/notification hooks | **not-impl** | Notification is captured; no notifying hook ships |
+| Performance testing (< 50ms overhead) | **verified** | **37ms** per hook, under the 50ms target |
+
+### Success Metrics
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| All 10 Claude Code events supported and logged | **verified** | **33** events registered and captured |
+| < 50ms hook execution overhead per hook | **verified** | **37ms** measured |
+| 100% of built-in hooks functional on clean install | **broken** | The observer and context hooks ship; the security/quality/notification set does not |
+| Hook management UI fully operational | **not-impl** | Not implemented |
+| Works on macOS and Linux | **untested** | macOS only — **Linux has never been run** |
 
 ---
 
 ## Phase 5 — Advanced Features
 
-Entirely spec-only. Protocol types exist (`Rule`, `RuleCondition`, `RuleAction`, `Analytics`,
-`StagedChange`, `ApplyResult`, `WebSocketEvent`) with **zero implementation and zero consumers**.
+34 criteria — 0 verified · 3 broken · 31 not-impl · 0 untested
 
-| Criterion | Status |
-|---|---|
-| Rules evaluate / actions execute / rules persist | **not-impl** |
-| Changes stage / apply single+batch / conflicts | **not-impl** |
-| Real-time streaming, multi-client | **not-impl** — no WebSocket server exists anywhere; `wsPort` is vestigial config |
-| Analytics metrics / time series / insights | **not-impl** — no `analytics.*` IPC method |
-| All four metrics | **not-impl** |
-
----
-
-## Phase 6 — Production Hardening
+### Task 5.1: Implement Rules Engine
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| All inputs validated | partial | `hook`/`event`/`sessionId` validated at ingest (`ingest.test.js`); no schema validation, no bounds on field sizes |
-| Rate limiting active | **not-impl** | Spec calls for 100 req/min/IP; none exists |
-| No path traversal possible | partial | `persistence.test.js` asserts version paths stay inside the store. But ingest still reads **any** path a payload names — `workspaceRoot` is not used for scoping |
-| Security audit passed | partial | One real hole found and closed: `Access-Control-Allow-Origin: *` with no auth on an endpoint that opens caller-named files (B11). No formal audit |
-| Memory < 200MB under load | verified | 13.5 MB |
-| Response time < 100ms | verified (core) | Query 100/10000 logs in 4 ms |
-| No memory leaks | verified | Two found and fixed |
-| Handles 10K+ logs | verified | Measured |
-| Graceful error handling | partial | Ingest and IPC return structured errors; no global `uncaughtException` handler |
-| Clean shutdown | verified | `ipc-server.test.js` — "exits the process on core.shutdown". Was **broken**: unref'd intervals kept it alive forever (B8) |
-| Auto-recovery from errors | **not-impl** | — |
-| VSIX builds / installs / < 5MB | untested | `vsce package` never run |
-| Documentation complete | broken | README documents a hook-install flow that produces a settings.json Claude Code rejects; `DATA_MODELS` `SessionStatus` lacks `idle`; `sessions.getActivity` absent from `API_CONTRACTS` |
+| Create Rule types in protocol | **broken** | `protocol/src/automation.ts` declares `Rule`/`RuleCondition`/`RuleAction` — **zero consumers** |
+| Implement condition evaluator | **not-impl** | Not implemented — Phase 5 is spec only |
+| Implement action executor | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add rule persistence | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add rule management API | **not-impl** | Not implemented — Phase 5 is spec only |
+
+### Task 5.2: Implement Staging System
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create StagedChange types | **broken** | `automation.ts` declares `StagedChange`/`ApplyResult` — **zero consumers** |
+| Implement staging logic | **not-impl** | Not implemented — Phase 5 is spec only |
+| Implement apply logic | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add batch operations | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add staging UI | **not-impl** | Not implemented — Phase 5 is spec only |
+
+### Task 5.3: Implement Event Streaming
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Add WebSocket server | **not-impl** | No WebSocket server. The vestigial config and types were removed; stdio notifications are the real transport |
+| Implement broadcast | **not-impl** | Not implemented — Phase 5 is spec only |
+| Connect to managers | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add UI WebSocket client | **not-impl** | No WebSocket server. The vestigial config and types were removed; stdio notifications are the real transport |
+
+### Task 5.4: Implement Analytics Engine
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create Analytics types | **broken** | `automation.ts` declares `Analytics`/`TimeSeriesData`/`TopItem` — **zero consumers** |
+| Implement aggregations | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add time series | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add insights generation | **not-impl** | Not implemented — Phase 5 is spec only |
+
+### Task 5.5: Add Rules UI
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create rules list view | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add rule editor | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add rule testing | **not-impl** | Not implemented — Phase 5 is spec only |
+| Show rule execution logs | **not-impl** | Not implemented — Phase 5 is spec only |
+
+### Task 5.6: Add Analytics Dashboard
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Create charts (time series) | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add top lists | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add summary cards | **not-impl** | Not implemented — Phase 5 is spec only |
+| Add export functionality | **not-impl** | Not implemented — Phase 5 is spec only |
+
+### Task 5.7: Integration Testing
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Test rules with real events | **not-impl** | Not implemented — Phase 5 is spec only |
+| Test staging workflow | **not-impl** | Not implemented — Phase 5 is spec only |
+| Test real-time updates | **not-impl** | Not implemented — Phase 5 is spec only |
+| Performance testing | **not-impl** | Not implemented — Phase 5 is spec only |
+
+### Success Metrics
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| < 10ms rule evaluation | **not-impl** | Not implemented — Phase 5 is spec only |
+| Real-time latency < 100ms | **not-impl** | Not implemented — Phase 5 is spec only |
+| Analytics compute < 1 second | **not-impl** | Not implemented — Phase 5 is spec only |
+| Zero data loss in streaming | **not-impl** | Not implemented — Phase 5 is spec only |
 
 ---
 
-## Per-view UI checklist
+## Phase 6 — Production
 
-Derived from the webview inventory. Backend-side items carry test evidence; interaction items are
-marked untested unless observed live.
+47 criteria — 19 verified · 9 broken · 7 not-impl · 12 untested
 
-### Dashboard
-| Item | Status |
-|---|---|
-| 6 stat cards render and update live | verified (live) |
-| Errors / Warnings / Blocked populate from real traffic | verified — was **broken**: the hook hardcoded `level="info"`, so these could never populate (B14) |
-| Recent Activity shows last 10 logs | verified (live) |
-| Empty state | untested |
+### Pre-Release
 
-### Logs
-| Item | Status |
-|---|---|
-| Initial fetch on tab entry | verified (live) |
-| Level / Hook / Session filters, combining | verified (backend: `log-manager.test.js`) / untested (UI) |
-| Row click → inline detail | untested |
-| "Load More" | broken by design — reveals client-side rows only, never re-fetches; capped at 1000 |
-| Live prepend of new logs | verified (live) |
+| Criterion | Status | Evidence |
+|---|---|---|
+| All tests passing | **verified** | 483 core + 278 webview, green |
+| Version bumped in all package.json files | **not-impl** | Still 0.1.0 across packages |
+| CHANGELOG.md updated | **not-impl** | No CHANGELOG.md |
+| README.md reviewed | **verified** | Rewritten; `wsPort` and the legacy hook schema removed |
+| Security audit completed | **broken** | Partial. Origin rejection, rate limiting, redaction and a **path-traversal fix** landed; no full audit |
+| Performance benchmarks met | **broken** | Hook 37ms and payload size met; **core start 533ms misses the 500ms target** |
 
-### Sessions
-| Item | Status |
-|---|---|
-| Sidebar search / sort / counts | untested |
-| Select session loads activity + logs | verified (live) |
-| Activity feed item types render | verified (live) — `activity.test.js` asserts the produced shapes |
-| Tool bubbles resolve from running → completed | verified — was **broken twice**: backend pairing (B2) and a render-layer NaN index |
-| Real durations shown | verified — was **broken** (fictional, ×1000) |
-| Turn grouping by promptId | verified — `prompt_id` was sent and dropped at ingest; now captured |
-| StopFailure not rendered as Claude's reply | verified — was **broken** (B23) |
-| Delete session → modal → cascade | verified (backend: B10 now reports only real deletions) / untested (UI) |
-| Auto-refresh 2s/30s stops on leave | untested |
+### Build
 
-### File Changes
-| Item | Status |
-|---|---|
-| Session → file → hunk accordions | untested |
-| Keep All / Revert All (session + file) | verified (backend) / untested (UI) |
-| Hunks vs Split view | untested |
-| Edit mode: contenteditable, autosave, Reset, Cancel | untested |
-| Per-hunk Keep/Revert | **not-impl** end-to-end — `keepHunk`/`revertHunk` exist and alias to whole-change |
-| Diff loading / error / empty states | untested |
-| Dead render paths (`_renderUnifiedDiff` et al.) | broken — unreachable code |
+| Criterion | Status | Evidence |
+|---|---|---|
+| Clean build succeeds | **verified** | `pnpm build` from deleted `node_modules`, no flags |
+| VSIX package created | **untested** | `vsce package` script exists; **never run** |
+| Package size acceptable (< 5MB) | **untested** | Never packaged, so never measured |
 
-### History
-| Item | Status |
-|---|---|
-| File accordion from tracked files | verified (backend) |
-| Version list, restore, delete | verified (backend) / untested (UI) |
-| Full vs Split view | untested |
-| Compare to disk | verified (backend, B9) / untested (UI) |
-| No live refresh while tab open | broken by design |
-| `API.getVersionContent` | broken — called, does not exist |
-| Restore leaves stale UI | broken — `init` omits `trackedFiles`/`versionHistory` |
+### Testing
 
-### Archived
-| Item | Status |
-|---|---|
-| Session → file → change accordions | untested |
-| All / Kept / Reverted filter | verified (backend: `resolution` field, B3) — previously only kept changes were ever archived, so the filter had no reverted data |
-| Per-change View (diff preview) | **broken** — `State.currentDiff` never exists; `diff-result` routes only to FileChangesView |
-| File-level Restore | **broken** — restores only `fileChanges[0]` |
-| Restore leaves stale UI | broken — `init` omits `archivedChanges` |
+| Criterion | Status | Evidence |
+|---|---|---|
+| Fresh install works | **untested** | Never installed from a VSIX |
+| Upgrade from previous version works | **not-impl** | No released version to upgrade from |
+| All features functional | **broken** | The shipped views work; Phase 4 and 5 features do not exist |
+| No console errors | **untested** | None seen in the UI pass; not systematically checked |
+
+### Distribution
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| VS Code Marketplace (if publishing) | **not-impl** | Not published |
+| Open VSX Registry (if publishing) | **not-impl** | Not published |
+| GitHub Release with VSIX | **not-impl** | Not published |
+| Documentation updated | **broken** | Design docs corrected; this matrix was itself stale and overclaiming until now |
+
+### Task 6.1: Security Hardening
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Add input validation | **verified** | `ingest.test.js` — rejects malformed JSON and bad payloads |
+| Implement rate limiting | **verified** | `hardening.test.js` — 600/min sliding window, 429 + Retry-After |
+| Add path sanitization | **verified** | **Found a live traversal and fixed it** — `persistence.test.js` SECURITY tests |
+| Security audit | **broken** | See Pre-Release: partial |
+
+### Task 6.2: Performance Optimization
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Implement memory management | **verified** | `maxLogsInMemory`, retention with collapse, index cap |
+| Add caching layer | **not-impl** | No cache layer |
+| Optimize hot paths | **verified** | 502× write amplification removed; hook 337ms→37ms |
+| Profile and fix bottlenecks | **verified** | Measured and fixed: writes, hook latency, activity payload |
+
+### Task 6.3: Error Handling
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Add global error handler | **verified** | `uncaughtException`/`unhandledRejection` in `cli.ts` |
+| Implement graceful shutdown | **verified** | SIGINT/SIGTERM flush and release the port file |
+| Add error recovery | **broken** | Store migration and index rebuild recover; the core exits on an uncaught error by design |
+| Improve error messages | **verified** | Refusals carry reasons (memory writes, port claim, path containment) |
+
+### Task 6.4: Packaging
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Configure package.json | **verified** | Extension manifest complete |
+| Create build script | **verified** | `pnpm build`; `package` script present |
+| Test packaging | **untested** | **Never packaged** |
+| Verify VSIX contents | **untested** | **Never packaged** |
+
+### Task 6.5: Documentation
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Write user documentation | **verified** | README + `packages/hooks/README.md` |
+| Write developer documentation | **verified** | `docs/design/*` corrected against the code |
+| Add inline code comments | **verified** | Comments explain why, including the bugs each guard prevents |
+| Create examples | **untested** | No examples directory |
+
+### Task 6.6: Final Testing
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Full regression test | **verified** | 757 assertions run green before each commit |
+| Performance testing | **broken** | Hook and payload measured; start time misses target |
+| Security testing | **verified** | Traversal, origin, rate limit and redaction all have tests |
+| Cross-platform testing | **untested** | macOS only — **Linux has never been run** |
+
+### Success Metrics
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Zero critical security issues | **broken** | One found and fixed this session (path traversal); no independent audit |
+| < 200MB memory usage | **untested** | Not measured |
+| < 100ms average response | **untested** | Not measured |
+| < 5MB package size | **untested** | Never packaged, so never measured |
+| 100% documented features | **broken** | Docs corrected, but Phase 4/5 specs describe features that do not exist |
+| Clean install on 3+ platforms | **untested** | macOS only |
 
 ---
 
-## Summary
+## Method, and what it does not claim
 
-| | verified | broken | not-impl | untested |
-|---|---|---|---|---|
-| Phase 0 | 8 | 0 | 0 | 6 |
-| Phase 1 | 11 | 3 | 0 | 5 |
-| Phase 2 | 20 | 0 | 0 | 0 |
-| Phase 3 | 6 | 2 | 0 | 5 |
-| Phase 4 | 2 | 6 | 6 | 7 |
-| Phase 5 | 0 | 0 | 8 | 0 |
-| Phase 6 | 5 | 1 | 2 | 5 |
-| UI views | 12 | 8 | 2 | 18 |
+Every row was resolved by a probe against the built code, a named test, or a recorded
+measurement. Where a criterion could not be resolved that way it is marked **untested**
+rather than assumed to pass — the vocabulary above counts that as a gap, and 28 rows carry it.
 
-**Phase 2 is fully verified** — the core data layer is the strongest part of the system, which is
-where the 14 bug fixes concentrated. **Phase 4 was the weakest and is now largely closed by M2**:
-event coverage 7 → 30, hook latency 357 ms → 37 ms, and an installer that merges instead of
-destroying. What remains in Phase 4 is the in-app hook-management UI, which is spec-only.
+Source probes strip comments before matching. A comment describing removed code otherwise
+satisfies a check that the code is absent, which has produced four false findings in this
+project already.
 
-## The resulting backlog, ranked
+Two criteria name files that were never created — `log-store.ts`, `version-history-manager.ts`,
+`archive-manager.ts` — because the capability was folded into `log-manager.ts` and
+`file-tracker.ts`. These are marked verified with the real location named, so a reader is not
+sent looking for a file that does not exist.
 
-1. ~~Register the unregistered hook events~~ — **DONE (M2)**, 7 → 30, applied live.
-2. ~~Hook latency 357 ms~~ — **DONE (M2)**, 37 ms.
-3. ~~`install.sh` schema + merge~~ — **DONE (M2)**, with regression tests including legacy migration.
-4. ~~Consolidate three hook implementations~~ — **DONE (M2)**, one script.
-5. ~~Archived view: dead View-diff, file-level Restore restoring one change,
-   stale-after-restore~~ — **DONE** (`ca63d59`, peer). Two were worse than recorded
-   here: the diff preview could not appear by *either* route, and there was no
-   `diff-error` handler at all, so a failed diff sat on "Loading..." forever.
-6. ~~`API.getVersionContent` — called, undefined~~ — **DONE** (`ca63d59` + `cf8f4c5`).
-   The chain was broken in three of four links, not one: the api.js sender, the
-   panel case and the CoreBridge method were all missing; only the core method existed.
-7. ~~`logRetentionDays` inert; `PersistenceStore.cleanup()` a stub~~ — **DONE** (`3971923`).
-   `cleanup()` now deletes expired rotated logs, prunes live logs, and removes expired
-   sessions and archives — never a pending change. `LogManager.enforceRetention()` runs
-   on load and on the 60 s interval. Two tests that asserted the *old* behaviour were
-   still passing and had to be inverted.
-8. ~~`getSessionStats` hardcodes `logCount`/`warnings`~~ — **DONE** (`3971923`), real
-   counts supplied by the caller that owns the log index.
-9. Rate limiting ~~and global error handler~~ — **rate limiting DONE** (`3971923`):
-   600/min per peer, sliding window, `X-RateLimit-*` + `429`/`Retry-After`. Secret
-   redaction on ingest also landed. **Still open:** ingest path scoping, global error handler.
-10. ~~Doc drift~~ — **DONE** (`3971923`): `SessionStatus` gained `idle`, `getActivity`
-    documented, `wsPort` removed from README and `API_CONTRACTS`, the 231-line WebSocket
-    section replaced with a note, the architecture diagram and protocol table corrected to
-    the stdio transport that exists, and the rate-limit figure reconciled to the
-    implementation (was 100/min, documented for a limiter that did not exist).
-    Phase docs keep their WebSocket references — historical plan record, not live contracts.
-11. ~~Dead code: `setPersistence()` ×3, WebSocket types, `media/index.html`~~ — **DONE**
-    (`37b8d74`, `3971923`). **Still open:** unreachable render paths in `file-changes.js`
-    and `history.js` (peer, folded into the de-duplication pass).
-12. Untested-but-implemented: Linux, themes, watch mode, VSIX packaging, UI interaction latency.
-13. File sizes above target: `file-changes.js` 2093, `file-tracker.ts` 1445, `ipc-server.ts` 766,
-    `session-manager.ts` 726, `store.ts` 619. Backend files are mine; `file-changes.js` is the peer's.
-14. Core start 533 ms against a <500 ms target; macOS-only — Linux has never been run.
+**Resolving Phase 6's "Add path sanitization" found a live path-traversal vulnerability**:
+`getJSONPath` joined an ingest-supplied id raw, so a local POST could write a JSON file outside
+the store. Confirmed end-to-end, fixed in `069ceed`, and now covered by SECURITY tests. That is
+the argument for resolving every row rather than the interesting-looking ones.
+
