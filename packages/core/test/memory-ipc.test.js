@@ -236,7 +236,7 @@ describe("memory IPC methods", () => {
 					hook, event: hook, sessionId,
 					timestamp: new Date().toISOString(), message: "edited",
 					tool: "Edit", file: "/tmp/proj/a.ts",
-					details: { toolUseId: "tu-1", transcriptPath },
+					tool_use_id: "tu-1", details: { transcriptPath },
 				}),
 				200,
 			);
@@ -306,7 +306,7 @@ describe("memory IPC methods", () => {
 				hook, event: hook, sessionId,
 				timestamp: new Date().toISOString(), message: "edited",
 				tool: "Edit", file: "/tmp/proj/b.ts",
-				details: { toolUseId: "tu-2", transcriptPath },
+				tool_use_id: "tu-2", details: { transcriptPath },
 			});
 		}
 		const preview = await rpc("memory.buildDigest", { sessionId });
@@ -415,7 +415,7 @@ describe("memory IPC methods", () => {
 					hook, event: hook, sessionId,
 					timestamp: new Date().toISOString(), message: "edited",
 					tool: "Edit", file: "/tmp/proj2/a.ts",
-					details: { toolUseId: "tu-9", transcriptPath },
+					tool_use_id: "tu-9", details: { transcriptPath },
 				});
 			}
 			await post({

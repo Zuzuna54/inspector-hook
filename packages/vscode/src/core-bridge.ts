@@ -403,9 +403,27 @@ export class CoreBridge extends EventEmitter {
 
 	/**
 	 * Get activity feed for a session (ordered events: prompts, responses, tools)
+	 *
+	 * `since` makes a poll incremental: pass back the `nextSince` from the
+	 * previous response and only items created or CHANGED after it are returned.
+	 * The cursor is inclusive, so the boundary items come back again — the caller
+	 * must merge by `id`, keeping the version with the greater `updatedAt`. That
+	 * merge is required regardless of paging, because a tool call is created by
+	 * PreToolUse and updated in place when it completes.
+	 *
+	 * `before` walks backwards for the `truncated`/`hasMore` case: pass the
+	 * oldest timestamp already held to fetch the window before it.
 	 */
-	async getSessionActivity(sessionId: string): Promise<SessionActivityResponse> {
-		return this.sendRequest("sessions.getActivity", { id: sessionId });
+	async getSessionActivity(
+		sessionId: string,
+		options?: { since?: string; before?: string; limit?: number },
+	): Promise<SessionActivityResponse> {
+		return this.sendRequest("sessions.getActivity", {
+			id: sessionId,
+			...(options?.since ? { since: options.since } : {}),
+			...(options?.before ? { before: options.before } : {}),
+			...(options?.limit ? { limit: options.limit } : {}),
+		});
 	}
 
 	/**

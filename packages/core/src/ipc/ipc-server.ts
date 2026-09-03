@@ -282,8 +282,23 @@ export class IpcServer {
 				Math.max(Number((params as { limit?: number }).limit) || 2000, 1),
 				10_000,
 			);
+
+			// Incremental fetch (`since`) and backfill (`before`).
+			//
+			// Both are applied to the ASSEMBLED ITEMS, not to the log query --
+			// except `before`, which also narrows the log window so backfill can
+			// reach past the window cap. Filtering logs by `since` would be wrong
+			// twice over: a tool call whose PreToolUse fell outside the window
+			// would be re-emitted under the PostToolUse's id as a duplicate, and
+			// one whose PostToolUse fell outside would be reported as still
+			// running forever. The window is therefore always assembled whole and
+			// filtered afterwards.
+			const p = params as { since?: unknown; before?: unknown };
+			const since = asStr(p.since);
+			const before = asStr(p.before);
+
 			const newestFirst = await this.logManager.getLogs({
-				filter: { sessionId },
+				filter: { sessionId, ...(before ? { endTime: before } : {}) },
 				pagination: { limit, offset: 0 },
 				sort: { field: "timestamp", order: "desc" },
 			});
@@ -305,6 +320,11 @@ export class IpcServer {
 			// produced untyped here, so a producer/consumer mismatch could not be
 			// caught by the compiler. Importing them closes that.
 			const activityItems: ActivityItem<ActivityData>[] = [];
+
+			// When an item last CHANGED, keyed by item id. Only tool calls are
+			// ever updated after creation, so this stays empty for most feeds;
+			// everything else falls back to its own timestamp.
+			const touched = new Map<string, string>();
 
 			for (const log of logsResult.logs) {
 				// User prompts
@@ -452,6 +472,10 @@ export class IpcServer {
 						// details.tool_result is always set for a tool event, `result`
 						// collapsed to the tool output and every sibling key was lost.
 						const existing = activityItems[existingIdx];
+						// The completion is a change to an item that already exists,
+						// so an incremental caller must be told about it even though
+						// the item's own timestamp is older than their cursor.
+						touched.set(existing.id, log.timestamp);
 						const data = existing.data as unknown as Record<string, unknown>;
 						data.status = terminalStatus(log);
 						data.result =
@@ -531,12 +555,46 @@ export class IpcServer {
 			// Sort by timestamp
 			activityItems.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
+			// Stamp every item with when it last changed, so a client can merge
+			// pages by keeping the greater updatedAt per id.
+			for (const item of activityItems) {
+				item.updatedAt = touched.get(item.id) ?? item.timestamp;
+			}
+
+			// The cursor advances over the WHOLE window, not the filtered slice.
+			// Taken from the returned items only, a poll that filtered everything
+			// out would hand back the caller's own cursor and they would re-request
+			// the same window forever.
+			let nextSince: string | undefined;
+			for (const item of activityItems) {
+				const at = item.updatedAt as string;
+				if (nextSince === undefined || at > nextSince) nextSince = at;
+			}
+
+			// INCLUSIVE (>=), and deliberately so. Timestamps collide constantly:
+			// across 2807 real captured logs, 984 of them (35.1%) shared a
+			// timestamp with another log, and one timestamp covered 12 logs --
+			// partly because not every producer emits milliseconds. An exclusive
+			// cursor would silently drop every item sharing the boundary instant,
+			// which at the worst observed case is twelve missing feed entries.
+			//
+			// The cost is that a poll re-sends the boundary items; the client
+			// merges by id, which it must do anyway to pick up tool completions.
+			const visible = since
+				? activityItems.filter((item) => (item.updatedAt as string) >= since)
+				: activityItems;
+
 			return {
 				sessionId,
 				session,
 				sessionSummary: summarizeSession(session),
-				activity: activityItems,
-				totalItems: activityItems.length,
+				activity: visible,
+				totalItems: visible.length,
+				since,
+				nextSince,
+				// Older items exist before this window, reachable by passing the
+				// oldest returned timestamp back as `before`.
+				hasMore: truncated,
 				// True when older logs exist beyond the fetched window, so the UI
 				// can show "earlier activity not loaded" rather than implying the
 				// session simply started here.

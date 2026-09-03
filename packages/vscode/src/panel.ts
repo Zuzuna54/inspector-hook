@@ -239,8 +239,19 @@ export class InspectorPanel {
 			}
 
 			case "get-session-activity": {
+				// since/before/limit are optional and forwarded when present, so
+				// the webview can poll incrementally and backfill without a
+				// separate message type. Omitting them is the full-window fetch
+				// the view has always done.
+				const params = message.params as {
+					sessionId: string;
+					since?: string;
+					before?: string;
+					limit?: number;
+				};
 				const activity = await this._coreBridge.getSessionActivity(
-					(message.params as any).sessionId,
+					params.sessionId,
+					{ since: params.since, before: params.before, limit: params.limit },
 				);
 				this._sendMessage({ type: "session-activity", payload: activity });
 				break;

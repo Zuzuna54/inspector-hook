@@ -45,6 +45,20 @@ export interface ActivityItemBase {
 	id: string;
 	type: ActivityType;
 	timestamp: string;
+	/**
+	 * When this item last CHANGED, as opposed to when it began.
+	 *
+	 * For most items it equals `timestamp`. It differs for a tool call, which is
+	 * created by PreToolUse and later updated in place by PostToolUse — the item
+	 * keeps its start timestamp while its status, result and duration arrive
+	 * later.
+	 *
+	 * This is what makes incremental fetching correct. A client polling with
+	 * `since` must merge by `id` and keep the version with the greater
+	 * `updatedAt`; without it, a backfill page could overwrite a completed tool
+	 * call with the "running" version it had when that page's window ended.
+	 */
+	updatedAt?: string;
 }
 
 
@@ -187,6 +201,19 @@ export interface SessionActivityResponse {
 	totalItems: number;
 	/** True when older logs exist beyond the fetched window. */
 	truncated?: boolean;
+	/**
+	 * Pass back as `since` on the next poll to receive only what has changed.
+	 *
+	 * It is the newest `updatedAt` across every item in the assembled window —
+	 * not only the returned ones — so it still advances when a filtered poll
+	 * returns nothing, and a client cannot get stuck re-requesting the same
+	 * window forever.
+	 */
+	nextSince?: string;
+	/** Echo of the requested `since`, so a response is self-describing. */
+	since?: string;
+	/** True when items older than this page exist and can be fetched with `before`. */
+	hasMore?: boolean;
 	/**
 	 * How many logs the core currently retains for this session. A FLOOR, not a
 	 * lifetime total: LogManager serves reads from memory only, so entries
