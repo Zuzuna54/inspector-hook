@@ -20,6 +20,25 @@ const SessionsView = {
 	_renderedActivityIds: new Set(),
 	_lastActivityCount: 0,
 
+	// Copy-button payloads, keyed by a short generated id.
+	// The text itself must never go into an HTML attribute: Utils.escapeHtml
+	// escapes via textContent, which does NOT escape quotes, and tool input is
+	// JSON that always contains them - the attribute would end at the first
+	// quote and the rest would be parsed as stray attributes.
+	_copyPayloads: new Map(),
+	_copyKeySeq: 0,
+
+	/**
+	 * Stash text for a copy button and return the key to reference it by
+	 * @param {string} text
+	 * @returns {string} key for data-copy-key
+	 */
+	registerCopyPayload(text) {
+		const key = `c${++this._copyKeySeq}`;
+		this._copyPayloads.set(key, text);
+		return key;
+	},
+
 	/**
 	 * Get a human-readable display name for a session
 	 * Returns an object with projectName and shortId
@@ -155,25 +174,46 @@ const SessionsView = {
 	startAutoRefresh() {
 		this.stopAutoRefresh();
 
-		// Fast refresh for selected session activity (every 2s)
+		// Poll the selected session's activity. Only one request per tick: the
+		// activity response already carries the session, so the get-session call
+		// that used to sit here was fetching the same data a second time - and
+		// the full session includes every tool input and result, which reached
+		// 4.7 MB on a long run.
+		this._activityTick = 0;
 		this._refreshInterval = setInterval(() => {
+			this._activityTick++;
+			if (!this.isVisible()) return;
+
 			const selectedSession = this.getSelectedSession();
-			// Refresh for both active and idle sessions (idle can become active again)
-			if (
-				selectedSession &&
-				(selectedSession.status === "active" ||
-					selectedSession.status === "idle")
-			) {
-				API.getSession(selectedSession.id);
-				API.getSessionActivity(selectedSession.id);
-			}
+			if (!selectedSession) return;
+
+			// Idle sessions can become active again, so keep watching them - but
+			// at a slower cadence. Finished sessions cannot change; stop entirely.
+			const status = selectedSession.status;
+			if (status !== "active" && status !== "idle") return;
+			if (status === "idle" && this._activityTick % 5 !== 0) return;
+
+			API.getSessionActivity(selectedSession.id);
 		}, 2000);
 
 		// Slower refresh for all sessions list (every 30s)
 		// This ensures sidebar shows up-to-date status for all sessions
 		this._sessionsListRefreshInterval = setInterval(() => {
+			if (!this.isVisible()) return;
 			API.getSessions();
 		}, 30000);
+	},
+
+	/**
+	 * Is the Sessions tab actually on screen? Polling a hidden panel costs the
+	 * same bytes as polling a visible one and shows the user nothing.
+	 * @returns {boolean}
+	 */
+	isVisible() {
+		return (
+			State.currentView === "sessions" &&
+			document.visibilityState !== "hidden"
+		);
 	},
 
 	/**
@@ -521,6 +561,10 @@ const SessionsView = {
 		});
 		this._lastActivityCount = activities.length;
 
+		// Full rebuild: the previous payloads are unreachable once the DOM is
+		// replaced, so drop them rather than letting the map grow per render.
+		this._copyPayloads.clear();
+
 		container.innerHTML = `
       <div class="sv-activity-feed">
         ${activities.map((activity, idx) => this.renderActivityItem(activity, idx)).join("")}
@@ -612,24 +656,27 @@ const SessionsView = {
 			const itemId = toolEl.dataset.itemId;
 			if (!itemId) return;
 
-			// Find corresponding activity
-			const idx = parseInt(itemId.replace("tool-", ""), 10);
-			const activity = activities.find(
-				(a, i) => a.type === "tool_call" && i === idx,
+			// Match on the activity's stable id. data-item-id holds that id (a
+			// backend log id), never an array index - parsing it as one yielded
+			// NaN, so this lookup never matched and completed tools kept their
+			// spinner until an unrelated full re-render.
+			const idx = activities.findIndex(
+				(a) => a.type === "tool_call" && a.id === itemId,
 			);
+			if (idx === -1) return;
 
-			if (activity && activity.data?.status !== "running") {
+			const activity = activities[idx];
+			if (activity.data?.status && activity.data.status !== "running") {
 				// Tool completed - update the element in place
 				const tempDiv = document.createElement("div");
 				tempDiv.innerHTML = this.renderActivityItem(activity, idx);
 				const newEl = tempDiv.firstElementChild;
 
 				if (newEl) {
-					// Preserve expanded state
-					if (this._expandedItems.has(itemId)) {
-						newEl.classList.add("expanded");
-					}
 					toolEl.replaceWith(newEl);
+					// The replacement carries no listeners; without this its
+					// expand and copy buttons would be inert.
+					this.setupActivityHandlers(newEl);
 				}
 			}
 		});
@@ -765,7 +812,8 @@ const SessionsView = {
 	 */
 	renderActivityItem(activity, idx) {
 		const itemId = activity.id || `activity-${idx}`;
-		const isExpanded = this._expandedItems.has(itemId);
+		// Expansion state is resolved per-item by renderToolBubble; only tool
+		// bubbles expand, so it is not needed here.
 		const timestamp = Utils.formatTime(activity.timestamp);
 
 		switch (activity.type) {
@@ -969,6 +1017,8 @@ const SessionsView = {
 		const inputStr = this.safeStringify(tool.input, 5000);
 		const outputStr = this.safeStringify(tool.result, 2000);
 		const affectedFiles = this.safeArray(tool.affectedFiles);
+		const inputCopyKey = inputStr ? this.registerCopyPayload(inputStr) : "";
+		const outputCopyKey = outputStr ? this.registerCopyPayload(outputStr) : "";
 
 		return `
       <div class="sv-tool-details">
@@ -978,7 +1028,7 @@ const SessionsView = {
           <div class="sv-tool-section">
             <div class="sv-tool-section-header">
               <span>Input</span>
-              <button class="sv-copy-btn" data-copy="${Utils.escapeHtml(inputStr)}">Copy</button>
+              <button class="sv-copy-btn" data-copy-key="${inputCopyKey}">Copy</button>
             </div>
             <div class="sv-code-block" style="max-height: 300px; overflow: auto;">
               <pre>${Utils.highlightCode(inputStr, "json")}</pre>
@@ -993,7 +1043,7 @@ const SessionsView = {
           <div class="sv-tool-section">
             <div class="sv-tool-section-header">
               <span>Output</span>
-              <button class="sv-copy-btn" data-copy="${Utils.escapeHtml(outputStr)}">Copy</button>
+              <button class="sv-copy-btn" data-copy-key="${outputCopyKey}">Copy</button>
             </div>
             <div class="sv-code-block" style="max-height: 300px; overflow: auto;">
               <pre>${Utils.highlightCode(outputStr, Utils.detectLanguage(tool.affectedFiles?.[0] || "", outputStr))}</pre>
@@ -1056,7 +1106,8 @@ const SessionsView = {
 		container.querySelectorAll(".sv-copy-btn").forEach((btn) => {
 			btn.addEventListener("click", (e) => {
 				e.stopPropagation();
-				const text = btn.dataset.copy;
+				const text = this._copyPayloads.get(btn.dataset.copyKey);
+				if (text === undefined) return;
 				navigator.clipboard.writeText(text).then(() => {
 					btn.textContent = "Copied!";
 					setTimeout(() => (btn.textContent = "Copy"), 1500);
@@ -1084,6 +1135,9 @@ const SessionsView = {
       `;
 			return;
 		}
+
+		// Full rebuild - see renderActivityTab
+		this._copyPayloads.clear();
 
 		container.innerHTML = `
       <div class="sv-tools-list">
@@ -1265,8 +1319,12 @@ const SessionsView = {
 	 * @param {string} sessionId
 	 */
 	selectSession(sessionId) {
-		// Clear expanded items when selecting new session
+		// Drop all per-session render state; none of it applies to the new
+		// session and every entry would otherwise leak for the panel's lifetime.
 		this._expandedItems.clear();
+		this._renderedActivityIds.clear();
+		this._copyPayloads.clear();
+		this._lastActivityCount = 0;
 
 		State.update("sessionView", {
 			...State.sessionView,

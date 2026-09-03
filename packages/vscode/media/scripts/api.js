@@ -354,8 +354,22 @@ const API = {
 				break;
 
 			case "session-activity": {
-				// Session activity feed response
+				// Session activity feed response. The payload also carries the
+				// session itself, so the poller does not need a separate
+				// get-session round trip - that call returned the full session
+				// (tool inputs and results included, megabytes on a long run)
+				// for data already present here.
 				const activities = payload?.activity || [];
+				if (payload?.session?.id) {
+					const sessions = [...State.sessions];
+					const idx = sessions.findIndex((s) => s.id === payload.session.id);
+					if (idx >= 0) {
+						sessions[idx] = payload.session;
+					} else {
+						sessions.unshift(payload.session);
+					}
+					State.update("sessions", sessions);
+				}
 				State.update("sessionView", {
 					...State.sessionView,
 					sessionActivity: activities,
