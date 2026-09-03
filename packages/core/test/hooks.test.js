@@ -13,25 +13,22 @@
 
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const INSPECTOR_HOOK = join(
-	REPO,
-	"config/claude-hooks/logging/hook-inspector.sh",
-);
+// The single canonical hook. Three implementations used to exist; the two
+// superseded ones are deleted, and this is the one the installer registers.
+const INSPECTOR_HOOK = join(REPO, "packages/hooks/claude/inspector-hook.sh");
 
 /** Every shell script that ships as a hook. */
 function hookScripts() {
 	const dirs = [
-		join(REPO, "config/claude-hooks/logging"),
 		join(REPO, "packages/hooks/claude"),
-		join(REPO, "packages/hooks/claude/lib"),
 		join(REPO, "packages/hooks/scripts"),
+		join(REPO, "config/claude-hooks/logging"),
 	];
 	const found = [];
 	for (const dir of dirs) {
@@ -66,13 +63,10 @@ function runHook(payload) {
 		},
 	});
 
-	const log = readFileSync(debugLog, "utf-8");
-	const marker = ": Payload: ";
-	const idx = log.lastIndexOf(marker);
-	assert.notEqual(idx, -1, "hook should have logged a payload");
-	const jsonStart = log.indexOf("{", idx);
-	const jsonEnd = log.lastIndexOf("}");
-	return JSON.parse(log.slice(jsonStart, jsonEnd + 1));
+	const log = readFileSync(debugLog, "utf-8").trim();
+	assert.ok(log.length > 0, "hook should have logged a payload");
+	const line = log.split("\n").pop();
+	return JSON.parse(line.slice(line.indexOf("{")));
 }
 
 describe("hook scripts", () => {
@@ -252,5 +246,134 @@ describe("hook scripts", () => {
 				"debug logging must be opt-in",
 			);
 		});
+	});
+});
+
+describe("installer", () => {
+	const INSTALLER = join(REPO, "packages/hooks/scripts/install.sh");
+
+	/** A settings file shaped like a real one, with another tool's hooks in it. */
+	function fixture() {
+		const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
+		const path = join(tmp, "settings.json");
+		writeFileSync(
+			path,
+			JSON.stringify(
+				{
+					hooks: {
+						PreToolUse: [
+							{ matcher: "Bash", hooks: [{ type: "command", command: "/other/security-gate.py" }] },
+							{ matcher: "Bash", hooks: [{ type: "command", command: "/other/precommit-wave-gate.sh" }] },
+						],
+						Stop: [
+							{ hooks: [{ type: "command", command: "/other/stop-loop-gate.sh" }] },
+						],
+					},
+					unrelatedSetting: 42,
+				},
+				null,
+				2,
+			),
+		);
+		return path;
+	}
+
+	const run = (path, ...args) =>
+		execFileSync("bash", [INSTALLER, "--settings", path, ...args], {
+			encoding: "utf8",
+		});
+
+	const read = (path) => JSON.parse(readFileSync(path, "utf-8"));
+
+	/** Every command registered across every event. */
+	const allCommands = (s) =>
+		Object.values(s.hooks ?? {}).flatMap((groups) =>
+			groups.flatMap((g) => (g.hooks ?? []).map((h) => h.command)),
+		);
+
+	it("writes the nested schema Claude Code requires", () => {
+		const path = fixture();
+		run(path);
+		const entry = read(path).hooks.PostToolUse.find((g) =>
+			(g.hooks ?? []).some((h) => h.command.includes("inspector-hook")),
+		);
+		assert.ok(entry, "PostToolUse should be registered");
+		assert.ok(Array.isArray(entry.hooks), "must use the nested `hooks` array");
+		assert.equal(entry.hooks[0].type, "command", "must declare type");
+	});
+
+	it("registers the events whose handling was previously dead code", () => {
+		// PostToolUseFailure and StopFailure are handled in the core but were
+		// registered by no installer, so neither could ever fire.
+		const path = fixture();
+		run(path);
+		const s = read(path);
+		for (const ev of ["PostToolUseFailure", "StopFailure", "SubagentStart"]) {
+			assert.ok(
+				(s.hooks[ev] ?? []).some((g) =>
+					(g.hooks ?? []).some((h) => h.command.includes("inspector-hook")),
+				),
+				`${ev} must be registered`,
+			);
+		}
+	});
+
+	it("REGRESSION: preserves another tool's hooks instead of replacing them", () => {
+		// The old installer did `jq '.hooks = $hooks'` -- a full replace that
+		// silently deleted every co-installed tool's hooks.
+		const path = fixture();
+		run(path);
+		const cmds = allCommands(read(path));
+
+		for (const foreign of [
+			"/other/security-gate.py",
+			"/other/precommit-wave-gate.sh",
+			"/other/stop-loop-gate.sh",
+		]) {
+			assert.ok(cmds.includes(foreign), `${foreign} must survive install`);
+		}
+		assert.equal(read(path).unrelatedSetting, 42, "unrelated settings survive");
+	});
+
+	it("is idempotent", () => {
+		const path = fixture();
+		run(path);
+		const first = allCommands(read(path)).length;
+		run(path);
+		assert.equal(
+			allCommands(read(path)).length,
+			first,
+			"a second install must not duplicate entries",
+		);
+	});
+
+	it("uninstall removes only its own entries", () => {
+		const path = fixture();
+		run(path);
+		run(path, "--uninstall");
+		const cmds = allCommands(read(path));
+
+		assert.equal(
+			cmds.filter((c) => c.includes("inspector-hook")).length,
+			0,
+			"all of ours removed",
+		);
+		assert.equal(cmds.length, 3, "all three foreign hooks remain");
+	});
+
+	it("refuses to touch a settings file that is not valid JSON", () => {
+		const tmp = execFileSync("mktemp", ["-d"]).toString().trim();
+		const path = join(tmp, "settings.json");
+		writeFileSync(path, "{ not json");
+		assert.throws(() => run(path), /not valid JSON/);
+		assert.equal(readFileSync(path, "utf-8"), "{ not json", "left untouched");
+	});
+
+	it("--dry-run does not write", () => {
+		const path = fixture();
+		const before = readFileSync(path, "utf-8");
+		const out = run(path, "--dry-run");
+		assert.equal(readFileSync(path, "utf-8"), before, "file unchanged");
+		assert.ok(out.includes("inspector-hook"), "but prints the result");
 	});
 });
