@@ -14,7 +14,7 @@
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "node:test";
 
-import { installGlobals, readMedia } from "./harness.js";
+import { FILE_CHANGES_LOAD_ORDER, existing, installGlobals, readMedia } from "./harness.js";
 
 function loadFileChanges(overrides = {}) {
 	const sent = [];
@@ -28,11 +28,7 @@ function loadFileChanges(overrides = {}) {
 		},
 		...overrides,
 	});
-	for (const p of [
-		"scripts/session-utils.js",
-		"scripts/shared/diff-render.js",
-		"scripts/views/file-changes.js",
-	]) {
+	for (const p of existing(FILE_CHANGES_LOAD_ORDER)) {
 		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 		eval(readMedia(p));
 	}

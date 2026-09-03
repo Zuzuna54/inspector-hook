@@ -14,7 +14,7 @@
  * DOM-dependent is called out as unverified rather than faked.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,37 @@ export const SESSIONS_LOAD_ORDER = [
 	"scripts/views/sessions/session-detail.js",
 	"scripts/views/sessions.js",
 ];
+
+/**
+ * File Changes scripts in panel.ts load order.
+ * session-utils and the shared diff helpers must precede the view: it reads
+ * window.SessionUtils and window.DiffRenderMixin at call time.
+ */
+export const FILE_CHANGES_LOAD_ORDER = [
+	"scripts/session-utils.js",
+	"scripts/shared/diff-render.js",
+	"scripts/views/file-changes/fc-session-list.js",
+	"scripts/views/file-changes/fc-diff-view.js",
+	"scripts/views/file-changes/fc-editor.js",
+	"scripts/views/file-changes/fc-actions.js",
+	"scripts/views/file-changes.js",
+];
+
+/** History scripts in panel.ts load order. */
+export const HISTORY_LOAD_ORDER = [
+	"scripts/shared/diff-render.js",
+	"scripts/views/history/file-list.js",
+	"scripts/views/history/version-list.js",
+	"scripts/views/history/diff-viewer.js",
+	"scripts/views/history/virtual-scroll.js",
+	"scripts/views/history/restore.js",
+	"scripts/views/history.js",
+];
+
+/** Media files that exist; modules not yet extracted are skipped. */
+export function existing(relPaths) {
+	return relPaths.filter((p) => existsSync(join(mediaDir, p)));
+}
 
 /** Read a media file as text. */
 export function readMedia(relPath) {
