@@ -1,0 +1,435 @@
+/**
+ * Presentational primitives: cards, badges, tables, lists, diff, paths.
+ *
+ * Split out of the 782-line components.css. Pure move: no rule changed,
+ * added or removed. Loaded from the manifest immediately after the
+ * parent, before any view stylesheet.
+ */
+
+/* ==========================================================================
+   Cards
+   ========================================================================== */
+
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.card-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+}
+
+.card-content {
+  padding: var(--spacing-md);
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+/* Stat Card */
+.stat-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  text-align: center;
+  transition: border-color var(--transition-fast);
+}
+
+.stat-card:hover {
+  border-color: var(--fg-muted);
+}
+
+.stat-card.error {
+  border-color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.stat-card.warning {
+  border-color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+.stat-card.blocked {
+  border-color: var(--color-blocked);
+  background: var(--color-blocked-bg);
+}
+
+.stat-card.success {
+  border-color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.stat-value {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--fg-primary);
+  line-height: var(--line-height-tight);
+}
+
+.stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  margin-top: var(--spacing-xs);
+}
+/* ==========================================================================
+   Badges
+   ========================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Log Level Badges */
+.log-level-badge {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+}
+
+.log-level-badge.info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.log-level-badge.warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.log-level-badge.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.log-level-badge.blocked {
+  background: var(--color-blocked-bg);
+  color: var(--color-blocked);
+}
+
+/* Change Type Badges */
+.change-type-badge {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+}
+
+.change-type-badge.create,
+.change-type-badge.created {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.change-type-badge.modify,
+.change-type-badge.modified {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.change-type-badge.delete,
+.change-type-badge.deleted {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+/* Status Badges */
+.status-badge {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.status-badge.active {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.status-badge.completed {
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
+}
+
+.status-badge.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+/* Tool Badge */
+.tool-badge {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
+}
+
+.tool-badge.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.tool-badge.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.tool-badge.blocked {
+  background: var(--color-blocked-bg);
+  color: var(--color-blocked);
+}
+/* ==========================================================================
+   Status Dot
+   ========================================================================== */
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.status-dot.active {
+  background: var(--color-success);
+  box-shadow: 0 0 4px var(--color-success);
+}
+
+.status-dot.completed {
+  background: var(--fg-muted);
+}
+
+.status-dot.error {
+  background: var(--color-error);
+}
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: var(--spacing-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-secondary);
+  font-size: var(--font-size-sm);
+  background: var(--bg-tertiary);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.table tr:hover {
+  background: var(--bg-hover);
+}
+
+.table td {
+  font-size: var(--font-size-sm);
+}
+/* ==========================================================================
+   Diff Viewer
+   ========================================================================== */
+
+.diff-viewer {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  overflow: auto;
+}
+
+.diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.diff-stats {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-sm);
+}
+
+.diff-stat-added {
+  color: var(--diff-added-fg);
+}
+
+.diff-stat-removed {
+  color: var(--diff-removed-fg);
+}
+
+.diff-content {
+  overflow: auto;
+}
+
+.diff-hunk {
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-hunk:last-child {
+  border-bottom: none;
+}
+
+.diff-hunk-header {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: var(--diff-hunk-header-bg);
+  color: var(--diff-hunk-header-fg);
+  font-size: var(--font-size-xs);
+}
+
+.diff-line {
+  display: flex;
+  padding: 0;
+  line-height: 20px;
+  min-height: 20px;
+}
+
+.diff-line.add {
+  background: var(--diff-added-line-bg);
+}
+
+.diff-line.remove {
+  background: var(--diff-removed-line-bg);
+}
+
+.diff-line.context {
+  background: var(--diff-context-bg);
+}
+
+.diff-line-number {
+  min-width: 50px;
+  padding: 0 var(--spacing-sm);
+  text-align: right;
+  color: var(--fg-muted);
+  user-select: none;
+  background: rgba(0, 0, 0, 0.1);
+  border-right: 1px solid var(--border);
+}
+
+.diff-line-type {
+  width: 20px;
+  text-align: center;
+  color: var(--fg-muted);
+  user-select: none;
+}
+
+.diff-line.add .diff-line-type {
+  color: var(--diff-added-fg);
+}
+
+.diff-line.remove .diff-line-type {
+  color: var(--diff-removed-fg);
+}
+
+.diff-line-content {
+  flex: 1;
+  padding: 0 var(--spacing-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.diff-line.add .diff-line-content {
+  color: var(--diff-added-fg);
+}
+
+.diff-line.remove .diff-line-content {
+  color: var(--diff-removed-fg);
+}
+
+/* Inline diff highlighting */
+.diff-highlight-add {
+  background: var(--diff-added-bg);
+  border-radius: var(--radius-xs);
+}
+
+.diff-highlight-remove {
+  background: var(--diff-removed-bg);
+  border-radius: var(--radius-xs);
+}
+/* ==========================================================================
+   List Items
+   ========================================================================== */
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.list-item:hover {
+  background: var(--bg-hover);
+}
+
+.list-item.selected {
+  background: var(--bg-active);
+}
+
+.list-item:last-child {
+  border-bottom: none;
+}
+/* ==========================================================================
+   File Path
+   ========================================================================== */
+
+.file-path {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+}
+
+.file-path-name {
+  color: var(--fg-primary);
+}
+
+.file-path-dir {
+  color: var(--fg-muted);
+}

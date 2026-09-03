@@ -20,8 +20,15 @@ const SESSION_MODULES = [
 	"styles/views/sessions/detail.css",
 ];
 
+const COMPONENT_MODULES = [
+	"styles/components/controls.css",
+	"styles/components/data-display.css",
+	"styles/components/feedback.css",
+];
+
 const VIEW_STYLESHEETS = [
 	...SESSION_MODULES,
+	...COMPONENT_MODULES,
 	"styles/views/file-changes.css",
 	"styles/views/history.css",
 	"styles/views/archived.css",
@@ -93,6 +100,29 @@ describe("stylesheet integrity", () => {
 			[],
 			"used with no definition and no fallback - the declaration is dropped",
 		);
+	});
+});
+
+describe("components.css split", () => {
+	it("leaves the parent as a pointer, not a duplicate", () => {
+		const parent = stripComments(readMedia("styles/components.css"));
+		assert.ok(!parent.includes("{"), "components.css must hold no rules");
+	});
+
+	it("splits the rules across the three modules", () => {
+		for (const relPath of COMPONENT_MODULES) {
+			assert.ok(stripComments(readMedia(relPath)).includes("{"), relPath);
+		}
+	});
+
+	it("keeps the button variants in exactly one component module", () => {
+		// Buttons are the class most at risk: they are also redefined in two view
+		// stylesheets today, so the component definition must at least be single
+		// and unambiguous on its own side of the manifest.
+		const owners = COMPONENT_MODULES.filter((p) =>
+			/(?<![\w-])\.btn-secondary(?![\w-])[^{}]*\{/.test(stripComments(readMedia(p))),
+		);
+		assert.deepEqual(owners, ["styles/components/controls.css"]);
 	});
 });
 
