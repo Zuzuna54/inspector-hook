@@ -19,7 +19,12 @@
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "node:test";
 
-import { installGlobals, readMedia } from "./harness.js";
+import {
+	HISTORY_LOAD_ORDER,
+	existing,
+	installGlobals,
+	readMedia,
+} from "./harness.js";
 
 function loadHistory(overrides = {}) {
 	const requested = [];
@@ -27,7 +32,7 @@ function loadHistory(overrides = {}) {
 		API: { getVersionContent: (f, v) => requested.push(`${f}:${v}`), ...overrides.API },
 		...overrides,
 	});
-	for (const p of ["scripts/shared/diff-render.js", "scripts/views/history.js"]) {
+	for (const p of existing(HISTORY_LOAD_ORDER)) {
 		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 		eval(readMedia(p));
 	}
