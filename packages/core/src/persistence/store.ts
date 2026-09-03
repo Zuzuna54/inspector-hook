@@ -16,12 +16,41 @@ import {
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export interface PersistenceStoreOptions {
 	basePath: string;
 	maxLogFileSize?: number; // Max size in bytes before rotating (default: 10MB)
 	maxLogFiles?: number; // Max number of log files to keep (default: 10)
+}
+
+/**
+ * Reduce an untrusted path component to a single safe segment.
+ *
+ * Separators and parent references are replaced rather than rejected: an id
+ * that has always worked must keep resolving to the same file, and every id in
+ * real use (UUIDs, and file paths already flattened to `__` by the version
+ * store) contains none of these characters, so nothing existing changes.
+ */
+function safeSegment(value: string): string {
+	return String(value)
+		.replace(/\.\./g, "__")
+		.replace(/[/\\]/g, "__")
+		// Control characters and the characters Windows forbids in a filename.
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: sanitising them is the point
+		.replace(/[\u0000-\u001f<>:"|?*]/g, "_");
+}
+
+/** Refuse a path that escapes the store, whatever produced it. */
+function assertContained(base: string, candidate: string, original: string): string {
+	const root = resolve(base);
+	const target = resolve(candidate);
+	if (target !== root && !target.startsWith(`${root}/`)) {
+		throw new Error(
+			`Refusing a path outside the store: ${original}`,
+		);
+	}
+	return target;
 }
 
 export class PersistenceStore {
@@ -707,13 +736,40 @@ export class PersistenceStore {
 		}
 	}
 
+	/**
+	 * Path for one JSON record, contained to the store.
+	 *
+	 * SECURITY: this used to join the id raw. Ids reach it straight from the
+	 * ingest payload — session-manager saves under the `sessionId` a hook sent —
+	 * so posting `{"sessionId": "../../evil"}` to the local ingest endpoint
+	 * wrote a JSON file anywhere the core process could write. Confirmed
+	 * end-to-end against a running core before this fix, not inferred.
+	 *
+	 * The endpoint binds to 127.0.0.1 and rejects browser origins, so this was
+	 * reachable only by a local process — but "only local" is the threat model
+	 * for a tool that indexes local development, not an exemption from it.
+	 *
+	 * Two defences, deliberately both: segments are sanitised, AND the resolved
+	 * path is checked to fall under the base. The first is what should hold; the
+	 * second is what catches an encoding or platform case the first missed.
+	 */
 	private getJSONPath(category: string, id: string): string {
-		return join(this.basePath, category, `${id}.json`);
+		const path = join(
+			this.basePath,
+			safeSegment(category),
+			`${safeSegment(id)}.json`,
+		);
+		return assertContained(this.basePath, path, `${category}/${id}`);
 	}
 
 	private getLogPath(filename: string): string {
-		const name = filename.endsWith(".jsonl") ? filename : `${filename}.jsonl`;
-		return join(this.basePath, this.dirs.logs, name);
+		const base = safeSegment(filename);
+		const name = base.endsWith(".jsonl") ? base : `${base}.jsonl`;
+		return assertContained(
+			this.basePath,
+			join(this.basePath, this.dirs.logs, name),
+			filename,
+		);
 	}
 
 	private sanitizeFilePath(filePath: string): string {

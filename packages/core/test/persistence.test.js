@@ -277,7 +277,57 @@ describe("PersistenceStore", () => {
 		});
 	});
 
-	describe("cleanup", () => {
+	describe("path containment", () => {
+	it("SECURITY: a traversing id cannot write outside the store", async () => {
+		// getJSONPath used to join the id raw, and ids reach it straight from
+		// the ingest payload -- session-manager saves under the sessionId a hook
+		// sent. So POSTing {"sessionId": "../../evil"} to the local ingest
+		// endpoint wrote a JSON file anywhere the core could write. Confirmed
+		// end-to-end against a running core before the fix.
+		const { store, basePath } = await newStore();
+		const escaped = join(basePath, "..", `ESCAPED-${process.pid}.json`);
+
+		await store.saveJSON("sessions", `../../ESCAPED-${process.pid}`, { x: 1 });
+
+		assert.equal(existsSync(escaped), false, "nothing may be written outside");
+		const written = await readdir(join(basePath, "sessions"));
+		assert.equal(written.length, 1, "it lands inside the store instead");
+		assert.ok(!written[0].includes(".."), "and with the traversal neutralised");
+	});
+
+	it("SECURITY: a traversing category is contained too", async () => {
+		const { store, basePath } = await newStore();
+		await store.saveJSON("../../evil", "id", { x: 1 });
+		assert.equal(
+			existsSync(join(basePath, "..", "evil")),
+			false,
+			"the category is untrusted for the same reason the id is",
+		);
+	});
+
+	it("leaves ordinary ids exactly as they were", async () => {
+		// The sanitiser REPLACES rather than rejects, so every id already in use
+		// must still resolve to the same file. UUIDs and the version store's
+		// flattened paths contain none of the replaced characters.
+		const { store } = await newStore();
+		for (const id of [
+			"afe5a7cb-ad26-4094-9c1f-000000000001",
+			"__Users__me__proj__a.ts",
+			"session-2026-09-03-abcd",
+		]) {
+			await store.saveJSON("sessions", id, { id });
+			assert.equal((await store.loadJSON("sessions", id))?.id, id, id);
+		}
+	});
+
+	it("a log filename cannot escape the log directory", async () => {
+		const { store, basePath } = await newStore();
+		await store.appendLog("../../escaped", { n: 1 });
+		assert.equal(existsSync(join(basePath, "..", "escaped.jsonl")), false);
+	});
+});
+
+describe("cleanup", () => {
 		it("REGRESSION: is no longer a stub — it prunes expired log entries", async () => {
 			// This test previously asserted cleanup returned zeroes and deleted
 			// nothing. It kept passing after cleanup was implemented, because the
