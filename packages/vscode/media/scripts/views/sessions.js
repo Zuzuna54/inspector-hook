@@ -659,9 +659,13 @@ const SessionsView = {
 			if (!itemId) return;
 
 			// Match on the activity's stable id. data-item-id holds that id (a
-			// backend log id), never an array index - parsing it as one yielded
-			// NaN, so this lookup never matched and completed tools kept their
-			// spinner until an unrelated full re-render.
+			// backend log UUID), never an array index. The previous code parsed
+			// it as one, which failed in two different ways: for an id starting
+			// with a letter parseInt gives NaN and the lookup silently misses,
+			// but for one starting with digits - 60% of real log ids, measured -
+			// it yields an arbitrary small integer, and the lookup can match a
+			// DIFFERENT activity, rendering another tool's content into this
+			// bubble. Identity matching removes both.
 			const idx = activities.findIndex(
 				(a) => a.type === "tool_call" && a.id === itemId,
 			);
@@ -1203,13 +1207,29 @@ const SessionsView = {
 
 	/**
 	 * Format a tool execution's duration.
-	 * Prefers the hook-reported durationMs: hook timestamps are second-resolution,
-	 * so subtracting them yields only multiples of 1000ms or 0.
+	 *
+	 * Prefers the hook-reported duration. Hook timestamps are second-resolution
+	 * (the script stamps `date -u +...%SZ`), so subtracting them can only ever
+	 * yield a multiple of 1000ms or 0 - fiction for calls that take tens of ms.
+	 *
+	 * The real figure arrives as `details.durationMs`. SessionManager assigns
+	 * `exec.result = log.details`, so on a ToolExecution it surfaces under
+	 * `result.durationMs`; a future direct field is checked first. Activity-tab
+	 * bubbles do not carry it yet - getActivity picks `details.tool_result` as
+	 * `result`, which drops the sibling keys - so those still fall back.
+	 *
 	 * @param {Object} tool
 	 * @returns {string}
 	 */
 	formatToolDuration(tool) {
-		if (typeof tool.durationMs === "number") return `${tool.durationMs}ms`;
+		const reported =
+			typeof tool.durationMs === "number"
+				? tool.durationMs
+				: typeof tool.result?.durationMs === "number"
+					? tool.result.durationMs
+					: null;
+		if (reported !== null) return `${reported}ms`;
+
 		if (tool.startTime && tool.endTime) {
 			return `${new Date(tool.endTime) - new Date(tool.startTime)}ms`;
 		}
