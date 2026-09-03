@@ -38,6 +38,27 @@ const ContextView = {
 					this.renderDetail();
 				}
 				if (newVal.lastResult !== oldVal?.lastResult) this.renderResult();
+
+				// The injection pane has its own data, and omitting these was a real
+				// bug: a previewed digest arrived, landed in state, and nothing
+				// re-rendered — so Preview looked like it did nothing at all. Same
+				// shape as every other "the work happened and no view showed it"
+				// failure in this codebase.
+				if (
+					newVal.digest !== oldVal?.digest ||
+					newVal.staged !== oldVal?.staged
+				) {
+					this.renderInjectionPane();
+				}
+			}),
+		);
+
+		// The injection pane lists sessions, which are owned by a different slice
+		// and can arrive after this view is open. Without this the list would stay
+		// on "No sessions retained" for as long as the panel is up.
+		this._unsubscribers.push(
+			State.subscribe("sessions", () => {
+				if (State.contextView.mode === "injection") this.renderInjectionPane();
 			}),
 		);
 

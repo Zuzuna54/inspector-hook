@@ -513,3 +513,42 @@ describe("context: what would load", () => {
 		assert.match(detail, /ctx-reach/);
 	});
 });
+
+describe("context: state changes actually re-render", () => {
+	/**
+	 * The failure this catches is the one that made Preview look broken: the
+	 * request fired, the extension answered, the reply landed in state — and the
+	 * subscription had no branch for it, so nothing repainted. Every layer was
+	 * correct and the screen never changed.
+	 *
+	 * Asserted over the source because the wiring IS the behaviour here: a
+	 * subscription that ignores a field is indistinguishable from one that
+	 * handles it, right up until a user clicks.
+	 */
+	const src = readMedia("scripts/views/context.js");
+
+	it("re-renders the injection pane when a digest arrives", () => {
+		assert.match(src, /newVal\.digest !== oldVal\?\.digest/);
+	});
+
+	it("re-renders the injection pane when staged context changes", () => {
+		assert.match(src, /newVal\.staged !== oldVal\?\.staged/);
+	});
+
+	it("re-renders when sessions arrive from their own slice", () => {
+		// Sessions are owned by a different part of state and can load after this
+		// view is open; without a subscription the list stays empty forever.
+		assert.match(src, /State\.subscribe\("sessions"/);
+	});
+
+	it("has a render path for every field the injection pane reads", () => {
+		// renderInjectionPane reads staged, sessions and digest. Each must have
+		// something that triggers it, or that field is display-only-on-reload.
+		for (const field of ["digest", "staged"]) {
+			assert.ok(
+				new RegExp(`newVal\\.${field} !== oldVal`).test(src),
+				`${field} changes without re-rendering the pane`,
+			);
+		}
+	});
+});
