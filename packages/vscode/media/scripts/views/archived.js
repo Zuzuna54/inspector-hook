@@ -30,9 +30,11 @@ const ArchivedView = {
       this._subscriptions.push(
         State.subscribe('archivedChanges', () => this.renderSessionAccordions())
       );
-      this._subscriptions.push(
-        State.subscribe('currentDiff', (diff) => this._handleDiffResult(diff))
-      );
+      // This view used to subscribe to a State key named for the current diff.
+      // Nothing ever wrote that key, so the handler could never fire and the
+      // diff preview was unreachable. Diffs now arrive through
+      // API.handleMessage, which routes diff-result to whichever view is
+      // active - see handleDiffResult below.
     }
 
     // Request initial data
@@ -316,7 +318,7 @@ const ArchivedView = {
             <span class="arc-change-count">${changeCount} change${changeCount !== 1 ? 's' : ''}</span>
             ${allReverted ? `
               <div class="arc-file-actions">
-                <button class="btn btn-xs btn-warning arc-file-restore" data-change-id="${primaryChange.id}">Restore</button>
+                <button class="btn btn-xs btn-warning arc-file-restore" data-file-key="${fileKey}">Restore ${changeCount > 1 ? `all ${changeCount}` : ''}</button>
               </div>
             ` : ''}
           </div>
@@ -437,11 +439,13 @@ const ArchivedView = {
       });
     });
 
-    // File restore button
+    // File restore button. Previously carried data-change-id set to
+    // fileChanges[0].id, so "Restore" on a file with several reverted changes
+    // restored only the first and silently left the rest reverted.
     container.querySelectorAll('.arc-file-restore').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._confirmRestore(btn.dataset.changeId);
+        this._confirmRestoreFile(btn.dataset.fileKey);
       });
     });
 
@@ -513,11 +517,59 @@ const ArchivedView = {
   },
 
   /**
-   * Handle diff result
+   * Handle a diff result routed here by API.handleMessage.
+   * Public because the router calls it by name.
    */
-  _handleDiffResult(diff) {
-    this._currentDiff = diff;
+  handleDiffResult(payload) {
+    // The payload is the diff itself, or wraps it under `diff`.
+    this._currentDiff = payload?.diff || payload || null;
+    this._diffError = null;
     this.renderSessionAccordions();
+  },
+
+  /**
+   * Handle a diff that could not be computed. Without this the preview stayed
+   * on "Loading..." forever.
+   */
+  handleDiffError(payload) {
+    this._currentDiff = null;
+    this._diffError = payload?.error || payload?.message || 'Could not load diff';
+    this.renderSessionAccordions();
+  },
+
+  /**
+   * Confirm and restore every archived change for one file.
+   * @param {string} fileKey
+   */
+  _confirmRestoreFile(fileKey) {
+    const changes = this._changesForFileKey(fileKey);
+    if (changes.length === 0) return;
+
+    const what = changes.length === 1
+      ? 'this change'
+      : `all ${changes.length} changes for this file`;
+    if (!confirm(`Restore ${what}? This will re-apply them to the file.`)) return;
+
+    if (typeof API !== 'undefined' && API.restoreArchived) {
+      changes.forEach(change => API.restoreArchived(change.id));
+    }
+  },
+
+  /**
+   * Every archived change belonging to one file key.
+   *
+   * The key is built the same way _renderFileAccordions builds it
+   * (`sessionId:filePath`), so a change found here is exactly one of the
+   * changes the accordion grouped under that row.
+   *
+   * @param {string} fileKey
+   * @returns {Array}
+   */
+  _changesForFileKey(fileKey) {
+    const all = (typeof State !== 'undefined' && State.archivedChanges) || [];
+    return all.filter(
+      change => `${change.sessionId}:${change.filePath}` === fileKey
+    );
   },
 
   /**

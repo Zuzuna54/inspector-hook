@@ -218,6 +218,23 @@ const API = {
 		this.send("delete-version", { filePath, versionNumber });
 	},
 
+	/**
+	 * Get the stored content of one version.
+	 *
+	 * history.js has always called this; it did not exist, so opening a version
+	 * in the viewer threw "API.getVersionContent is not a function" and no
+	 * request was ever sent. The core exposes history.getVersionContent; the
+	 * extension-side case and CoreBridge method are still needed for a response
+	 * to come back, so until those land this leaves the viewer showing its
+	 * loading state instead of throwing.
+	 *
+	 * @param {string} filePath - File path
+	 * @param {number} versionNumber - Version number
+	 */
+	getVersionContent(filePath, versionNumber) {
+		this.send("get-version-content", { filePath, versionNumber });
+	},
+
 	// ==========================================================================
 	// Archived Changes API
 	// ==========================================================================
@@ -425,15 +442,29 @@ const API = {
 			}
 
 			case "diff-result":
-				// Diff result - handled by file-changes view
-				if (window.FileChangesView?.handleDiffResult) {
+				// Route to whichever view asked for it. This used to go only to
+				// FileChangesView, so the Archived view's "View" button requested a
+				// diff that was delivered to a view which never displayed it - and
+				// Archived listened on a State key ("currentDiff") that nothing ever
+				// sets, so its preview could not appear by either route.
+				if (
+					State.currentView === "archived" &&
+					window.ArchivedView?.handleDiffResult
+				) {
+					window.ArchivedView.handleDiffResult(payload);
+				} else if (window.FileChangesView?.handleDiffResult) {
 					window.FileChangesView.handleDiffResult(payload);
 				}
 				break;
 
 			case "diff-error":
-				// Diff error - handled by file-changes view
-				if (window.FileChangesView?.handleDiffError) {
+				// Routed like diff-result: to the view that asked.
+				if (
+					State.currentView === "archived" &&
+					window.ArchivedView?.handleDiffError
+				) {
+					window.ArchivedView.handleDiffError(payload);
+				} else if (window.FileChangesView?.handleDiffError) {
 					window.FileChangesView.handleDiffError(payload);
 				}
 				break;
@@ -470,6 +501,32 @@ const API = {
 
 			case "archived":
 				State.update("archivedChanges", payload.changes || []);
+				break;
+
+			// A restore mutates the archive and the file's version history, but
+			// neither result had a handler at all, so the UI kept showing the
+			// change as still archived until the panel was reopened.
+			case "restore-archived-result":
+				if (payload?.success !== false) {
+					this.getArchivedChanges();
+					this.getTrackedFiles();
+				}
+				break;
+
+			case "restore-result":
+				if (payload?.success !== false) {
+					this.getTrackedFiles();
+					this.getArchivedChanges();
+				}
+				break;
+
+			// Raw content for one stored version. history.js has always called
+			// API.getVersionContent, which did not exist - so opening a version in
+			// the viewer threw "is not a function" and the request was never sent.
+			case "version-content":
+				if (window.HistoryView?.handleVersionContent) {
+					window.HistoryView.handleVersionContent(payload);
+				}
 				break;
 
 			case "error":
