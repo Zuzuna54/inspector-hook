@@ -73,6 +73,7 @@
     "dev": "pnpm build --watch",
     "package": "vsce package --no-dependencies",
     "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "node --test test/*.test.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
