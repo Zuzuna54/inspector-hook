@@ -77,6 +77,7 @@ export class InspectorCore {
 			sessionManager: this.sessionManager,
 			fileTracker: this.fileTracker,
 			core: this,
+			storagePath: params.storagePath,
 		});
 
 		// Wire up events for cross-manager communication

@@ -36,6 +36,11 @@ import {
 	type MemoryType,
 } from "../memory/native-memory.js";
 import { buildSessionDigest } from "../memory/session-digest.js";
+import {
+	clearStagedContext,
+	readStagedContext,
+	stageContext,
+} from "../memory/staged-context.js";
 import type { FileTracker } from "../managers/file-tracker.js";
 import type { LogManager } from "../managers/log-manager.js";
 import type { SessionManager } from "../managers/session-manager.js";
@@ -45,6 +50,12 @@ export interface IpcServerOptions {
 	sessionManager: SessionManager;
 	fileTracker: FileTracker;
 	core: InspectorCore;
+	/**
+	 * Where the store lives. Needed because the context picker stages a file
+	 * that the SessionStart hook reads directly, without going through the core
+	 * -- so a pick still works when the core is not running.
+	 */
+	storagePath: string;
 }
 
 type MethodHandler = (params: unknown) => Promise<unknown>;
@@ -158,6 +169,7 @@ export class IpcServer {
 	private sessionManager: SessionManager;
 	private fileTracker: FileTracker;
 	private core: InspectorCore;
+	private storagePath: string;
 	private methods: Map<string, MethodHandler> = new Map();
 
 	constructor(options: IpcServerOptions) {
@@ -165,6 +177,7 @@ export class IpcServer {
 		this.sessionManager = options.sessionManager;
 		this.fileTracker = options.fileTracker;
 		this.core = options.core;
+		this.storagePath = options.storagePath;
 
 		this.registerMethods();
 	}
@@ -825,6 +838,70 @@ export class IpcServer {
 		 * Returns it without writing unless `write` is set, so the UI can show
 		 * exactly what would be added to memory before anything is added.
 		 */
+		// ---------------------------------------------------------------------
+		// The explicit context picker (M3 item 5)
+		//
+		// Staging is a deliberate, one-off, expiring hand-off: the SessionStart
+		// hook prints it once and deletes it. There is no automatic path here on
+		// purpose -- injected text reaches a future model as fact, with nothing
+		// for it or the user to check it against, so the failure mode of getting
+		// it wrong is silent and compounds. Native auto memory already covers
+		// the automatic case from the user's own curated corpus.
+		// ---------------------------------------------------------------------
+
+		/**
+		 * Stage context for the next session.
+		 *
+		 * Either explicit `text`, or a `sessionId` whose digest becomes the text.
+		 * The returned object contains EXACTLY what will be injected, so a
+		 * confirmation step can show the real thing rather than an approximation.
+		 */
+		this.methods.set("memory.stageContext", async (params) => {
+			const rec = asRec(params) ?? {};
+			const explicit = asStr(rec.text);
+			const sessionId = asStr(rec.sessionId);
+
+			let text = explicit;
+			let label = asStr(rec.label);
+
+			if (!text && sessionId) {
+				const session = await this.sessionManager.getSession(sessionId);
+				if (!session) return { staged: false, reason: `No session ${sessionId}.` };
+				const digest = buildSessionDigest({
+					session,
+					counts: await this.logCountsForSession(sessionId),
+					filePaths: await this.filePathsForSession(session.fileChanges),
+				});
+				if (!digest.worthKeeping) {
+					return { staged: false, reason: digest.skipReason };
+				}
+				text = digest.body;
+				label ??= digest.title;
+			}
+
+			if (!text) {
+				return { staged: false, reason: "Either text or a sessionId is required." };
+			}
+
+			const staged = await stageContext(this.storagePath, {
+				text,
+				sourceSessionId: sessionId,
+				label,
+				ttlMs: asNum(rec.ttlMs),
+			});
+			return { staged: true, ...staged };
+		});
+
+		/** What is staged, or null. Expiry is applied on read. */
+		this.methods.set("memory.getStagedContext", async () =>
+			readStagedContext(this.storagePath),
+		);
+
+		/** Discard a staged pick before it is consumed. */
+		this.methods.set("memory.clearStagedContext", async () => ({
+			cleared: await clearStagedContext(this.storagePath),
+		}));
+
 		this.methods.set("memory.buildDigest", async (params) => {
 			const rec = asRec(params) ?? {};
 			const sessionId = asStr(rec.sessionId);

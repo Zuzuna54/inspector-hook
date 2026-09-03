@@ -42,6 +42,15 @@ fail()  { echo -e "${RED}[error]${NC} $*" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-hook.sh"
+
+# The context picker, registered on SessionStart ONLY.
+#
+# It is separate because inspector-hook.sh is silent by contract on all 30 of
+# its events, and emitting context from it would trade that guarantee away
+# everywhere at once. This one writes to stdout, which Claude Code adds straight
+# into the session context -- and it emits nothing at all unless the user has
+# explicitly staged something in the panel, so installing it is inert until used.
+CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-context.sh"
 SETTINGS="${HOME}/.claude/settings.json"
 DRY_RUN=0
 UNINSTALL=0
@@ -138,14 +147,19 @@ strip_legacy() {
   '
 }
 
-build_install() {
-  local json; json="$(cat "$SETTINGS" | strip_legacy)"
-  for event in "${EVENTS[@]}"; do
-    local m; m="$(matcher_for "$event")"
-    json="$(printf '%s' "$json" | jq \
-      --arg ev "$event" \
-      --arg cmd "$HOOK_SCRIPT" \
-      --argjson matcher "$m" '
+# Register one command for one event, additively and idempotently.
+#
+# Extracted so the context hook can be registered for a single event without
+# duplicating the merge, which is the part that must never regress: it appends
+# to .hooks[event] rather than replacing it, so a co-installed tool keeps its
+# own entries.
+register_one() {
+  local json="$1" event="$2" cmd="$3"
+  local m; m="$(matcher_for "$event")"
+  printf '%s' "$json" | jq \
+    --arg ev "$event" \
+    --arg cmd "$cmd" \
+    --argjson matcher "$m" '
       # Our command already registered for this event? Then nothing to do.
       if ((.hooks[$ev] // []) | map(.hooks // [] | map(.command)) | flatten | any(. == $cmd))
       then .
@@ -157,20 +171,31 @@ build_install() {
               + (if $matcher == null then {} else { matcher: $matcher } end) )
           ]
       end
-    ')"
+    '
+}
+
+build_install() {
+  local json; json="$(cat "$SETTINGS" | strip_legacy)"
+  for event in "${EVENTS[@]}"; do
+    json="$(register_one "$json" "$event" "$HOOK_SCRIPT")"
   done
+  # SessionStart only, and last, so it runs after the observer is registered.
+  json="$(register_one "$json" "SessionStart" "$CONTEXT_SCRIPT")"
   printf '%s' "$json"
 }
 
 # Remove only entries whose command is ours, then drop any group or event that
 # is left empty. Everything belonging to another tool survives.
 build_uninstall() {
-  jq --arg cmd "$HOOK_SCRIPT" '
+  jq --argjson cmds "[\"$HOOK_SCRIPT\", \"$CONTEXT_SCRIPT\"]" '
     if .hooks == null then .
     else
       .hooks |= with_entries(
         .value |= (
-          map(.hooks |= (map(select(.command != $cmd))))
+          # Exact equality, via index. `inside`/`contains` do SUBSTRING matching on
+          # strings, so ["/h/a.sh"] | inside(["/h/a.sh.disabled"]) is true -- which
+          # would delete another tool’s hook for merely containing our path.
+          map(.hooks |= (map(select(.command as $c | ($cmds | index($c)) == null))))
           | map(select((.hooks // []) | length > 0))
         )
       )

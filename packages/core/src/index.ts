@@ -83,6 +83,16 @@ export {
 	type WriteResult,
 } from "./memory/native-memory.js";
 export {
+	DEFAULT_TTL_MS,
+	MAX_CONTEXT_BYTES,
+	STAGED_CONTEXT_FILE,
+	clearStagedContext,
+	readStagedContext,
+	stageContext,
+	stagedContextPath,
+	type StagedContext,
+} from "./memory/staged-context.js";
+export {
 	buildSessionDigest,
 	formatDuration,
 	type DigestInput,
