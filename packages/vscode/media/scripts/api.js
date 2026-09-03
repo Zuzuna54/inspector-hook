@@ -360,13 +360,19 @@ const API = {
 				// (tool inputs and results included, megabytes on a long run)
 				// for data already present here.
 				const activities = payload?.activity || [];
-				if (payload?.session?.id) {
+
+				// Prefer the slim summary; fall back to the full session while the
+				// core still sends one. The summary deliberately omits
+				// toolExecutions (it dominated the payload), so MERGE rather than
+				// replace - overwriting would strip the array the Tools tab renders.
+				const incoming = payload?.sessionSummary || payload?.session;
+				if (incoming?.id) {
 					const sessions = [...State.sessions];
-					const idx = sessions.findIndex((s) => s.id === payload.session.id);
+					const idx = sessions.findIndex((s) => s.id === incoming.id);
 					if (idx >= 0) {
-						sessions[idx] = payload.session;
+						sessions[idx] = { ...sessions[idx], ...incoming };
 					} else {
-						sessions.unshift(payload.session);
+						sessions.unshift(incoming);
 					}
 					State.update("sessions", sessions);
 				}
@@ -377,8 +383,15 @@ const API = {
 					// would imply the session simply started at the oldest item it
 					// received.
 					activityTruncated: payload?.truncated === true,
-					activityTotalLogs:
-						typeof payload?.totalLogs === "number" ? payload.totalLogs : null,
+					// `availableLogs` is what the core RETAINS for this session, not a
+					// lifetime total - reads are served from memory. Renders as
+					// "of N available" for that reason. `totalLogs` is the older name.
+					activityAvailableLogs:
+						typeof payload?.availableLogs === "number"
+							? payload.availableLogs
+							: typeof payload?.totalLogs === "number"
+								? payload.totalLogs
+								: null,
 				});
 				break;
 			}

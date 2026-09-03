@@ -87,8 +87,9 @@ const SessionsView = {
 		const info = this.getSessionDisplayInfo(session);
 
 		// Optionally include git branch
-		if (includeBranch && session.metadata?.gitBranch) {
-			return `${info.fullDisplay} (${session.metadata.gitBranch})`;
+		const branch = this.gitBranchOf(session);
+		if (includeBranch && branch) {
+			return `${info.fullDisplay} (${branch})`;
 		}
 
 		return info.fullDisplay;
@@ -300,10 +301,36 @@ const SessionsView = {
 	 * @returns {number}
 	 */
 	countErrors(session) {
+		if (typeof session.errorCount === "number") return session.errorCount;
 		if (!session.toolExecutions) return 0;
 		return session.toolExecutions.filter(
 			(t) => t.status === "error" || t.status === "failed",
 		).length;
+	},
+
+	/*
+	 * A session reaches this view in two shapes: the full Session from
+	 * sessions.getAll, and the SessionSummary the activity response carries.
+	 * The summary omits toolExecutions - which is the whole point, it dominated
+	 * the payload - and pre-counts instead. These read either shape so the list
+	 * and header do not care which one they were handed.
+	 */
+
+	/** @param {Object} s @returns {number} */
+	toolCount(s) {
+		if (typeof s.toolExecutionCount === "number") return s.toolExecutionCount;
+		return s.toolExecutions?.length || 0;
+	},
+
+	/** @param {Object} s @returns {number} */
+	fileCount(s) {
+		if (typeof s.fileChangeCount === "number") return s.fileChangeCount;
+		return s.fileChanges?.length || 0;
+	},
+
+	/** @param {Object} s @returns {string|undefined} */
+	gitBranchOf(s) {
+		return s.metadata?.gitBranch || s.gitBranch || undefined;
 	},
 
 	/**
@@ -335,13 +362,13 @@ const SessionsView = {
 		listContainer.innerHTML = sessions
 			.map((session) => {
 				const isSelected = session.id === selectedSession;
-				const toolCount = session.toolExecutions?.length || 0;
-				const fileCount = session.fileChanges?.length || 0;
+				const toolCount = this.toolCount(session);
+				const fileCount = this.fileCount(session);
 				const errorCount = this.countErrors(session);
 				const statusClass = session.status || "unknown";
 				const hasErrors = errorCount > 0;
 				const displayInfo = this.getSessionDisplayInfo(session);
-				const gitBranch = session.metadata?.gitBranch;
+				const gitBranch = this.gitBranchOf(session);
 
 				return `
         <div class="sv-card ${statusClass} ${isSelected ? "selected" : ""} ${hasErrors ? "has-errors" : ""}"
@@ -416,11 +443,11 @@ const SessionsView = {
 		}
 
 		// Render header
-		const toolCount = session.toolExecutions?.length || 0;
-		const fileCount = session.fileChanges?.length || 0;
+		const toolCount = this.toolCount(session);
+		const fileCount = this.fileCount(session);
 		const errorCount = this.countErrors(session);
 		const displayName = this.getSessionDisplayName(session);
-		const gitBranch = session.metadata?.gitBranch;
+		const gitBranch = this.gitBranchOf(session);
 
 		headerEl.innerHTML = `
       <div class="sv-detail-title">
@@ -818,18 +845,21 @@ const SessionsView = {
 	 * @returns {string}
 	 */
 	renderTruncationNotice(shownCount) {
-		const { activityTruncated, activityTotalLogs } = State.sessionView;
+		const { activityTruncated, activityAvailableLogs } = State.sessionView;
 		if (!activityTruncated) return "";
 
-		const total =
-			typeof activityTotalLogs === "number"
-				? `${activityTotalLogs} events`
-				: "more events";
+		// Deliberately "available", not "total": the core serves activity reads
+		// from its retained window, so this is a floor on what the session
+		// actually produced, not a lifetime count.
+		const scope =
+			typeof activityAvailableLogs === "number"
+				? `of ${activityAvailableLogs} available`
+				: "of more than are shown";
 
 		return `
       <div class="sv-truncation-notice">
         Earlier activity not loaded &mdash; showing the most recent
-        ${shownCount} of ${total} in this session.
+        ${shownCount} ${scope}.
       </div>
     `;
 	},
@@ -861,8 +891,13 @@ const SessionsView = {
         `;
 
 			case "ai_response": {
+				// assistantMessage is Claude's real reply text, from Stop's
+				// last_assistant_message. Before it was plumbed through, this bubble
+				// could only ever show the placeholder below.
 				const aiMessage =
-					activity.data?.message || "Claude finished responding";
+					activity.data?.assistantMessage ||
+					activity.data?.message ||
+					"Claude finished responding";
 				const stopReason = this.getStopReason(activity.data);
 				return `
           <div class="sv-bubble sv-ai" data-item-id="${itemId}">
@@ -1440,6 +1475,11 @@ const SessionsView = {
 				API.getSessionLogs(session.id);
 			} else if (tabName === "activity") {
 				API.getSessionActivity(session.id);
+			} else if (tabName === "tools") {
+				// The Tools tab is the one view that needs the full toolExecutions
+				// array, which sessionSummary omits. Fetch it on tab entry rather
+				// than on every poll tick - once per switch, not once per 2s.
+				API.getSession(session.id);
 			}
 		}
 	},

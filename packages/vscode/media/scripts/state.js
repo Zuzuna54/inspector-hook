@@ -45,9 +45,10 @@ const State = {
 		sessionActivity: [],
 		sessionLogs: [],
 		// Set from the activity response: whether older logs exist beyond the
-		// fetched window, and how many the session has in total.
+		// fetched window, and how many the core still retains for the session.
+		// Retained, not lifetime - activity reads are served from memory.
 		activityTruncated: false,
-		activityTotalLogs: null,
+		activityAvailableLogs: null,
 	},
 
 	// ==========================================================================
@@ -218,7 +219,7 @@ const State = {
 			sessionActivity: [],
 			sessionLogs: [],
 			activityTruncated: false,
-			activityTotalLogs: null,
+			activityAvailableLogs: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],
