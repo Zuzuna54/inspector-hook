@@ -118,7 +118,12 @@ const SessionsView = {
 			if (status !== "active" && status !== "idle") return;
 			if (status === "idle" && this._activityTick % 5 !== 0) return;
 
-			API.getSessionActivity(selectedSession.id);
+			// Incremental after the first fetch: only what changed since the last
+			// response, which is the difference between a few hundred bytes and
+			// the whole window every two seconds.
+			API.getSessionActivity(selectedSession.id, {
+				since: State.sessionView.activitySince || undefined,
+			});
 		}, 2000);
 
 		// Slower refresh for all sessions list (every 30s)

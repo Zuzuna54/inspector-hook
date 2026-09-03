@@ -49,6 +49,10 @@ const State = {
 		// Retained, not lifetime - activity reads are served from memory.
 		activityTruncated: false,
 		activityAvailableLogs: null,
+		// Cursor for incremental activity polling. Null means "fetch the whole
+		// window"; after the first response it holds the server's nextSince.
+		activitySince: null,
+		activityHasMore: false,
 	},
 
 	// ==========================================================================
@@ -220,6 +224,8 @@ const State = {
 			sessionLogs: [],
 			activityTruncated: false,
 			activityAvailableLogs: null,
+			activitySince: null,
+			activityHasMore: false,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

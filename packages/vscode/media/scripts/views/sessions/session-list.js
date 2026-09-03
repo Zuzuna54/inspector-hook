@@ -191,6 +191,12 @@ const SessionListMixin = {
 			activeTab: "activity",
 			sessionActivity: [],
 			sessionLogs: [],
+			// A cursor from the previous session would make the first fetch of
+			// this one return almost nothing.
+			activitySince: null,
+			activityHasMore: false,
+			activityTruncated: false,
+			activityAvailableLogs: null,
 		});
 
 		// Load session data

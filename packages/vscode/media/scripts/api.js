@@ -3,6 +3,29 @@
  * Handles message passing between webview and extension
  */
 
+/**
+ * Merge an incremental activity batch into what is already held.
+ *
+ * Order is preserved by timestamp, and an id present in both is taken from the
+ * incoming batch: the server re-sends an item whenever it changes, which is how
+ * a running tool call becomes a completed one.
+ *
+ * @param {Array} existing
+ * @param {Array} incoming
+ * @returns {Array}
+ */
+function mergeActivity(existing, incoming) {
+	if (!incoming.length) return existing;
+
+	const byId = new Map();
+	for (const item of existing || []) byId.set(item.id, item);
+	for (const item of incoming) byId.set(item.id, item);
+
+	return [...byId.values()].sort((a, b) =>
+		String(a.timestamp || "").localeCompare(String(b.timestamp || "")),
+	);
+}
+
 const API = {
 	// VS Code API instance
 	vscode: typeof acquireVsCodeApi !== "undefined" ? acquireVsCodeApi() : null,
@@ -81,8 +104,15 @@ const API = {
 	 * Get activity feed for a session (ordered events: prompts, responses, tools)
 	 * @param {string} sessionId - Session ID
 	 */
-	getSessionActivity(sessionId) {
-		this.send("get-session-activity", { sessionId });
+	getSessionActivity(sessionId, options = {}) {
+		// `since` asks for only what changed, which is the difference between a
+		// few hundred bytes and the whole window every two seconds. `before`
+		// backfills older items past the window cap.
+		this.send("get-session-activity", {
+			sessionId,
+			...(options.since ? { since: options.since } : {}),
+			...(options.before ? { before: options.before } : {}),
+		});
 	},
 
 	// ==========================================================================
@@ -376,7 +406,17 @@ const API = {
 				// get-session round trip - that call returned the full session
 				// (tool inputs and results included, megabytes on a long run)
 				// for data already present here.
-				const activities = payload?.activity || [];
+				const incomingActivity = payload?.activity || [];
+
+				// Merge by id rather than replace. An incremental response carries
+				// only what changed, and deliberately re-sends the boundary items,
+				// so replacing would drop everything older on the first delta. An
+				// id already present is an UPDATE - a tool call completing is the
+				// common case - so the incoming version wins.
+				const isDelta = typeof payload?.since === "string" && payload.since !== "";
+				const merged = isDelta
+					? mergeActivity(State.sessionView.sessionActivity, incomingActivity)
+					: incomingActivity;
 
 				// Prefer the slim summary; fall back to the full session while the
 				// core still sends one. The summary deliberately omits
@@ -395,7 +435,14 @@ const API = {
 				}
 				State.update("sessionView", {
 					...State.sessionView,
-					sessionActivity: activities,
+					sessionActivity: merged,
+					// Passed back as `since` next poll. Absent means the server had
+					// nothing newer, so the existing cursor stands.
+					activitySince:
+						typeof payload?.nextSince === "string"
+							? payload.nextSince
+							: State.sessionView.activitySince,
+					activityHasMore: payload?.hasMore === true,
 					// The feed window is capped server-side. Without these the UI
 					// would imply the session simply started at the oldest item it
 					// received.
