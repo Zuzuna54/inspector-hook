@@ -171,10 +171,14 @@ describe("session activity feed", () => {
 	});
 
 	it("exposes promptId for turn grouping", async () => {
+		// prompt_id is a ROOT field on the hook payload, alongside tool_use_id --
+		// not something inside `details`. This test previously sent it in details,
+		// which only passed because the assembler had a matching (and equally
+		// wrong) details.promptId read. Both are gone; this now mirrors what the
+		// real hook actually sends.
 		await ingest(
 			toolEvent({
-				tool: "Edit", tool_use_id: "t-prompt",
-				details: { promptId: "prompt-42" },
+				tool: "Edit", tool_use_id: "t-prompt", prompt_id: "prompt-42",
 			}),
 		);
 		// Complete it, so this test does not leave a call open and break the
@@ -182,8 +186,8 @@ describe("session activity feed", () => {
 		await ingest(
 			toolEvent({
 				hook: "PostToolUse", event: "PostToolUse",
-				tool: "Edit", tool_use_id: "t-prompt",
-				details: { tool_result: "applied", promptId: "prompt-42" },
+				tool: "Edit", tool_use_id: "t-prompt", prompt_id: "prompt-42",
+				details: { tool_result: "applied" },
 			}),
 		);
 

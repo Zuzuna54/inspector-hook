@@ -596,13 +596,34 @@ const SessionsView = {
 		// replaced, so drop them rather than letting the map grow per render.
 		this._copyPayloads.clear();
 
+		// Group into user turns. A single-turn session gains nothing from the
+		// wrapper, so render it flat and skip the chrome.
+		const turns = this.groupIntoTurns(activities);
+		this._renderedTurnKeys = turns.map((t) => t.key);
+
+		let body;
+		if (turns.length <= 1) {
+			body = activities
+				.map((activity, idx) => this.renderActivityItem(activity, idx))
+				.join("");
+		} else {
+			this.seedTurnCollapse(turns, session.id);
+			let offset = 0;
+			body = turns
+				.map((turn) => {
+					const html = this.renderTurn(turn, offset);
+					offset += turn.items.length;
+					return html;
+				})
+				.join("");
+		}
+
 		container.innerHTML = `
       <div class="sv-activity-feed">
         ${this.renderTruncationNotice(activities.length)}
-        ${activities.map((activity, idx) => this.renderActivityItem(activity, idx)).join("")}
+        ${body}
       </div>
     `;
-
 	},
 
 	/**
@@ -778,13 +799,173 @@ const SessionsView = {
 	},
 
 	/**
-	 * Get stop reason from activity data (handles different field names)
-	 * @param {Object} data
+	 * Group a flat activity list into user turns.
+	 *
+	 * Exact when items carry promptId, which the CLI supplies on every event
+	 * except SessionStart. Sessions logged before promptId was captured have
+	 * none, so those fall back to segmenting on user_prompt boundaries - an
+	 * approximation, and a poor one on a long session (the largest local session
+	 * has 361 tool events against 1 recorded prompt), but better than presenting
+	 * historical data as one undifferentiated wall.
+	 *
+	 * @param {Array} activities in timestamp order
+	 * @returns {Array<{key: string, promptId: string|null, prompt: string, items: Array, startTime: string, endTime: string}>}
+	 */
+	groupIntoTurns(activities) {
+		const turns = [];
+		const byPromptId = new Map();
+		let open = null;
+
+		const startTurn = (promptId) => {
+			const turn = {
+				key: promptId || `t${turns.length}`,
+				promptId: promptId || null,
+				prompt: "",
+				items: [],
+				startTime: "",
+				endTime: "",
+			};
+			turns.push(turn);
+			if (promptId) byPromptId.set(promptId, turn);
+			return turn;
+		};
+
+		for (const activity of activities) {
+			const promptId = activity.data?.promptId || null;
+			let turn;
+
+			if (promptId) {
+				turn = byPromptId.get(promptId) || startTurn(promptId);
+			} else if (activity.type === "user_prompt" || !open) {
+				turn = startTurn(null);
+			} else {
+				turn = open;
+			}
+
+			if (activity.type === "user_prompt" && !turn.prompt) {
+				turn.prompt = String(activity.data?.prompt || "");
+			}
+			if (!turn.startTime) turn.startTime = activity.timestamp;
+			turn.endTime = activity.timestamp;
+			turn.items.push(activity);
+			open = turn;
+		}
+
+		return turns;
+	},
+
+	/**
+	 * Counts for a turn's header
+	 * @param {Object} turn
+	 * @returns {{tools: number, errors: number, files: number}}
+	 */
+	turnStats(turn) {
+		let tools = 0;
+		let errors = 0;
+		const files = new Set();
+
+		for (const item of turn.items) {
+			if (item.type !== "tool_call") continue;
+			tools++;
+			const status = item.data?.status;
+			if (status === "failed" || status === "error") errors++;
+			if (item.data?.file) files.add(item.data.file);
+		}
+
+		return { tools, errors, files: files.size };
+	},
+
+	/**
+	 * Render one collapsible turn
+	 * @param {Object} turn
+	 * @param {number} startIdx index of the turn's first item in the flat list
 	 * @returns {string}
 	 */
-	getStopReason(data) {
-		if (!data) return "";
-		return data.stopReason || data.stop_reason || data.finish_reason || "";
+	renderTurn(turn, startIdx) {
+		const collapsed = this._collapsedTurns.has(turn.key);
+		const stats = this.turnStats(turn);
+		const label = turn.prompt
+			? turn.prompt.replace(/\s+/g, " ").slice(0, 120)
+			: "Activity before the first recorded prompt";
+
+		return `
+      <div class="sv-turn ${collapsed ? "collapsed" : ""}" data-turn-key="${Utils.escapeHtml(turn.key)}">
+        <div class="sv-turn-header" data-turn-key="${Utils.escapeHtml(turn.key)}">
+          <span class="sv-turn-caret">${collapsed ? "▶" : "▼"}</span>
+          <span class="sv-turn-label" title="${Utils.escapeHtml(label)}">${Utils.escapeHtml(label)}</span>
+          <span class="sv-turn-stats">
+            <span>${stats.tools} tool${stats.tools === 1 ? "" : "s"}</span>
+            ${stats.files > 0 ? `<span>${stats.files} file${stats.files === 1 ? "" : "s"}</span>` : ""}
+            ${stats.errors > 0 ? `<span class="sv-turn-errors">${stats.errors} error${stats.errors === 1 ? "" : "s"}</span>` : ""}
+            <span>${Utils.formatDuration(turn.startTime, turn.endTime)}</span>
+          </span>
+        </div>
+        <div class="sv-turn-body">
+          ${turn.items.map((item, i) => this.renderActivityItem(item, startIdx + i)).join("")}
+        </div>
+      </div>
+    `;
+	},
+
+	/**
+	 * Collapse every turn but the most recent, once per session. Seeding only
+	 * once matters: re-seeding on each poll would undo the user's expansions
+	 * every two seconds.
+	 * @param {Array} turns
+	 * @param {string} sessionId
+	 */
+	seedTurnCollapse(turns, sessionId) {
+		if (this._turnsSeededFor === sessionId) return;
+		this._turnsSeededFor = sessionId;
+		this._collapsedTurns.clear();
+		turns.slice(0, -1).forEach((turn) => this._collapsedTurns.add(turn.key));
+	},
+
+	/**
+	 * Toggle a turn open or closed
+	 * @param {string} key
+	 */
+	toggleTurn(key) {
+		if (!key) return;
+		if (this._collapsedTurns.has(key)) {
+			this._collapsedTurns.delete(key);
+		} else {
+			this._collapsedTurns.add(key);
+		}
+
+		const el = document.querySelector(
+			`.sv-turn[data-turn-key="${CSS.escape(key)}"]`,
+		);
+		if (!el) {
+			this.renderTabContent();
+			return;
+		}
+		const collapsed = this._collapsedTurns.has(key);
+		el.classList.toggle("collapsed", collapsed);
+		const caret = el.querySelector(".sv-turn-caret");
+		if (caret) caret.textContent = collapsed ? "▶" : "▼";
+	},
+
+	/**
+	 * Coerce a backend activity item into a shape the renderers can trust.
+	 *
+	 * The contract is produced untyped (`data: unknown` server-side), so this is
+	 * the trust boundary. It matters concretely: several renderers reach straight
+	 * into `activity.data.x`, which throws if data is null - one malformed item
+	 * would take out the whole feed rather than degrading to a single "unknown"
+	 * bubble.
+	 *
+	 * @param {*} raw
+	 * @returns {Object|null} null when the item is unusable
+	 */
+	normalizeActivity(raw) {
+		if (!raw || typeof raw !== "object") return null;
+		return {
+			...raw,
+			type: typeof raw.type === "string" ? raw.type : "message",
+			timestamp: typeof raw.timestamp === "string" ? raw.timestamp : "",
+			data: raw.data && typeof raw.data === "object" ? raw.data : {},
+		};
 	},
 
 	/**
@@ -801,7 +982,9 @@ const SessionsView = {
 		// Use sessionActivity from backend as primary source
 		// (already includes user_prompt, ai_response, tool_call, etc.)
 		if (sessionActivity && sessionActivity.length > 0) {
-			sessionActivity.forEach((activity) => {
+			sessionActivity.forEach((raw) => {
+				const activity = this.normalizeActivity(raw);
+				if (!activity) return;
 				const activityId = this.generateActivityId(activity, activity.type);
 				if (!seenIds.has(activityId)) {
 					seenIds.add(activityId);
@@ -898,17 +1081,21 @@ const SessionsView = {
 					activity.data?.assistantMessage ||
 					activity.data?.message ||
 					"Claude finished responding";
-				const stopReason = this.getStopReason(activity.data);
+				// Stop carries no reason field on any Claude Code version - the old
+				// stopReason/stop_reason/finish_reason lookup could never match.
+				// Failure reasons live on StopFailure, which the core routes to a
+				// separate error-level message item rather than attributing an API
+				// error to Claude.
+				const pending = Number(activity.data?.backgroundTasks) || 0;
 				return `
           <div class="sv-bubble sv-ai" data-item-id="${itemId}">
             <div class="sv-bubble-header">
               <span class="sv-bubble-role">Claude</span>
               <span class="sv-bubble-time">${timestamp}</span>
-              <span class="sv-response-indicator">Response Complete</span>
+              <span class="sv-response-indicator">${pending > 0 ? `Paused &mdash; ${pending} background task${pending === 1 ? "" : "s"}` : "Response Complete"}</span>
             </div>
             <div class="sv-bubble-content">
               ${Utils.escapeHtml(aiMessage)}
-              ${stopReason ? `<div class="sv-stop-reason">${Utils.escapeHtml(stopReason)}</div>` : ""}
             </div>
           </div>
         `;
@@ -984,6 +1171,26 @@ const SessionsView = {
 						: msgData.level === "warn"
 							? "sv-message-warn"
 							: "";
+
+				// A turn that ended on an API error arrives here rather than as an
+				// ai_response, because StopFailure reuses last_assistant_message to
+				// carry the error string. Name the failure instead of letting it
+				// read as an ordinary hook message.
+				if (msgData.stopError) {
+					return `
+          <div class="sv-bubble sv-message sv-message-error" data-item-id="${itemId}">
+            <div class="sv-bubble-header">
+              <span class="sv-bubble-role">&#9888; Turn failed</span>
+              <span class="sv-bubble-time">${timestamp}</span>
+              <span class="sv-stop-error-code">${Utils.escapeHtml(String(msgData.stopError))}</span>
+            </div>
+            <div class="sv-bubble-content">
+              ${Utils.escapeHtml(String(msgData.errorDetails || msgData.message || "Claude stopped before finishing this turn."))}
+            </div>
+          </div>
+        `;
+				}
+
 				return `
           <div class="sv-bubble sv-message ${levelClass}" data-item-id="${itemId}">
             <div class="sv-bubble-header">

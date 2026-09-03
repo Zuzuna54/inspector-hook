@@ -44,16 +44,18 @@ function toolMetadata(log: LogEntry): {
 	durationMs?: number;
 	agentId?: string;
 	agentType?: string;
-	promptId?: string;
 } {
 	const d = log.details ?? {};
 	return {
 		durationMs: typeof d.durationMs === "number" ? d.durationMs : undefined,
 		agentId: typeof d.agentId === "string" ? d.agentId : undefined,
 		agentType: typeof d.agentType === "string" ? d.agentType : undefined,
-		promptId: typeof d.promptId === "string" ? d.promptId : undefined,
 	};
 }
+// NOTE: promptId is deliberately NOT read here. The hook emits `prompt_id` at
+// the payload root, not inside `details`, so a `details.promptId` read matched
+// nothing -- it implied a path that does not exist. It is lifted into
+// LogEntry.promptId at ingest and stamped onto every item type below.
 
 /** Map a log's level (and event) onto a terminal execution status. */
 function terminalStatus(
