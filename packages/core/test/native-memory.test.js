@@ -22,6 +22,7 @@ import {
 	deleteMemoryFile,
 	formatDuration,
 	formatMemoryFile,
+	indexMemoryFile,
 	listMemoryProjects,
 	memoryFileName,
 	parseIndexReferences,
@@ -452,6 +453,90 @@ describe("upsertIndexEntry", () => {
 			false,
 			"an idempotent call must not rewrite the file",
 		);
+	});
+});
+
+describe("indexMemoryFile", () => {
+	it("REGRESSION: indexes an orphaned HAND-WRITTEN file, which write could not", async () => {
+		// The gap this closes: writeMemoryFile refuses a file it did not author,
+		// which is right for content and made the most valuable curation action
+		// -- indexing an orphan so it loads at all -- impossible for exactly the
+		// files that need it. Indexing touches only MEMORY.md.
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "hand-note.md"), HANDWRITTEN("hand-note", "KEEP"));
+		await writeFile(join(memoryDir, "MEMORY.md"), "# Memory\n\n");
+
+		assert.equal((await readMemoryProject(memoryDir)).files[0].orphaned, true);
+
+		const result = await indexMemoryFile(memoryDir, "hand-note.md");
+
+		assert.equal(result.indexed, true);
+		assert.equal((await readMemoryProject(memoryDir)).files[0].orphaned, false);
+		assert.match(
+			await readFile(join(memoryDir, "MEMORY.md"), "utf-8"),
+			/- \[hand-note\]\(hand-note\.md\) — written by a person/,
+			"title and description come from the file's own frontmatter",
+		);
+		assert.match(
+			await readFile(join(memoryDir, "hand-note.md"), "utf-8"),
+			/KEEP/,
+			"the file itself must be untouched",
+		);
+	});
+
+	it("refuses to index a file that does not exist", async () => {
+		// A dangling index line is worse than an orphan: an orphan is merely
+		// unloaded, while a dangling reference misreports what memory holds.
+		const { memoryDir } = await makeMemoryDir();
+		const result = await indexMemoryFile(memoryDir, "ghost.md");
+		assert.equal(result.indexed, false);
+		assert.match(result.reason, /dangling/);
+	});
+
+	it("accepts an explicit title and description", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "x.md"), HANDWRITTEN("x"));
+		await indexMemoryFile(memoryDir, "x.md", {
+			title: "Custom Title",
+			description: "custom text",
+		});
+		assert.match(
+			await readFile(join(memoryDir, "MEMORY.md"), "utf-8"),
+			/- \[Custom Title\]\(x\.md\) — custom text/,
+		);
+	});
+
+	it("indexes a file with no frontmatter, using its stem", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "legacy.md"), "# Legacy\n\nno frontmatter\n");
+		const result = await indexMemoryFile(memoryDir, "legacy.md");
+		assert.equal(result.indexed, true);
+		assert.match(
+			await readFile(join(memoryDir, "MEMORY.md"), "utf-8"),
+			/- \[legacy\]\(legacy\.md\)/,
+		);
+	});
+
+	it("never lets the index reference itself", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "MEMORY.md"), "# Memory\n\n");
+		const result = await indexMemoryFile(memoryDir, "MEMORY.md");
+		assert.equal(result.indexed, false);
+	});
+
+	it("is idempotent", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		await writeFile(join(memoryDir, "x.md"), HANDWRITTEN("x"));
+		await indexMemoryFile(memoryDir, "x.md");
+		const second = await indexMemoryFile(memoryDir, "x.md");
+		assert.equal(second.indexed, true);
+		assert.equal(second.changed, false, "no rewrite when the line is already right");
+	});
+
+	it("cannot be walked out of the directory", async () => {
+		const { memoryDir } = await makeMemoryDir();
+		const result = await indexMemoryFile(memoryDir, "../../../etc/hosts");
+		assert.equal(result.indexed, false, "basename'd, so it misses");
 	});
 });
 

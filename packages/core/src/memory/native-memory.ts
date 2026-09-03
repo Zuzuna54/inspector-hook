@@ -552,6 +552,51 @@ export async function upsertIndexEntry(
 }
 
 /**
+ * Reference an existing file from the index, without touching the file.
+ *
+ * This exists because `writeMemoryFile` refuses a file it did not author, and
+ * that refusal — correct for content — made the most useful curation action
+ * impossible for exactly the files that need it. An orphaned hand-written note
+ * is never loaded by name, and fixing that requires only an index line; there
+ * is no reason to rewrite, or be blocked from rewriting, its body.
+ *
+ * The file must already exist. Indexing a missing file would leave MEMORY.md
+ * pointing at nothing, which is worse than the orphan: an orphan is merely
+ * unloaded, whereas a dangling reference misreports what memory contains.
+ *
+ * Title and description default to the file's own frontmatter, so a caller does
+ * not have to restate what the file already says about itself.
+ */
+export async function indexMemoryFile(
+	memoryDir: string,
+	fileName: string,
+	overrides?: { title?: string; description?: string },
+): Promise<{ indexed: boolean; changed?: boolean; reason?: string }> {
+	const safeName = basename(fileName);
+	if (safeName === INDEX_FILE) {
+		return { indexed: false, reason: "The index cannot reference itself." };
+	}
+
+	let text: string;
+	try {
+		text = await readFile(join(memoryDir, safeName), "utf-8");
+	} catch {
+		return {
+			indexed: false,
+			reason: `${safeName} does not exist; indexing it would leave a dangling reference.`,
+		};
+	}
+
+	const parsed = parseMemoryFile(text, safeName);
+	const changed = await upsertIndexEntry(memoryDir, {
+		fileName: safeName,
+		title: overrides?.title ?? parsed.name ?? safeName.replace(/\.md$/i, ""),
+		description: overrides?.description ?? parsed.description,
+	});
+	return { indexed: true, changed };
+}
+
+/**
  * Delete a memory file and drop its index line.
  *
  * `force` is required to remove a file this tool did not author, so curation

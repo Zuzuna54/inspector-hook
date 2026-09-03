@@ -27,7 +27,9 @@ import { ErrorCodes } from "@inspector-hook/protocol";
 import type { InspectorCore } from "../core.js";
 import {
 	deleteMemoryFile,
+	indexMemoryFile,
 	listMemoryProjects,
+	removeIndexEntry,
 	readMemoryProject,
 	resolveMemoryDir,
 	writeMemoryFile,
@@ -725,6 +727,38 @@ export class IpcServer {
 			return deleteMemoryFile(dir, fileName, {
 				force: asBool(rec.force) ?? false,
 			});
+		});
+
+		/**
+		 * Reference an existing file from MEMORY.md without rewriting it.
+		 *
+		 * The fix for an orphaned file, and the reason it is a separate method:
+		 * memory.write refuses a file it did not author, so without this the
+		 * view could not index a hand-written note at all — the single case
+		 * where indexing matters most.
+		 */
+		this.methods.set("memory.addToIndex", async (params) => {
+			const rec = asRec(params) ?? {};
+			const dir = await this.memoryDirFrom(params);
+			const fileName = asStr(rec.fileName);
+			if (!dir || !fileName) {
+				return { indexed: false, reason: "A memory directory and file name are required." };
+			}
+			return indexMemoryFile(dir, fileName, {
+				title: asStr(rec.title),
+				description: asStr(rec.description),
+			});
+		});
+
+		/** Drop a file's index line while leaving the file in place. */
+		this.methods.set("memory.removeFromIndex", async (params) => {
+			const rec = asRec(params) ?? {};
+			const dir = await this.memoryDirFrom(params);
+			const fileName = asStr(rec.fileName);
+			if (!dir || !fileName) {
+				return { changed: false, reason: "A memory directory and file name are required." };
+			}
+			return { changed: await removeIndexEntry(dir, fileName) };
 		});
 
 		/**

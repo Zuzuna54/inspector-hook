@@ -65,6 +65,7 @@ export {
 	INDEX_LOAD_LINES,
 	deleteMemoryFile,
 	formatMemoryFile,
+	indexMemoryFile,
 	listMemoryProjects,
 	memoryFileName,
 	parseIndexReferences,

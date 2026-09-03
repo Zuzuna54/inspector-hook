@@ -130,6 +130,8 @@ describe("memory IPC methods", () => {
 			["memory.getFile", { memoryDir, fileName: "nope.md" }],
 			["memory.write", { memoryDir, name: "probe", description: "d", type: "project", body: "b" }],
 			["memory.delete", { memoryDir, fileName: "probe.md" }],
+			["memory.addToIndex", { memoryDir, fileName: "nope.md" }],
+			["memory.removeFromIndex", { memoryDir, fileName: "nope.md" }],
 			["memory.buildDigest", { sessionId: "does-not-exist" }],
 		];
 		for (const [method, params] of methods) {
@@ -428,6 +430,47 @@ describe("memory IPC methods", () => {
 			await cleanup(home2);
 			await cleanup(storage2);
 		}
+	});
+
+	it("indexes an orphan over IPC without touching the file", async () => {
+		// The view's headline action. memory.write cannot do this for a
+		// hand-written file, which is why the method exists.
+		await writeFile(
+			join(memoryDir, "orphan-fix.md"),
+			"---\nname: orphan-fix\ndescription: a persons note\nmetadata:\n  type: user\n---\n\nUNTOUCHED\n",
+		);
+
+		const before = await rpc("memory.getProject", { memoryDir });
+		assert.equal(
+			before.result.files.find((f) => f.fileName === "orphan-fix.md").orphaned,
+			true,
+		);
+
+		const indexed = await rpc("memory.addToIndex", {
+			memoryDir, fileName: "orphan-fix.md",
+		});
+		assert.equal(indexed.result.indexed, true);
+
+		const after = await rpc("memory.getProject", { memoryDir });
+		assert.equal(
+			after.result.files.find((f) => f.fileName === "orphan-fix.md").orphaned,
+			false,
+		);
+		assert.match(
+			await readFile(join(memoryDir, "orphan-fix.md"), "utf-8"),
+			/UNTOUCHED/,
+		);
+
+		// And it can be un-indexed without deleting the file.
+		const removed = await rpc("memory.removeFromIndex", {
+			memoryDir, fileName: "orphan-fix.md",
+		});
+		assert.equal(removed.result.changed, true);
+		assert.match(
+			await readFile(join(memoryDir, "orphan-fix.md"), "utf-8"),
+			/UNTOUCHED/,
+			"un-indexing must not delete anything",
+		);
 	});
 
 	it("lists projects across the machine", async () => {
