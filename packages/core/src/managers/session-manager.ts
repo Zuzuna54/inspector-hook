@@ -551,10 +551,7 @@ export class SessionManager extends EventEmitter {
 	/**
 	 * Delete a session
 	 */
-	async delete(
-		id: string,
-		deleteAssociatedData?: boolean,
-	): Promise<SessionDeleteResult> {
+	async delete(id: string): Promise<SessionDeleteResult> {
 		const session = this.sessions.get(id);
 		if (!session) {
 			throw new Error(`Session not found: ${id}`);
@@ -567,11 +564,14 @@ export class SessionManager extends EventEmitter {
 			await this.persistence.deleteJSON("sessions", id);
 		}
 
+		// Associated logs/changes are owned by other managers; IpcServer performs
+		// that cascade and overwrites these counts. Report 0 rather than the
+		// session's change-count, which claimed deletions that never happened.
 		return {
 			success: true,
 			deletedSessions: 1,
-			deletedLogs: 0, // TODO: Delete associated logs if requested
-			deletedFileChanges: deleteAssociatedData ? session.fileChanges.length : 0,
+			deletedLogs: 0,
+			deletedFileChanges: 0,
 			deletedAt: new Date().toISOString(),
 		};
 	}
@@ -579,10 +579,7 @@ export class SessionManager extends EventEmitter {
 	/**
 	 * Clear sessions with filter
 	 */
-	async clear(
-		filter?: SessionFilter,
-		deleteAssociatedData?: boolean,
-	): Promise<SessionDeleteResult> {
+	async clear(filter?: SessionFilter): Promise<SessionDeleteResult> {
 		const toDelete: string[] = [];
 
 		for (const [id, session] of this.sessions) {

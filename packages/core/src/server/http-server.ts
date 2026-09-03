@@ -131,10 +131,25 @@ export class HttpServer {
 		req: IncomingMessage,
 		res: ServerResponse,
 	): Promise<void> {
-		// CORS headers for development
-		res.setHeader("Access-Control-Allow-Origin", "*");
-		res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-		res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+		// This server exists to receive hook events from local processes (a hook
+		// script's curl, or Claude Code's own `"type": "http"` hook). None of those
+		// are browsers, so no cross-origin access is needed.
+		//
+		// It previously sent `Access-Control-Allow-Origin: *`, which invited any
+		// web page the user had open to POST fabricated sessions and log entries,
+		// and -- because ingest reads whatever file path the payload names -- to
+		// make the core open arbitrary files and surface their contents in the UI.
+		// Requests carrying an Origin are browser-initiated by definition, so
+		// reject them outright rather than advertising permission.
+		const origin = req.headers.origin;
+		if (origin !== undefined) {
+			this.sendJson(
+				res,
+				{ success: false, error: "Cross-origin requests are not accepted" },
+				403,
+			);
+			return;
+		}
 
 		if (req.method === "OPTIONS") {
 			res.writeHead(204);

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import type {
 	DiffResult,
+	SessionActivityResponse,
 	FileChange,
 	JsonRpcError,
 	JsonRpcNotification,
@@ -397,13 +398,7 @@ export class CoreBridge extends EventEmitter {
 	/**
 	 * Get activity feed for a session (ordered events: prompts, responses, tools)
 	 */
-	async getSessionActivity(sessionId: string): Promise<{
-		activities: Array<{
-			type: "user_prompt" | "ai_response" | "tool_call" | "tool_result";
-			timestamp: string;
-			data: unknown;
-		}>;
-	}> {
+	async getSessionActivity(sessionId: string): Promise<SessionActivityResponse> {
 		return this.sendRequest("sessions.getActivity", { id: sessionId });
 	}
 

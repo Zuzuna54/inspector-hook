@@ -32,6 +32,23 @@ import type {
 import type { PersistenceStore } from "../persistence/store.js";
 import { DiffEngine } from "./diff-engine.js";
 
+/**
+ * Sentinel meaning "the file as it currently exists on disk" rather than a
+ * stored version. Callers have historically used several spellings, so accept
+ * all of them.
+ */
+const LIVE_VERSION = -1;
+const LIVE_VERSION_ALIASES = new Set<string | number>([
+	"current",
+	"disk",
+	"live",
+	LIVE_VERSION,
+]);
+
+function isLiveVersion(v: number | string): boolean {
+	return LIVE_VERSION_ALIASES.has(typeof v === "string" ? v.toLowerCase() : v);
+}
+
 export interface FileTrackerOptions {
 	workspaceRoot: string;
 	storagePath: string;
@@ -790,6 +807,7 @@ export class FileTracker extends EventEmitter {
 				filePath,
 				versions: [],
 				versionCount: 0,
+				lastVersionNumber: 0,
 				firstTracked: timestamp,
 				lastModified: timestamp,
 			};
@@ -801,14 +819,14 @@ export class FileTracker extends EventEmitter {
 			const lastVersion = history.versions[history.versions.length - 1];
 			if (lastVersion.hash === contentHash) {
 				// Content hasn't changed - return the existing version instead of creating a duplicate
-				console.error(
-					`[FileTracker] Skipping duplicate version for ${filePath} - hash matches v${lastVersion.versionNumber}`,
-				);
 				return lastVersion;
 			}
 		}
 
-		const versionNumber = history.versionCount + 1;
+		// Number from the monotonic counter, never from the retained count --
+		// otherwise deleting or trimming a version would make the next one reuse
+		// a number that already exists in the file's history.
+		const versionNumber = (history.lastVersionNumber ?? history.versionCount) + 1;
 		const versionId = `v${versionNumber}-${contentHash.slice(0, 8)}`;
 		const version: FileVersion = {
 			id: versionId,
@@ -821,13 +839,15 @@ export class FileTracker extends EventEmitter {
 		};
 
 		history.versions.push(version);
-		history.versionCount = versionNumber;
+		history.lastVersionNumber = versionNumber;
 		history.lastModified = timestamp;
 
 		// Trim old versions if exceeding max
 		if (history.versions.length > this.maxVersionsPerFile) {
 			history.versions = history.versions.slice(-this.maxVersionsPerFile);
 		}
+
+		history.versionCount = history.versions.length;
 
 		this.emit("version:created", { filePath, version });
 
@@ -899,23 +919,14 @@ export class FileTracker extends EventEmitter {
 		content: string;
 		timestamp: string;
 	} | null> {
-		console.error(
-			`[FileTracker] getVersionContent: ${filePath} v${versionNumber}`,
-		);
 
 		// Try memory first
 		const history = this.history.get(filePath);
 		if (history) {
-			console.error(
-				`[FileTracker] Found history in memory, ${history.versions.length} versions`,
-			);
 			const version = history.versions.find(
 				(v) => v.versionNumber === versionNumber,
 			);
 			if (version) {
-				console.error(
-					`[FileTracker] Found version in memory, content length: ${version.content?.length || 0}`,
-				);
 				if (version.content) {
 					return {
 						filePath,
@@ -924,32 +935,19 @@ export class FileTracker extends EventEmitter {
 						timestamp: version.timestamp,
 					};
 				} else {
-					console.error(
-						`[FileTracker] Version found but content is empty, trying persistence`,
-					);
 				}
 			} else {
-				console.error(
-					`[FileTracker] Version ${versionNumber} not found in memory versions`,
-				);
 			}
 		} else {
-			console.error(`[FileTracker] No history in memory for ${filePath}`);
 		}
 
 		// Try persistence
 		if (this.persistence) {
-			console.error(
-				`[FileTracker] Trying persistence for ${filePath} v${versionNumber}`,
-			);
 			const result = await this.persistence.loadVersion(
 				filePath,
 				versionNumber,
 			);
 			if (result) {
-				console.error(
-					`[FileTracker] Found in persistence, content length: ${result.content?.length || 0}`,
-				);
 				return {
 					filePath,
 					versionNumber,
@@ -957,45 +955,62 @@ export class FileTracker extends EventEmitter {
 					timestamp: (result.metadata?.timestamp as string) || "",
 				};
 			} else {
-				console.error(`[FileTracker] Not found in persistence`);
 			}
 		}
 
-		console.error(`[FileTracker] getVersionContent returning null`);
 		return null;
 	}
 
 	/**
-	 * Compare two versions of a file
+	 * Read the file's current on-disk content as a pseudo-version, so a stored
+	 * version can be compared against the live file.
+	 */
+	private async getLiveContent(filePath: string): Promise<{
+		filePath: string;
+		versionNumber: number;
+		content: string;
+		timestamp: string;
+	} | null> {
+		try {
+			if (!existsSync(filePath)) return null;
+			return {
+				filePath,
+				versionNumber: LIVE_VERSION,
+				content: await readFile(filePath, "utf-8"),
+				timestamp: new Date().toISOString(),
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Compare two versions of a file.
+	 *
+	 * Either side may be one of the LIVE_VERSION_ALIASES ("current"/"disk"/-1)
+	 * to mean "the file as it is on disk right now". The public API advertised
+	 * this but never implemented it: the alias fell through to a numeric version
+	 * lookup, missed, and the whole comparison silently returned null.
 	 */
 	async compareVersions(
 		filePath: string,
-		v1: number,
-		v2: number,
+		v1: number | string,
+		v2: number | string,
 	): Promise<{
 		filePath: string;
 		version1: number;
 		version2: number;
 		diff: DiffResult;
 	} | null> {
-		console.error(
-			`[FileTracker] compareVersions called: ${filePath} v${v1} -> v${v2}`,
-		);
+		const resolve = (v: number | string) =>
+			isLiveVersion(v)
+				? this.getLiveContent(filePath)
+				: this.getVersionContent(filePath, Number(v));
 
-		const content1 = await this.getVersionContent(filePath, v1);
-		const content2 = await this.getVersionContent(filePath, v2);
-
-		console.error(
-			`[FileTracker] content1: ${content1 ? `${content1.content?.length || 0} chars` : "null"}`,
-		);
-		console.error(
-			`[FileTracker] content2: ${content2 ? `${content2.content?.length || 0} chars` : "null"}`,
-		);
+		const content1 = await resolve(v1);
+		const content2 = await resolve(v2);
 
 		if (!content1 || !content2) {
-			console.error(
-				`[FileTracker] compareVersions returning null - missing content`,
-			);
 			return null;
 		}
 
@@ -1003,14 +1018,11 @@ export class FileTracker extends EventEmitter {
 			content1.content,
 			content2.content,
 		);
-		console.error(
-			`[FileTracker] compareVersions diff: ${diff.hunks?.length || 0} hunks`,
-		);
 
 		return {
 			filePath,
-			version1: v1,
-			version2: v2,
+			version1: content1.versionNumber,
+			version2: content2.versionNumber,
 			diff,
 		};
 	}
@@ -1069,6 +1081,10 @@ export class FileTracker extends EventEmitter {
 			(v) => v.versionNumber !== versionNumber,
 		);
 		const deleted = beforeCount - history.versions.length;
+
+		// Keep the retained count truthful. lastVersionNumber is deliberately NOT
+		// rolled back, so a future version never reuses a deleted number.
+		history.versionCount = history.versions.length;
 
 		if (deleted > 0 && this.persistence) {
 			await this.persistence.deleteVersion(filePath, versionNumber);

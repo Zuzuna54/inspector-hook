@@ -6,6 +6,7 @@
 import { createInterface, type Interface } from "node:readline";
 import type {
 	ErrorCode,
+	SessionFilter,
 	JsonRpcError,
 	JsonRpcNotification,
 	JsonRpcRequest,
@@ -25,6 +26,18 @@ export interface IpcServerOptions {
 }
 
 type MethodHandler = (params: unknown) => Promise<unknown>;
+
+/** Does a session match a filter's status constraint? */
+function matchesStatus(
+	session: { status: string },
+	filter: SessionFilter,
+): boolean {
+	if (!filter.status) return true;
+	const statuses = Array.isArray(filter.status)
+		? filter.status
+		: [filter.status];
+	return (statuses as string[]).includes(session.status);
+}
 
 export class IpcServer {
 	private readline: Interface | null = null;
@@ -76,18 +89,47 @@ export class IpcServer {
 		this.methods.set("sessions.terminate", async (params) =>
 			this.sessionManager.terminate((params as any).id, (params as any).reason),
 		);
-		this.methods.set("sessions.delete", async (params) =>
-			this.sessionManager.delete(
-				(params as any).id,
-				(params as any).deleteAssociatedData,
-			),
-		);
-		this.methods.set("sessions.clear", async (params) =>
-			this.sessionManager.clear(
-				(params as any).filter,
-				(params as any).deleteAssociatedData,
-			),
-		);
+		// Deleting a session's associated data is coordinated here rather than in
+		// SessionManager, which holds no reference to the log or file managers.
+		// It used to report `deletedFileChanges` as the session's change-count
+		// while deleting nothing, and ignore the flag entirely on clear() --
+		// telling the caller data was removed when it was all still on disk.
+		this.methods.set("sessions.delete", async (params) => {
+			const { id, deleteAssociatedData } = params as {
+				id: string;
+				deleteAssociatedData?: boolean;
+			};
+			const result = await this.sessionManager.delete(id);
+			if (deleteAssociatedData) {
+				Object.assign(result, await this.purgeSessionData(id));
+			}
+			return result;
+		});
+		this.methods.set("sessions.clear", async (params) => {
+			const { filter, deleteAssociatedData } = params as {
+				filter?: SessionFilter;
+				deleteAssociatedData?: boolean;
+			};
+			// Capture the ids before clearing; afterwards they are unrecoverable.
+			const { sessions } = await this.sessionManager.getSessions();
+			const doomed = sessions
+				.filter((s) => !filter?.status || matchesStatus(s, filter))
+				.map((s) => s.id);
+
+			const result = await this.sessionManager.clear(filter);
+
+			if (deleteAssociatedData) {
+				let deletedLogs = 0;
+				let deletedFileChanges = 0;
+				for (const id of doomed) {
+					const purged = await this.purgeSessionData(id);
+					deletedLogs += purged.deletedLogs;
+					deletedFileChanges += purged.deletedFileChanges;
+				}
+				Object.assign(result, { deletedLogs, deletedFileChanges });
+			}
+			return result;
+		});
 		this.methods.set("sessions.getStats", async (params) =>
 			this.sessionManager.getSessionStats((params as any).id),
 		);
@@ -115,9 +157,6 @@ export class IpcServer {
 				const hook = log.hook || "unknown";
 				hookCounts[hook] = (hookCounts[hook] || 0) + 1;
 			}
-			console.error(
-				`[Activity] Session ${sessionId.slice(0, 8)}: ${logsResult.logs.length} logs, hooks: ${JSON.stringify(hookCounts)}`,
-			);
 
 			// Build activity items from logs
 			// Types: user_prompt, ai_response, tool_call, session_start, notification, subagent_complete, message
@@ -138,10 +177,6 @@ export class IpcServer {
 			for (const log of logsResult.logs) {
 				// User prompts
 				if (log.hook === "UserPromptSubmit" || log.event === "user.prompt") {
-					const promptText = String(
-						log.details?.prompt || log.message || "",
-					).substring(0, 30);
-					console.error(`[Activity] Found user prompt: ${promptText}`);
 
 					activityItems.push({
 						id: log.id,
@@ -414,6 +449,21 @@ export class IpcServer {
 		this.methods.set("archive.getStats", async () =>
 			this.fileTracker.getArchiveStats(),
 		);
+	}
+
+	/**
+	 * Delete the logs and file changes belonging to a session, returning how
+	 * many of each were actually removed.
+	 */
+	private async purgeSessionData(
+		sessionId: string,
+	): Promise<{ deletedLogs: number; deletedFileChanges: number }> {
+		const logs = await this.logManager.clear({ sessionId });
+		const changes = await this.fileTracker.clearChanges({ sessionId });
+		return {
+			deletedLogs: logs.cleared ?? 0,
+			deletedFileChanges: changes.deleted ?? 0,
+		};
 	}
 
 	/**

@@ -237,7 +237,16 @@ describe("FileTracker", () => {
 
 			const history = await tracker.getVersions(file);
 			assert.equal(history.versions.length, 3, "only the newest are retained");
-			assert.equal(history.versionCount, 6, "but the counter keeps climbing");
+			assert.equal(
+				history.versionCount,
+				3,
+				"versionCount reports what is retained",
+			);
+			assert.equal(
+				history.lastVersionNumber,
+				6,
+				"numbering keeps climbing so numbers are never reused",
+			);
 		});
 	});
 

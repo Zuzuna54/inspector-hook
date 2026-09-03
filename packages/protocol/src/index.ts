@@ -390,8 +390,15 @@ export interface VersionHistory {
 	filePath: string;
 	/** All versions, oldest first */
 	versions: FileVersion[];
-	/** Total version count */
+	/** How many versions are currently retained (matches versions.length) */
 	versionCount: number;
+	/**
+	 * Highest version number ever assigned for this file. Monotonic: it keeps
+	 * climbing as versions are trimmed or deleted, so version numbers are never
+	 * reused. Optional because histories written before this field existed fall
+	 * back to versionCount.
+	 */
+	lastVersionNumber?: number;
 	/** First tracked timestamp */
 	firstTracked: string;
 	/** Last modified timestamp */
