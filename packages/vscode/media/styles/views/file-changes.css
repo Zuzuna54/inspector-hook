@@ -1049,55 +1049,6 @@
    Button Variants
    ========================================================================== */
 
-.btn-group {
-  display: flex;
-  gap: var(--spacing-xs);
-}
-
-.btn-xs {
-  padding: 2px 6px;
-  font-size: var(--font-size-xs);
-  min-height: 20px;
-  border-radius: var(--radius-xs);
-}
-
-.btn-sm {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: var(--font-size-sm);
-}
-
-.btn-success {
-  background: var(--color-success-bg);
-  color: var(--color-success);
-  border: 1px solid var(--color-success);
-}
-
-.btn-success:hover {
-  background: var(--color-success);
-  color: var(--bg-primary);
-}
-
-.btn-danger {
-  background: var(--color-error-bg);
-  color: var(--color-error);
-  border: 1px solid var(--color-error);
-}
-
-.btn-danger:hover {
-  background: var(--color-error);
-  color: white;
-}
-
-.btn-secondary {
-  background: var(--bg-tertiary);
-  color: var(--fg-primary);
-  border: 1px solid var(--border);
-}
-
-.btn-secondary:hover {
-  background: var(--bg-hover);
-}
-
 /* ==========================================================================
    Responsive Layout
    ========================================================================== */

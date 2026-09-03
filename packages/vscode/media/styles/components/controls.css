@@ -8,7 +8,23 @@
 
 /* ==========================================================================
    Buttons
-   ========================================================================== */
+   ==========================================================================
+
+   The single definition for every variant. These were previously declared here
+   AND in file-changes.css AND in history.css. All three are global to the
+   document and history.css loads last, so its versions governed every view
+   while the other two were dead weight that looked authoritative.
+
+   Every rule here is the value that ACTUALLY RENDERED before consolidation, so
+   appearance is unchanged and the load-order dependence is gone. Where the two
+   view stylesheets disagreed, history's won and still does: .btn-secondary uses
+   color: var(--fg-secondary), not file-changes' var(--fg-primary). Kept
+   deliberately - choosing between them is a design decision, not a
+   de-duplication, and belongs in its own commit.
+
+   The manifest loads every components/* stylesheet before every view, so a view
+   cannot win by ordering again. Re-adding a .btn-* rule to a view stylesheet
+   reinstates exactly the bug this removed. */
 
 .btn {
   display: inline-flex;
@@ -54,33 +70,36 @@
 }
 
 .btn-secondary {
-  background: var(--vscode-button-secondaryBackground, #3a3d41);
-  color: var(--vscode-button-secondaryForeground, #ffffff);
-  border-color: var(--vscode-button-secondaryBackground, #3a3d41);
+	background: var(--bg-tertiary);
+	color: var(--fg-secondary);
+	border-color: var(--border);
 }
 
 .btn-secondary:hover {
-  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+	background: var(--bg-hover);
+	color: var(--fg-primary);
 }
 
 .btn-danger {
-  background: var(--color-error-bg);
-  color: var(--color-error);
-  border-color: var(--color-error);
+	background: var(--color-error-bg);
+	color: var(--color-error);
+	border: 1px solid var(--color-error);
 }
 
 .btn-danger:hover {
-  background: rgba(244, 71, 71, 0.25);
+	background: var(--color-error);
+	color: white;
 }
 
 .btn-success {
-  background: var(--color-success-bg);
-  color: var(--color-success);
-  border-color: var(--color-success);
+	background: var(--color-success-bg);
+	color: var(--color-success);
+	border: 1px solid var(--color-success);
 }
 
 .btn-success:hover {
-  background: rgba(115, 201, 145, 0.25);
+	background: var(--color-success);
+	color: var(--bg-primary);
 }
 
 .btn-ghost {
@@ -96,8 +115,8 @@
 
 /* Button Sizes */
 .btn-sm {
-  padding: 2px var(--spacing-xs);
-  font-size: var(--font-size-xs);
+	padding: var(--spacing-xs) var(--spacing-sm);
+	font-size: var(--font-size-sm);
 }
 
 .btn-lg {
@@ -107,8 +126,8 @@
 
 /* Button Groups */
 .btn-group {
-  display: flex;
-  gap: 1px;
+	display: flex;
+	gap: var(--spacing-xs);
 }
 
 .btn-group .btn {
@@ -238,4 +257,24 @@
   height: 20px;
   background: var(--border);
   margin: 0 var(--spacing-xs);
+}
+
+/* Variants that lived only in a view stylesheet before consolidation. */
+
+.btn-xs {
+	padding: 2px 6px;
+	font-size: var(--font-size-xs);
+	min-height: 20px;
+	border-radius: var(--radius-xs);
+}
+
+.btn-warning {
+	background: var(--color-warning-bg);
+	color: var(--color-warning);
+	border-color: var(--color-warning);
+}
+
+.btn-warning:hover {
+	background: var(--color-warning);
+	color: var(--bg-primary);
 }
