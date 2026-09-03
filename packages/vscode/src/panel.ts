@@ -528,6 +528,15 @@ export class InspectorPanel {
 		const dashboardJs = getUri("scripts", "views", "dashboard.js");
 		const logsJs = getUri("scripts", "views", "logs.js");
 		const sessionsJs = getUri("scripts", "views", "sessions.js");
+		// sessions.js is being split into modules under scripts/views/sessions/.
+		// These load before it and are individually optional: a missing file is a
+		// 404 the webview ignores, so the tags can land before the files do.
+		const sessionUtilsJs = getUri("scripts", "session-utils.js");
+		const sessionListJs = getUri("scripts", "views", "sessions", "session-list.js");
+		const activityFeedJs = getUri("scripts", "views", "sessions", "activity-feed.js");
+		const activityItemsJs = getUri("scripts", "views", "sessions", "activity-items.js");
+		const toolDetailJs = getUri("scripts", "views", "sessions", "tool-detail.js");
+		const sessionDetailJs = getUri("scripts", "views", "sessions", "session-detail.js");
 		// Note: file-changes.js, history.js, archived.js created by Agent 2
 		const fileChangesJs = getUri("scripts", "views", "file-changes.js");
 		const historyJs = getUri("scripts", "views", "history.js");
@@ -811,6 +820,12 @@ export class InspectorPanel {
   <script nonce="${nonce}" src="${apiJs}"></script>
   <script nonce="${nonce}" src="${dashboardJs}"></script>
   <script nonce="${nonce}" src="${logsJs}"></script>
+  <script nonce="${nonce}" src="${sessionUtilsJs}"></script>
+  <script nonce="${nonce}" src="${sessionListJs}"></script>
+  <script nonce="${nonce}" src="${activityItemsJs}"></script>
+  <script nonce="${nonce}" src="${activityFeedJs}"></script>
+  <script nonce="${nonce}" src="${toolDetailJs}"></script>
+  <script nonce="${nonce}" src="${sessionDetailJs}"></script>
   <script nonce="${nonce}" src="${sessionsJs}"></script>
   <script nonce="${nonce}" src="${fileChangesJs}"></script>
   <script nonce="${nonce}" src="${historyJs}"></script>
