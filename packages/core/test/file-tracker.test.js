@@ -181,6 +181,89 @@ describe("FileTracker", () => {
 			await tracker.restoreFromArchive(change.id);
 			assert.equal(await readFile(file, "utf-8"), "new");
 		});
+
+		it("REGRESSION: history's newest version always matches what is on disk", async () => {
+			// The invariant, and it was broken at the revert step. revertChange
+			// rewrote the file to its BEFORE content and recorded nothing, so
+			// history still named the after content as newest. Traced on a real
+			// tracker: after edit, newest "new" / disk "new"; after revert,
+			// newest "new" / disk "old". Every reader that treats the newest
+			// version as the file's current state -- compare-to-disk, a diff
+			// against current, the version viewer -- was reading content that no
+			// longer existed.
+			//
+			// Asserted as the property rather than as a version COUNT: addVersion
+			// de-duplicates by content hash, so counting would fail whenever the
+			// restored content already happened to be the newest version, which
+			// is the common case and is correct behaviour.
+			const { tracker, storagePath } = await newTracker();
+			const file = join(storagePath, "a.txt");
+
+			const newestMatchesDisk = async (label) => {
+				const history = await tracker.getVersions(file);
+				const newest = history.versions[history.versions.length - 1];
+				assert.equal(
+					newest?.content,
+					await readFile(file, "utf-8"),
+					`${label}: history's newest version must equal the file on disk`,
+				);
+			};
+
+			const change = await performEdit(tracker, file, "s1", "old", "new");
+			await newestMatchesDisk("after edit");
+
+			await tracker.revertChange(change.id);
+			await newestMatchesDisk("after revert");
+
+			await tracker.restoreFromArchive(change.id);
+			await newestMatchesDisk("after restore");
+		});
+
+		it("records a version for content that was never a version before", async () => {
+			// Two edits, then revert the second: disk becomes "v2", which exists.
+			// Revert the FIRST from the archive and disk becomes "v1", which was
+			// only ever a beforeContent -- so a genuinely new version is needed.
+			const { tracker, storagePath } = await newTracker();
+			const file = join(storagePath, "a.txt");
+
+			const first = await performEdit(tracker, file, "s1", "v1", "v2");
+			await performEdit(tracker, file, "s1", "v2", "v3");
+
+			const before = (await tracker.getVersions(file)).versionCount;
+			const result = await tracker.revertChange(first.id);
+			const after = await tracker.getVersions(file);
+
+			assert.equal(await readFile(file, "utf-8"), "v1");
+			assert.equal(after.versionCount, before + 1, "v1 was not a version yet");
+			assert.equal(result.newVersionNumber, after.versionCount);
+			assert.equal(
+				after.versions[after.versions.length - 1].tool,
+				"revert",
+				"and it says how the file got that content",
+			);
+		});
+
+		it("a revert still succeeds if the version cannot be recorded", async () => {
+			// The file is already written by then. Turning a completed revert
+			// into an error would report failure for work that did happen --
+			// the same class of false claim in the other direction.
+			const { tracker, storagePath } = await newTracker();
+			const file = join(storagePath, "a.txt");
+			const change = await performEdit(tracker, file, "s1", "old", "new");
+
+			const original = tracker.addVersion;
+			tracker.addVersion = async () => {
+				throw new Error("history unavailable");
+			};
+			try {
+				const result = await tracker.revertChange(change.id);
+				assert.equal(result.success, true, "the revert stands");
+				assert.equal(result.newVersionNumber, undefined, "and admits the gap");
+				assert.equal(await readFile(file, "utf-8"), "old");
+			} finally {
+				tracker.addVersion = original;
+			}
+		});
 	});
 
 	describe("version history", () => {

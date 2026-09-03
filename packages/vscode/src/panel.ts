@@ -203,9 +203,30 @@ export class InspectorPanel {
 				break;
 
 			case "open-file": {
-				const uri = vscode.Uri.file((message.params as any).filePath);
+				// api.js has always sent `line` and this dropped it, so clicking a
+				// diff hunk or a log entry opened the file at the top rather than
+				// at the place it referred to.
+				const openParams = message.params as {
+					filePath: string;
+					line?: number;
+				};
+				const uri = vscode.Uri.file(openParams.filePath);
 				const doc = await vscode.workspace.openTextDocument(uri);
-				await vscode.window.showTextDocument(doc);
+
+				// The webview counts lines from 1; vscode.Position counts from 0.
+				// Clamped to the document, because a line from a stale diff can
+				// point past the end of a file that has since been edited.
+				const requested = Number(openParams.line);
+				const options: vscode.TextDocumentShowOptions = {};
+				if (Number.isFinite(requested) && requested >= 1) {
+					const zeroBased = Math.min(
+						Math.trunc(requested) - 1,
+						Math.max(doc.lineCount - 1, 0),
+					);
+					const position = new vscode.Position(zeroBased, 0);
+					options.selection = new vscode.Range(position, position);
+				}
+				await vscode.window.showTextDocument(doc, options);
 				break;
 			}
 

@@ -481,7 +481,13 @@ export class CoreBridge extends EventEmitter {
 		versions: Array<{
 			versionNumber: number;
 			timestamp: string;
-			tool: string;
+			/**
+			 * Optional, honestly: versions written before provenance was recorded
+			 * do not carry it. This was declared as a required string while the
+			 * core discarded the value, so every consumer saw undefined where the
+			 * type promised a value.
+			 */
+			tool?: string;
 			sessionId: string;
 			content?: string;
 		}>;

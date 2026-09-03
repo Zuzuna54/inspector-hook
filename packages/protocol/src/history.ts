@@ -31,6 +31,21 @@ export interface FileVersion {
 	size?: number;
 	/** Optional label/description */
 	label?: string;
+	/**
+	 * What produced this version — a tool name like `Edit` or `Write`, or
+	 * `revert` / `restore-from-archive` when the content came from undoing or
+	 * replaying a change.
+	 *
+	 * Optional because versions written before it existed do not carry it, and
+	 * because it is provenance rather than identity. `addVersion` accepted a
+	 * `tool` in its metadata from the beginning and dropped it on the floor;
+	 * seven call sites were supplying one, and `CoreBridge.getVersionHistory`
+	 * declared `tool: string` to the client, so every consumer saw undefined
+	 * where the contract promised a value.
+	 */
+	tool?: string;
+	/** The change this version came from, when it came from one. */
+	changeId?: string;
 }
 
 

@@ -628,7 +628,12 @@ export class FileTracker extends EventEmitter {
 	 */
 	async revertChange(
 		changeId: string,
-	): Promise<{ success: boolean; revertedAt: string; filePath: string }> {
+	): Promise<{
+		success: boolean;
+		revertedAt: string;
+		filePath: string;
+		newVersionNumber?: number;
+	}> {
 		const change = this.changes.get(changeId);
 		if (!change) {
 			throw new Error(`Change not found: ${changeId}`);
@@ -641,6 +646,39 @@ export class FileTracker extends EventEmitter {
 			throw new Error(`Failed to revert file: ${error}`);
 		}
 
+		// Record the reverted content as a version.
+		//
+		// This was missing, and it made version history state something untrue:
+		// a revert rewrote the file to its BEFORE content while history still
+		// showed the after content as the newest version. Traced on a real
+		// tracker -- after edit, versions ["new"] and disk "new"; after revert,
+		// versions ["new"] and disk "old". Every reader that treats the newest
+		// version as the file's current state -- compare-to-disk, a diff against
+		// current, the version viewer -- was then working from content that no
+		// longer existed on disk.
+		//
+		// addVersion de-duplicates by content hash, so reverting to a content
+		// that is already the newest version correctly records nothing new.
+		//
+		// Best-effort: the file is already written. Failing to record must not
+		// report a completed revert as an error -- that would be the same class
+		// of false claim in the other direction.
+		let newVersionNumber: number | undefined;
+		try {
+			const version = await this.addVersion(
+				change.filePath,
+				change.beforeContent,
+				{
+					sessionId: change.sessionId,
+					changeId: change.id,
+					tool: "revert",
+				},
+			);
+			newVersionNumber = version.versionNumber;
+		} catch {
+			// History is now incomplete for this file, but the revert stands.
+		}
+
 		change.status = "reverted";
 		const revertedAt = await this.archiveResolvedChange(change, "reverted");
 
@@ -650,6 +688,7 @@ export class FileTracker extends EventEmitter {
 			success: true,
 			revertedAt,
 			filePath: change.filePath,
+			newVersionNumber,
 		};
 	}
 
@@ -830,6 +869,10 @@ export class FileTracker extends EventEmitter {
 			sessionId: metadata?.sessionId || "unknown",
 			hash: contentHash,
 			size: content.length,
+			// Provenance. Both were accepted in metadata and discarded here, so
+			// seven call sites were passing a tool name into nothing.
+			...(metadata?.tool ? { tool: metadata.tool } : {}),
+			...(metadata?.changeId ? { changeId: metadata.changeId } : {}),
 		};
 
 		history.versions.push(version);
@@ -1246,7 +1289,12 @@ export class FileTracker extends EventEmitter {
 	 */
 	async restoreFromArchive(
 		changeId: string,
-	): Promise<{ success: boolean; restoredAt: string; filePath: string }> {
+	): Promise<{
+		success: boolean;
+		restoredAt: string;
+		filePath: string;
+		newVersionNumber?: number;
+	}> {
 		const archived = this.archived.get(changeId);
 		if (!archived) {
 			throw new Error(`Archived change not found: ${changeId}`);
@@ -1259,12 +1307,41 @@ export class FileTracker extends EventEmitter {
 			throw new Error(`Failed to restore from archive: ${error}`);
 		}
 
+		// Record the restore as a new version, exactly as restoreVersion does.
+		//
+		// This was missing, and the asymmetry made version history lie: an
+		// archive restore rewrote the file on disk while the history showed the
+		// previous content as current. Anything reading history to answer "what
+		// is in this file" -- a diff against the newest version, a comparison to
+		// disk -- was then working from a state that no longer existed.
+		//
+		// It is best-effort: the file has already been written, so failing to
+		// record the version must not turn a completed restore into an error.
+		// A missing version is a gap in history; a thrown error here would leave
+		// the caller believing the restore failed when it did not.
+		let newVersionNumber: number | undefined;
+		try {
+			const version = await this.addVersion(
+				archived.filePath,
+				archived.afterContent,
+				{
+					sessionId: archived.sessionId,
+					changeId: archived.id,
+					tool: "restore-from-archive",
+				},
+			);
+			newVersionNumber = version.versionNumber;
+		} catch {
+			// History is now incomplete for this file, but the restore stands.
+		}
+
 		this.emit("archive:restored", archived);
 
 		return {
 			success: true,
 			restoredAt: new Date().toISOString(),
 			filePath: archived.filePath,
+			newVersionNumber,
 		};
 	}
 

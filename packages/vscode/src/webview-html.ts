@@ -107,6 +107,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "sessions.js"],
 		// File-changes modules load before file-changes.js.
 		["scripts", "views", "file-changes", "fc-session-list.js"],
+		["scripts", "views", "file-changes", "fc-diff-render.js"],
 		["scripts", "views", "file-changes", "fc-diff-view.js"],
 		["scripts", "views", "file-changes", "fc-editor.js"],
 		["scripts", "views", "file-changes", "fc-actions.js"],
@@ -114,6 +115,7 @@ export function buildWebviewHtml(
 		// History modules load before history.js.
 		["scripts", "views", "history", "file-list.js"],
 		["scripts", "views", "history", "version-list.js"],
+		["scripts", "views", "history", "diff-render.js"],
 		["scripts", "views", "history", "diff-viewer.js"],
 		["scripts", "views", "history", "virtual-scroll.js"],
 		["scripts", "views", "history", "restore.js"],
