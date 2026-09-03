@@ -16,6 +16,23 @@ export { IpcServer } from "./ipc/ipc-server.js";
 export { FileTracker } from "./managers/file-tracker.js";
 export { LogManager } from "./managers/log-manager.js";
 export { SessionManager } from "./managers/session-manager.js";
+export {
+	deriveSessionName,
+	extractProjectName,
+	mergeSessionMetadata,
+	type SessionMetadataInput,
+} from "./managers/session-metadata.js";
+export {
+	createExecution,
+	findAbandonedExecutions,
+	findRunningExecution,
+	isToolCompletionEvent,
+	isToolStartEvent,
+	markAbandoned,
+	terminalStatusFor,
+	TOOL_COMPLETION_EVENTS,
+	TOOL_START_EVENTS,
+} from "./managers/tool-executions.js";
 export { DiffEngine } from "./managers/diff-engine.js";
 
 // Export persistence

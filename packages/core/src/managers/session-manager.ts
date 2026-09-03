@@ -15,6 +15,20 @@ import type {
 	ToolExecution,
 } from "@inspector-hook/protocol";
 import type { PersistenceStore } from "../persistence/store.js";
+import {
+	deriveSessionName,
+	extractProjectName,
+	mergeSessionMetadata,
+} from "./session-metadata.js";
+import {
+	createExecution,
+	findAbandonedExecutions,
+	findRunningExecution,
+	isToolCompletionEvent,
+	isToolStartEvent,
+	markAbandoned,
+	terminalStatusFor,
+} from "./tool-executions.js";
 
 export interface SessionManagerOptions {
 	storagePath: string;
@@ -51,23 +65,6 @@ export interface SessionManagerEvents {
 		sessionId: string;
 		execution: ToolExecution;
 	}) => void;
-}
-
-/**
- * Events that close out a running tool execution.
- *
- * PostToolUseFailure is a separate event from PostToolUse -- Claude Code fires
- * it when a tool errors. It was not recognised here, so every failed tool call
- * stayed "running" forever and leaked.
- */
-const TOOL_COMPLETION_EVENTS = new Set([
-	"tool.end",
-	"PostToolUse",
-	"PostToolUseFailure",
-]);
-
-function isToolCompletionEvent(event: string | undefined): boolean {
-	return event !== undefined && TOOL_COMPLETION_EVENTS.has(event);
 }
 
 // Default timeout values
@@ -162,26 +159,19 @@ export class SessionManager extends EventEmitter {
 		let resolved = 0;
 
 		for (const session of this.sessions.values()) {
-			let touched = false;
+			const abandoned = findAbandonedExecutions(
+				session.toolExecutions,
+				maxAgeMs,
+				now,
+			);
+			if (abandoned.length === 0) continue;
 
-			for (const exec of session.toolExecutions) {
-				if (exec.status !== "running") continue;
-
-				const started = new Date(exec.startTime).getTime();
-				const age = Number.isFinite(started) ? now - started : Infinity;
-				if (age < maxAgeMs) continue;
-
-				exec.status = "failed";
-				exec.endTime = new Date().toISOString();
-				exec.error =
-					"No completion event was received for this tool call, so its " +
-					"outcome is unknown.";
+			for (const exec of abandoned) {
+				markAbandoned(exec);
 				this.emit("tool:failed", { sessionId: session.id, execution: exec });
 				resolved++;
-				touched = true;
 			}
-
-			if (touched) await this.persistSession(session);
+			await this.persistSession(session);
 		}
 
 		return { resolved };
@@ -279,7 +269,7 @@ export class SessionManager extends EventEmitter {
 		const now = new Date().toISOString();
 		const session: Session = {
 			id,
-			name: this.deriveSessionName(metadata),
+			name: deriveSessionName(metadata),
 			status: "active",
 			startTime: now,
 			lastActivityTime: now,
@@ -306,44 +296,6 @@ export class SessionManager extends EventEmitter {
 		return session;
 	}
 
-	/**
-	 * Extract project name from a path
-	 * @param cwd - working directory path
-	 * @returns project name (last segment of path)
-	 */
-	private extractProjectName(cwd: string | undefined): string | undefined {
-		if (!cwd) return undefined;
-		// Get the last non-empty segment of the path
-		const segments = cwd.split(/[/\\]/).filter((s) => s);
-		return segments.length > 0 ? segments[segments.length - 1] : undefined;
-	}
-
-	/**
-	 * Derive session name from metadata
-	 * Priority: projectName > folder from workingDirectory
-	 * @param metadata - session metadata
-	 * @returns derived session name or undefined
-	 */
-	private deriveSessionName(
-		metadata?: Record<string, unknown>,
-	): string | undefined {
-		if (!metadata) return undefined;
-
-		// First try explicit projectName
-		if (metadata.projectName && typeof metadata.projectName === "string") {
-			return metadata.projectName;
-		}
-
-		// Then try to extract from workingDirectory
-		if (
-			metadata.workingDirectory &&
-			typeof metadata.workingDirectory === "string"
-		) {
-			return this.extractProjectName(metadata.workingDirectory);
-		}
-
-		return undefined;
-	}
 
 	/**
 	 * Track activity from a log entry
@@ -357,7 +309,7 @@ export class SessionManager extends EventEmitter {
 			session = this.createSession(sessionId, {
 				workingDirectory: cwd,
 				projectName:
-					(log.details?.projectName as string) || this.extractProjectName(cwd),
+					(log.details?.projectName as string) || extractProjectName(cwd),
 				gitBranch: log.details?.gitBranch as string | undefined,
 				gitRemote: log.details?.gitRemote as string | undefined,
 			});
@@ -371,49 +323,19 @@ export class SessionManager extends EventEmitter {
 		// SessionStart provides the most accurate session info (project name, git branch, etc.)
 		if (log.event === "session.start" || log.hook === "SessionStart") {
 			// Always update session metadata with SessionStart info (overwrites previous values)
-			const newMetadata: Record<string, unknown> = { ...session.metadata };
-
-			if (log.details?.projectName) {
-				newMetadata.projectName = log.details.projectName as string;
-			}
-			if (log.details?.gitBranch) {
-				newMetadata.gitBranch = log.details.gitBranch as string;
-			}
-			if (log.details?.gitRemote) {
-				newMetadata.gitRemote = log.details.gitRemote as string;
-			}
-			if (cwd) {
-				newMetadata.workingDirectory = cwd;
-				// Only set projectName from cwd if not already set by projectName field
-				if (!log.details?.projectName) {
-					newMetadata.projectName = this.extractProjectName(cwd);
-				}
-			}
-
-			session.metadata = newMetadata;
-
-			// Update session.name based on updated metadata
-			session.name = this.deriveSessionName(newMetadata);
+			// SessionStart carries the most accurate session information, so it is
+			// allowed to overwrite what earlier events inferred -- but only with
+			// values it actually supplied.
+			session.metadata = mergeSessionMetadata(session.metadata, log.details);
+			session.name = deriveSessionName(session.metadata);
 		}
 
 		// Track tool execution start (supports both tool.start and PreToolUse)
 		if (
 			log.tool &&
-			(log.event === "tool.start" || log.event === "PreToolUse")
+			isToolStartEvent(log.event)
 		) {
-			const execution: ToolExecution = {
-				// Prefer Claude Code's own tool_use_id so the Pre/Post pair can be
-				// matched exactly. Only fall back to a synthetic id when absent.
-				id:
-					log.executionId ||
-					`exec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-				tool: log.tool,
-				input:
-					(log.details?.input as Record<string, unknown>) || log.details || {},
-				startTime: log.timestamp,
-				status: "running",
-				affectedFiles: log.file ? [log.file] : undefined,
-			};
+			const execution = createExecution(log);
 			session.toolExecutions.push(execution);
 			this.emit("tool:started", { sessionId, execution });
 		}
@@ -424,29 +346,28 @@ export class SessionManager extends EventEmitter {
 		// below could no longer find the execution as running, and blocked tool calls
 		// were silently recorded as successful.
 		if (log.tool && isToolCompletionEvent(log.event)) {
-			const exec = this.findRunningExecution(session, log);
+			const exec = findRunningExecution(session.toolExecutions, log);
 			if (exec) {
 				exec.endTime = log.timestamp;
 				exec.result = log.details;
 
-				if (log.level === "error" || log.event === "PostToolUseFailure") {
-					exec.status = "failed";
-					this.emit("tool:failed", { sessionId, execution: exec });
-				} else if (log.level === "blocked") {
-					exec.status = "blocked";
-					exec.error = log.message;
-					this.emit("tool:blocked", { sessionId, execution: exec });
-				} else {
-					exec.status = "completed";
-					this.emit("tool:completed", { sessionId, execution: exec });
-				}
+				exec.status = terminalStatusFor(log);
+				if (exec.status === "blocked") exec.error = log.message;
+				this.emit(
+					exec.status === "failed"
+						? "tool:failed"
+						: exec.status === "blocked"
+							? "tool:blocked"
+							: "tool:completed",
+					{ sessionId, execution: exec },
+				);
 			}
 		}
 
 		// Track operations blocked without a completion event of their own
 		// (e.g. a PreToolUse denial, which never produces a PostToolUse).
 		else if (log.level === "blocked") {
-			const exec = this.findRunningExecution(session, log);
+			const exec = findRunningExecution(session.toolExecutions, log);
 			if (exec) {
 				exec.status = "blocked";
 				exec.error = log.message;
@@ -479,29 +400,6 @@ export class SessionManager extends EventEmitter {
 		}
 
 		this.schedulePersist(session);
-	}
-
-	/**
-	 * Find the running execution a completion/blocked log belongs to.
-	 *
-	 * Matches on Claude Code's tool_use_id when the log carries one, which is exact
-	 * even when several calls to the same tool run in parallel. Falls back to
-	 * "first running execution with this tool name" only for logs from older hooks
-	 * that predate tool_use_id.
-	 */
-	private findRunningExecution(
-		session: Session,
-		log: LogEntry,
-	): ToolExecution | undefined {
-		if (log.executionId) {
-			const byId = session.toolExecutions.find(
-				(e) => e.id === log.executionId && e.status === "running",
-			);
-			if (byId) return byId;
-		}
-		return session.toolExecutions.find(
-			(e) => e.tool === log.tool && e.status === "running",
-		);
 	}
 
 	/**
