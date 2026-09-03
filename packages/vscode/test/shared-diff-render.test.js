@@ -11,12 +11,18 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { installGlobals, readMedia } from "./harness.js";
+import {
+	FILE_CHANGES_LOAD_ORDER,
+	HISTORY_LOAD_ORDER,
+	existing,
+	installGlobals,
+	readMedia,
+} from "./harness.js";
 
 /** Load one view with its shared mixin, in manifest order. */
-function loadView(relPath, globalName) {
+function loadView(order, globalName) {
 	installGlobals();
-	for (const p of ["scripts/shared/diff-render.js", relPath]) {
+	for (const p of existing(order)) {
 		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 		eval(readMedia(p));
 	}
@@ -26,12 +32,12 @@ function loadView(relPath, globalName) {
 const SHARED = ["_applySyntaxHighlighting", "_getFileChanges"];
 
 describe("shared diff helpers", () => {
-	for (const [relPath, globalName] of [
-		["scripts/views/history.js", "HistoryView"],
-		["scripts/views/file-changes.js", "FileChangesView"],
+	for (const [order, globalName, relPath] of [
+		[HISTORY_LOAD_ORDER, "HistoryView", "scripts/views/history.js"],
+		[FILE_CHANGES_LOAD_ORDER, "FileChangesView", "scripts/views/file-changes.js"],
 	]) {
 		describe(globalName, () => {
-			const view = loadView(relPath, globalName);
+			const view = loadView(order, globalName);
 
 			it("resolves every shared helper at runtime", () => {
 				// Object.assign composition means a missing mixin does not fail to
@@ -42,7 +48,12 @@ describe("shared diff helpers", () => {
 			});
 
 			it("keeps no local copy that could shadow the shared one", () => {
-				const src = readMedia(relPath);
+				// The view's own modules only - shared/ is where these legitimately
+				// live, so including it would match the definition it is checking for.
+				const src = existing(order)
+					.filter((p) => !p.startsWith("scripts/shared/"))
+					.map((p) => readMedia(p))
+					.join("\n");
 				for (const name of SHARED) {
 					assert.ok(
 						!new RegExp(`^\\t${name}\\s*\\(`, "m").test(src),
@@ -60,7 +71,7 @@ describe("shared diff helpers", () => {
 	}
 
 	it("returns an empty list when there are no file changes", () => {
-		const view = loadView("scripts/views/history.js", "HistoryView");
+		const view = loadView(HISTORY_LOAD_ORDER, "HistoryView");
 		globalThis.State.fileChanges = null;
 		assert.deepEqual(view._getFileChanges(), []);
 		globalThis.State.fileChanges = [{ id: "c1" }];
@@ -69,17 +80,24 @@ describe("shared diff helpers", () => {
 });
 
 describe("view-specific renderers stay separate", () => {
-	const history = readMedia("scripts/views/history.js");
-	const fileChanges = readMedia("scripts/views/file-changes.js");
+	// Read across each view's whole module set, so the guard follows the code
+	// through the splits instead of pinning it to a filename.
+	const srcOf = (order) => existing(order).map((p) => readMedia(p)).join("\n");
+	const history = srcOf(HISTORY_LOAD_ORDER);
+	const fileChanges = srcOf(FILE_CHANGES_LOAD_ORDER);
 
 	it("each view keeps its own unified and split diff renderers", () => {
 		// These were nearly extracted as duplicates. They are not: history's
 		// renders hunks inline, file-changes' delegates to _renderFullFileDiff
 		// and _renderHunk, and they emit different class namespaces.
 		for (const name of ["_renderUnifiedDiff", "_renderSplitDiff"]) {
-			assert.match(history, new RegExp(`^\\t${name}\\s*\\(`, "m"));
-			assert.match(fileChanges, new RegExp(`^\\t${name}\\s*\\(`, "m"));
+			assert.match(history, new RegExp(`^\\t${name}\\s*\\(`, "m"), `history lost ${name}`);
+			assert.match(fileChanges, new RegExp(`^\\t${name}\\s*\\(`, "m"), `file-changes lost ${name}`);
 		}
+		// And they must still emit different namespaces - the actual reason they
+		// are two functions rather than one.
+		assert.match(history, /hv-diff-line/);
+		assert.match(fileChanges, /fc-line/);
 	});
 
 	it("the shared module contains no view-namespaced markup", () => {

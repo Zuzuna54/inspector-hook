@@ -13,7 +13,13 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { installGlobals, loadSessionsView, readMedia } from "./harness.js";
+import {
+	FILE_CHANGES_LOAD_ORDER,
+	existing,
+	installGlobals,
+	loadSessionsView,
+	readMedia,
+} from "./harness.js";
 
 /** Remove block and line comments so a check sees code, not prose. */
 function stripComments(src) {
@@ -23,13 +29,14 @@ function stripComments(src) {
 /**
  * Load the File Changes view.
  *
- * session-utils.js must load first: file-changes.js reads
- * window.SessionUtils at call time, so without it every name lookup throws.
- * panel.ts loads them in this order for the same reason.
+ * session-utils.js must load first: the view reads window.SessionUtils at call
+ * time, so without it every name lookup throws. panel.ts loads them in this
+ * order for the same reason. Uses the shared manifest order so the split's
+ * modules are picked up automatically.
  */
 function loadFileChanges() {
 	installGlobals();
-	for (const relPath of ["scripts/session-utils.js", "scripts/views/file-changes.js"]) {
+	for (const relPath of existing(FILE_CHANGES_LOAD_ORDER)) {
 		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 		eval(readMedia(relPath));
 	}
@@ -73,12 +80,16 @@ describe("file changes session naming", () => {
 	it("depends on session-utils being loaded first", () => {
 		// A hard runtime dependency introduced by the consolidation: without
 		// session-utils.js the name lookup throws rather than degrading.
-		const src = readMedia("scripts/views/file-changes.js");
+		const src = existing(FILE_CHANGES_LOAD_ORDER)
+			.map((p) => readMedia(p))
+			.join("\n");
 		assert.match(src, /window\.SessionUtils/);
 	});
 
 	it("has no local derivation left to drift", () => {
-		const src = readMedia("scripts/views/file-changes.js");
+		const src = existing(FILE_CHANGES_LOAD_ORDER)
+			.map((p) => readMedia(p))
+			.join("\n");
 		assert.match(src, /window\.SessionUtils\.getSessionDisplayInfo/);
 		// Comments are stripped first: the code this replaced is described in a
 		// comment there, and a check over raw text would match its own
