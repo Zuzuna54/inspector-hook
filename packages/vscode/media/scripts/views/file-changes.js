@@ -109,4 +109,6 @@ Object.assign(FileChangesView, window.FcSessionListMixin);
 
 Object.assign(FileChangesView, window.FcDiffViewMixin);
 
+Object.assign(FileChangesView, window.FcDiffRenderMixin);
+
 window.FileChangesView = FileChangesView;

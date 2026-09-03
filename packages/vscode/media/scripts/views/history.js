@@ -140,4 +140,6 @@ Object.assign(HistoryView, window.HistoryDiffViewerMixin);
 
 Object.assign(HistoryView, window.HistoryVirtualScrollMixin);
 
+Object.assign(HistoryView, window.HistoryDiffRenderMixin);
+
 window.HistoryView = HistoryView;
