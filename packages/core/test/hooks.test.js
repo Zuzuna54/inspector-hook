@@ -423,6 +423,30 @@ describe("installer", () => {
 });
 
 
+describe("deliberately excluded events", () => {
+	it("MessageDisplay and the Elicitation pair stay unregistered", () => {
+		// install.sh documents why in a comment above EVENTS=(, and a previous
+		// change added all three to the array WITHOUT reading it — the comment
+		// predicted a flood and the array won silently. Measured before the
+		// revert: 313 MessageDisplay events, every one with tool "", file "" and
+		// a single detail of `backgroundTasks: 0`, an identical literal zero.
+		// This test is what makes the comment and the code unable to disagree.
+		const block = readFileSync(
+			join(REPO, "packages/hooks/scripts/install.sh"),
+			"utf-8",
+		)
+			.split("EVENTS=(")[1]
+			.split("\n)")[0]
+			.replace(/#.*$/gm, "");
+		for (const event of ["MessageDisplay", "Elicitation", "ElicitationResult"]) {
+			assert.ok(
+				!new RegExp(`\\b${event}\\b`).test(block),
+				`${event} is excluded on purpose; see the reasoning above EVENTS=(`,
+			);
+		}
+	});
+});
+
 describe("event coverage", () => {
 	/**
 	 * Every event the installer registers must survive the hook and produce a
@@ -431,11 +455,6 @@ describe("event coverage", () => {
 	 * them, so the handling was dead in production. This locks the set.
 	 */
 	const REGISTERED = {
-	// Named in the M2 plan and registered late. None has fired on this machine
-	// yet, which is precisely why they were easy to miss.
-	Elicitation: {},
-	ElicitationResult: {},
-	MessageDisplay: {},
 
 		SessionStart: { start_reason: "startup", cwd: "/p" },
 		SessionEnd: { reason: "exit" },
