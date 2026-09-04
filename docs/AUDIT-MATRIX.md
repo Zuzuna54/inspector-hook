@@ -18,9 +18,9 @@ status with evidence.
 | | Count | Share |
 |---|---:|---:|
 | **verified** | 168 | 62% |
-| **broken** | 17 | 6% |
+| **broken** | 20 | 7% |
 | **not-impl** | 55 | 20% |
-| **untested** | 28 | 10% |
+| **untested** | 25 | 9% |
 | **total** | 268 | |
 
 Measured on macOS 25.6 / Node 22.19 at commit `74ae634`, against the built artifacts.
@@ -39,11 +39,13 @@ the protocol package references any of them**. Phase 4's hook-management half (H
 HookInstaller, `hooks.*` IPC, the management UI, the security/quality/notification hooks) does
 not exist either. Both were specified and never built; neither is a regression.
 
-**6% broken** — implemented but not meeting the criterion. The list is short and worth reading
+**7% broken** — implemented but not meeting the criterion. The list is short and worth reading
 in full, because these are the ones that look done and are not.
 
-**10% untested** is mostly one thing: **nothing has ever run on Linux**, and the extension has
-**never been packaged as a VSIX**, so every criterion depending on either is unverifiable today.
+**9% untested** is now mostly one thing: **nothing has ever run on Linux**. The VSIX criteria
+have moved from untested to **broken** — an auditing session tried to package the extension and
+found it cannot be packaged at all, which is the difference between "unverified" and "does not
+work". Two rows changed status purely by someone running the command.
 
 ---
 
@@ -593,14 +595,14 @@ in full, because these are the ones that look done and are not.
 | Criterion | Status | Evidence |
 |---|---|---|
 | Clean build succeeds | **verified** | `pnpm build` from deleted `node_modules`, no flags |
-| VSIX package created | **untested** | `vsce package` script exists; **never run** |
-| Package size acceptable (< 5MB) | **untested** | Never packaged, so never measured |
+| VSIX package created | **broken** | **No VSIX can be built.** `vsce ls` → `ERROR Invalid extension name '@inspector-hook/vscode'` — a scoped name is illegal in a VS Code manifest. Was marked untested; running it showed it is broken |
+| Package size acceptable (< 5MB) | **untested** | Blocked by the manifest name above. With the name patched, a scratch build produced 149 KB / 67 files — so the size is fine and the packaging is not |
 
 ### Testing
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Fresh install works | **untested** | Never installed from a VSIX |
+| Fresh install works | **broken** | `vsce package --no-dependencies` ships no `node_modules`, while `core-bridge.ts` resolves the core to `<extensionPath>/node_modules/@inspector-hook/core/dist/cli.js`. A fresh install would spawn a file that is not in the package; it works in the dev tree only via the workspace symlink |
 | Upgrade from previous version works | **not-impl** | No released version to upgrade from |
 | All features functional | **broken** | The shipped views work; Phase 4 and 5 features do not exist |
 | No console errors | **untested** | None seen in the UI pass; not systematically checked |
@@ -673,7 +675,7 @@ in full, because these are the ones that look done and are not.
 | Criterion | Status | Evidence |
 |---|---|---|
 | Zero critical security issues | **broken** | One found and fixed this session (path traversal); no independent audit |
-| < 200MB memory usage | **untested** | Not measured |
+| < 200MB memory usage | **broken** | **927 MB RSS measured** on a long-running core — 4.6x the budget. Was untested; measuring it settled it |
 | < 100ms average response | **untested** | Not measured |
 | < 5MB package size | **untested** | Never packaged, so never measured |
 | 100% documented features | **broken** | Docs corrected, but Phase 4/5 specs describe features that do not exist |
