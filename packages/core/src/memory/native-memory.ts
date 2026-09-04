@@ -423,6 +423,29 @@ export async function listMemoryProjects(
 }
 
 /**
+ * Which file a write targets.
+ *
+ * An explicit `fileName` wins, because an edit must land on the file that was
+ * opened. It is client-supplied, so it is reduced to a bare basename before it
+ * is used -- the same containment the persistence store applies to ingested
+ * ids, and for the same reason: a path assembled from untrusted input is how a
+ * write escapes its directory.
+ *
+ * Falling back to the frontmatter name is right for a new entry and for a
+ * generated digest, where no file exists yet.
+ */
+function targetFileName(entry: { name: string; fileName?: string }): string {
+	const requested = typeof entry.fileName === "string" ? entry.fileName.trim() : "";
+	if (requested) {
+		const base = basename(requested);
+		if (base.endsWith(".md") && base !== ".md" && base !== "." && base !== "..") {
+			return base;
+		}
+	}
+	return memoryFileName(entry.name);
+}
+
+/**
  * Create or update one memory file, and reference it from the index.
  *
  * Refuses to overwrite a file that does not carry `metadata.source:
@@ -439,6 +462,21 @@ export async function writeMemoryFile(
 		type: MemoryType;
 		body: string;
 		title?: string;
+		/**
+		 * The file to write, when editing one that already exists.
+		 *
+		 * Without this the target was always derived from `name`, the
+		 * FRONTMATTER name -- which is not the file name and, in 6 of the 33
+		 * files in the real corpus, differs from it. So editing
+		 * `feedback_no_shortcuts.md` created `no-shortcuts-or-corner-cutting.md`,
+		 * left the original untouched, added a SECOND line to the index, and
+		 * returned `written: true`. A false success on the user's own notes,
+		 * which is the worst failure this module can produce.
+		 *
+		 * Omitted for a new entry or a generated digest, where deriving the name
+		 * is correct.
+		 */
+		fileName?: string;
 	},
 	options?: { userInitiated?: boolean },
 ): Promise<WriteResult> {
@@ -452,7 +490,11 @@ export async function writeMemoryFile(
 		};
 	}
 
-	const fileName = memoryFileName(entry.name);
+	// Editing an existing file targets THAT file; only a new entry derives its
+	// name from the frontmatter. One decision point, because this same value
+	// also becomes the index line -- deriving them separately is what produced
+	// a second index entry pointing at a file the user never opened.
+	const fileName = targetFileName(entry);
 	const target = join(memoryDir, fileName);
 	let fileExisted = false;
 	let existingSource: string | undefined;

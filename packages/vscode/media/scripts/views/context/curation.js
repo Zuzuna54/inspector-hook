@@ -141,6 +141,11 @@ const ContextCurationMixin = {
 		API.memoryWrite({
 			memoryDir: project.memoryDir,
 			name: file.name,
+			// The file that was opened. `name` is the FRONTMATTER name and is not
+			// the file name: 6 of the 33 files in this corpus differ, and without
+			// this the save landed in a new file, left the original unchanged,
+			// added a second index line, and still reported success.
+			fileName: file.fileName,
 			description: file.description || "",
 			type: file.type || file.inferredType || "project",
 			body,

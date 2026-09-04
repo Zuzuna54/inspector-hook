@@ -869,6 +869,12 @@ export class IpcServer {
 					type: (asStr(rec.type) as MemoryType) ?? "project",
 					body: asStr(rec.body) ?? "",
 					title: asStr(rec.title),
+					// Names the file being edited. Without it the target was
+					// derived from the frontmatter name, which differs from the
+					// file name in 6 of 33 files in the real corpus -- so an edit
+					// wrote a NEW file, left the original alone, added a second
+					// index line, and reported success.
+					fileName: asStr(rec.fileName),
 				},
 				{ userInitiated: asBool(rec.userInitiated) ?? false },
 			);
