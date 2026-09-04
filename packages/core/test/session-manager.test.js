@@ -227,7 +227,10 @@ describe("SessionManager", () => {
 			const { resolved } = await mgr.reconcileStuckExecutions({ maxAgeMs: 0 });
 
 			assert.equal(resolved, 1);
-			assert.equal(exec.status, "failed");
+			// "unknown", not "failed". This assertion used to say "failed" while
+			// the line below demanded the error text "must be honest, not claim
+			// failure" -- the test contradicted itself and still passed.
+			assert.equal(exec.status, "unknown");
 			assert.ok(exec.endTime, "must be given an end time");
 			assert.match(exec.error, /outcome is unknown/i, "must be honest, not claim failure");
 		});
@@ -287,8 +290,9 @@ describe("SessionManager", () => {
 			const session = await mgr.getSession("dead");
 			assert.equal(
 				session.toolExecutions[0].status,
-				"failed",
-				"nothing can still be running in a store we just loaded",
+				"unknown",
+				"nothing can still be running in a store we just loaded, and we " +
+					"do not know whether it succeeded",
 			);
 		});
 	});
@@ -315,5 +319,49 @@ describe("SessionManager", () => {
 			assert.equal(sessions.length, 1);
 			assert.equal(sessions[0].id, "b");
 		});
+	});
+});
+describe("REGRESSION: an unreported outcome is not a failure", () => {
+	// Found by an auditing peer session against the live store: 22 executions
+	// had been reaped to `failed`, and NOT ONE had actually failed. Among them a
+	// `Read` that succeeded, sat running for 15 minutes because no completion
+	// event arrived, and was then reported as a failure. Some tools legitimately
+	// emit no completion event at all -- ExitPlanMode and AskUserQuestion were
+	// both in the reaped set -- so this is a normal outcome, not an error.
+	//
+	// The old code hedged in the error TEXT while the status still asserted
+	// failure, which a status badge does not show.
+	it("marks an abandoned execution unknown, not failed", async () => {
+		const { markAbandoned } = await import("../dist/index.js");
+		const exec = {
+			id: "e1", tool: "Read", input: {}, startTime: "2026-09-03T10:00:00.000Z",
+			status: "running",
+		};
+
+		markAbandoned(exec);
+
+		assert.equal(exec.status, "unknown", "not failed — we do not know that it failed");
+		assert.match(exec.error, /outcome is unknown/);
+		assert.ok(exec.endTime, "and it is terminal, so it stops being reported as running");
+	});
+
+	it("does not count an unknown outcome as an error in session stats", async () => {
+		// This is where the reaper's guess became a reported error count.
+		const manager = await newManager();
+		// trackActivity(sessionId, log) — synchronous, two arguments.
+		manager.trackActivity("s1", makeLog({
+			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
+			tool: "ExitPlanMode", executionId: "tu-x",
+			details: { cwd: "/w/proj" },
+		}));
+
+		const session = await manager.getSession("s1");
+		assert.equal(session.toolExecutions.length, 1, "the execution was recorded");
+		const { markAbandoned } = await import("../dist/index.js");
+		markAbandoned(session.toolExecutions[0]);
+
+		const stats = await manager.getSessionStats("s1");
+		assert.equal(stats.errors, 0, "an unreported outcome is not an error");
+		assert.equal(stats.blocked, 0);
 	});
 });

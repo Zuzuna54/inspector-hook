@@ -136,6 +136,9 @@ export function buildSessionDigest(input: DigestInput): SessionDigest {
 	const failed = executions.filter(
 		(exec) => exec?.status === "failed" || exec?.status === "blocked",
 	).length;
+	// Counted and reported separately. A digest that folded these into "failed"
+	// would put a claim into native memory that a future session reads as fact.
+	const unknown = executions.filter((exec) => exec?.status === "unknown").length;
 
 	// Files, de-duplicated: a file edited eight times is one file. Prefer paths
 	// the caller resolved from change IDs; otherwise use what the executions
@@ -188,6 +191,7 @@ export function buildSessionDigest(input: DigestInput): SessionDigest {
 		parts.push(`${executions.length} tool call${executions.length === 1 ? "" : "s"}`);
 	}
 	if (failed > 0) parts.push(`${failed} failed`);
+	if (unknown > 0) parts.push(`${unknown} outcome unknown`);
 	const description = `${project}${branch ? ` on ${branch}` : ""}: ${parts.join(", ")}`;
 
 	const lines: string[] = [];
@@ -220,6 +224,13 @@ export function buildSessionDigest(input: DigestInput): SessionDigest {
 		lines.push(...bulletList(tools.map(([tool, n]) => `${tool} ×${n}`)));
 		if (failed > 0) {
 			lines.push("", `${failed} call${failed === 1 ? "" : "s"} did not succeed.`);
+		}
+		if (unknown > 0) {
+			lines.push(
+				"",
+				`${unknown} call${unknown === 1 ? "" : "s"} ended without a completion ` +
+					"event, so the outcome is not known.",
+			);
 		}
 		lines.push("");
 	}

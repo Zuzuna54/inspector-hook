@@ -151,6 +151,7 @@ function summarizeSession(session: Session | null): SessionSummary | null {
 		lastActivityTime: session.lastActivityTime,
 		toolExecutionCount: session.toolExecutions.length,
 		fileChangeCount: session.fileChanges.length,
+		// "unknown" excluded: an unreported outcome is not an error.
 		errorCount: session.toolExecutions.filter((e: { status: string }) => e.status === "failed")
 			.length,
 		gitBranch:

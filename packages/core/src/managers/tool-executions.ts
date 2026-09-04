@@ -126,12 +126,20 @@ export function findAbandonedExecutions(
 /**
  * Mark an execution abandoned.
  *
- * "failed" rather than left running, because "running" is a definite false
- * statement once nothing can complete it — while the error text is honest that
- * the outcome is unknown rather than claiming the call failed on its merits.
+ * Marked `unknown`, not `failed`.
+ *
+ * This used to write "failed", reasoning that leaving it "running" was a false
+ * statement so a terminal one was better. That traded one false statement for
+ * another: an audit of the live store found 22 executions reaped this way and
+ * NOT ONE had actually failed — among them a `Read` that succeeded, sat
+ * running for 15 minutes because no completion event arrived, and was then
+ * reported as a failure. The hedge lived only in the error text, which a status
+ * badge does not show.
+ *
+ * `unknown` is what is true: the call ended, and we do not know how.
  */
 export function markAbandoned(exec: ToolExecution): void {
-	exec.status = "failed";
+	exec.status = "unknown";
 	exec.endTime = new Date().toISOString();
 	exec.error = ABANDONED_REASON;
 }

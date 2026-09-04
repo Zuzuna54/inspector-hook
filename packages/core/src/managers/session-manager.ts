@@ -138,7 +138,9 @@ export class SessionManager extends EventEmitter {
 	 *    denial, for instance, is followed by neither PostToolUse nor
 	 *    PostToolUseFailure.
 	 *
-	 * Marked "failed" rather than left running, because "running" is a definite
+	 * Marked "unknown" rather than left running: "running" is a definite false
+	 * statement once nothing can complete the call, and "failed" is an equally
+	 * definite one for a call that succeeded. Previously this said "failed",
 	 * false statement while the error text is honest that the outcome is unknown.
 	 *
 	 * @param maxAgeMs Only resolve executions that started at least this long
@@ -632,6 +634,9 @@ export class SessionManager extends EventEmitter {
 			logCount: logCounts?.logCount ?? 0,
 			toolExecutions: executions.length,
 			fileChangesCount: session.fileChanges.length,
+			// "unknown" is deliberately NOT counted. A call whose completion event
+			// never arrived has not failed — some tools never emit one — and
+			// counting it here is how the reaper's guess became a reported error.
 			errors: executions.filter((e) => e.status === "failed").length,
 			warnings: logCounts?.warnings ?? 0,
 			blocked: executions.filter((e) => e.status === "blocked").length,
