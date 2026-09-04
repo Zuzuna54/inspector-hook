@@ -45,8 +45,13 @@ export interface ResearchItem {
 	/**
 	 * Which project this belongs to.
 	 *
-	 * Git remote when there is one, else the working directory. Both are
-	 * captured on every hook event, so this needs no inference.
+	 * Git remote when there is one, else the working directory.
+	 *
+	 * This comment used to say "Both are captured on every hook event, so this
+	 * needs no inference." That became false when M2's hook consolidation
+	 * dropped the git metadata: 0 of 1752 recent events carried it. The core now
+	 * derives it from `cwd` at ingest, resolving to the repository ROOT — which
+	 * is what stops one repo fragmenting into a key per subdirectory.
 	 */
 	projectKey?: string;
 	/** Human-facing project name, for display. */

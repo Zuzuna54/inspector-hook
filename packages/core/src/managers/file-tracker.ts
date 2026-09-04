@@ -829,6 +829,7 @@ export class FileTracker extends EventEmitter {
 			sessionId?: string;
 			changeId?: string;
 			tool?: string;
+			label?: string;
 		},
 	): Promise<FileVersion> {
 		let history = this.history.get(filePath);
@@ -873,6 +874,7 @@ export class FileTracker extends EventEmitter {
 			// seven call sites were passing a tool name into nothing.
 			...(metadata?.tool ? { tool: metadata.tool } : {}),
 			...(metadata?.changeId ? { changeId: metadata.changeId } : {}),
+			...(metadata?.label ? { label: metadata.label } : {}),
 		};
 
 		history.versions.push(version);
@@ -1087,9 +1089,18 @@ export class FileTracker extends EventEmitter {
 			throw new Error(`Failed to restore version: ${error}`);
 		}
 
-		// Add as new version
+		// Record the restore, with honest provenance.
+		//
+		// This used to pass `sessionId: restore-${n}` -- a fabricated id in a
+		// field that means "the session that created this version". Nothing has
+		// a session by that name, so anything resolving it found nothing. The
+		// session is genuinely unknown here; the useful facts are that a restore
+		// produced this content and which version it came from, and both have
+		// real fields. It was also the only restore path not recording `tool`,
+		// leaving a restore indistinguishable from an ordinary edit.
 		const newVersion = await this.addVersion(filePath, versionData.content, {
-			sessionId: `restore-${versionNumber}`,
+			tool: "restore",
+			label: `Restored from version ${versionNumber}`,
 		});
 
 		this.emit("version:restored", { filePath, version: versionNumber });

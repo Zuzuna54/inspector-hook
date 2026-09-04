@@ -47,8 +47,15 @@ function clip(text: string): string {
  * The project an item belongs to.
  *
  * Git remote first because it survives the same repository being cloned to two
- * paths; the working directory is the fallback. Both are on every hook event,
- * so nothing has to be inferred.
+ * paths; the working directory is the fallback.
+ *
+ * Neither is guaranteed. The hook stopped sending git metadata during M2, which
+ * fragmented one repository into five distinct project keys before anyone
+ * noticed -- `project-resolver.ts` exists because of it, and does infer the key
+ * when the event omits it. A comment here previously claimed both fields are on
+ * every hook event and that nothing has to be inferred; both halves were false,
+ * and a false comment next to the code it describes is how that fragmentation
+ * went unquestioned for as long as it did.
  */
 export function projectKeyFor(
 	details: Record<string, unknown> | undefined,

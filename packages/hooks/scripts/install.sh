@@ -69,6 +69,16 @@ command -v jq >/dev/null 2>&1 || fail "jq is required but not installed"
 
 # Events Inspector Hook consumes.
 #
+# NOT all 33, and the exclusions below are load-bearing. A previous change added
+# MessageDisplay and the Elicitation pair to this array without reading the
+# reasoning three lines down; the comment predicted a flood and the array won
+# silently. Measured before the revert: 163 MessageDisplay events, every one
+# with tool "", file "" and every detail null except cwd and transcriptPath --
+# contentless rows that still passed the generic filter and rendered as feed
+# items -- their only payload is `backgroundTasks: 0`, an identical literal zero
+# in all 313 of them. A test now pins the excluded set, so the comment and the
+# array cannot disagree silently again.
+#
 # Deliberately not all 33: MessageDisplay fires per streamed text chunk and
 # would flood the store, and the Elicitation pair adds nothing a dashboard
 # shows. Everything else the core can attribute is registered — including
@@ -88,9 +98,6 @@ EVENTS=(
   WorktreeCreate WorktreeRemove
   PreModelSwitch PostModelSwitch
   Setup
-  # Named in the M2 plan and previously missed. None has fired on this
-  # machine yet, which is exactly why they were easy to overlook.
-  Elicitation ElicitationResult MessageDisplay
 )
 
 # Events that accept a matcher. For the tool events we want everything, so "*".

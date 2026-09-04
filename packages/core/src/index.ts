@@ -98,6 +98,12 @@ export {
 	type DigestInput,
 	type SessionDigest,
 } from "./memory/session-digest.js";
+export {
+	collectDigestInput,
+	type ChangeSource,
+	type CollectOptions,
+	type LogSource,
+} from "./memory/digest-input.js";
 
 // Export research history + search (Milestone 4)
 export {
@@ -119,6 +125,12 @@ export {
 	SNIPPET_LENGTH,
 	type ResearchIndexOptions,
 } from "./research/research-index.js";
+
+export {
+	clearProjectCache,
+	resolveProject,
+	type ProjectInfo,
+} from "./managers/project-resolver.js";
 
 // Export version
 export const VERSION = "0.1.0";

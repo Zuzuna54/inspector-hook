@@ -80,6 +80,11 @@ const State = {
 		// Context staged for the next session, and a previewed digest.
 		staged: null,
 		digest: null,
+		// Why staging was refused, when it was. Kept apart from `staged`
+		// because a refusal is `{staged:false, reason}` -- truthy, and
+		// previously stored as though it were a successful stage, which drew a
+		// success box over an empty body and threw the reason away.
+		stageRefusal: null,
 	},
 
 	// ==========================================================================
@@ -266,6 +271,7 @@ const State = {
 			draft: "",
 			staged: null,
 			digest: null,
+			stageRefusal: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

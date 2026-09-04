@@ -533,3 +533,14 @@
 .ctx-reach.loads {
 	color: var(--color-success);
 }
+
+/* Says what the view holds. A pane with nothing in it is indistinguishable
+   from a broken one unless it tells you which. */
+.ctx-status {
+	padding: var(--spacing-xs) var(--spacing-md);
+	border-top: 1px solid var(--border);
+	font-size: var(--font-size-xs);
+	font-family: var(--font-family-mono);
+	color: var(--fg-muted);
+	flex-shrink: 0;
+}

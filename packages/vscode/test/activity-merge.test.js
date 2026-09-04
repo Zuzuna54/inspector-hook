@@ -12,13 +12,15 @@ import { describe, it } from "node:test";
 
 import { readMedia } from "./harness.js";
 
-// mergeActivity is a module-level function in api.js, not a member of API.
+// mergeActivity now has its own module, so the whole file is the function --
+// no slicing it back out of api.js, which was fragile in exactly the way the
+// extraction fixed: the shim keyed on "\nconst API =" as an end marker, so
+// editing that line would have silently changed what this test evaluated.
 const mergeActivity = (() => {
-	const src = readMedia("scripts/api.js");
-	const start = src.indexOf("function mergeActivity");
-	const end = src.indexOf("\nconst API =", start);
+	globalThis.window = globalThis.window || {};
 	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
-	return eval(`${src.slice(start, end)}; mergeActivity`);
+	eval(readMedia("scripts/shared/activity-merge.js"));
+	return globalThis.window.mergeActivity;
 })();
 
 const item = (id, timestamp, extra = {}) => ({ id, timestamp, ...extra });

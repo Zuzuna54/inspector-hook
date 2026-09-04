@@ -247,13 +247,17 @@ describe("findAbandonedExecutions", () => {
 });
 
 describe("markAbandoned", () => {
-	it("marks failed with an honest reason and an end time", () => {
+	it("marks UNKNOWN with an honest reason and an end time", () => {
+		// Was "marks failed with an honest reason", asserting status "failed"
+		// two lines above a comment saying it is "not a claim that the call
+		// failed" — the test contradicted itself and passed anyway. An audit of
+		// the live store found 22 executions reaped this way and none had
+		// actually failed.
 		const e = { id: "x", tool: "Bash", input: {}, startTime: "2026-01-01T00:00:00.000Z", status: "running" };
 		markAbandoned(e);
 
-		assert.equal(e.status, "failed");
+		assert.equal(e.status, "unknown");
 		assert.ok(e.endTime);
-		// Not a claim that the call failed on its merits.
 		assert.match(e.error, /outcome is unknown/i);
 	});
 });

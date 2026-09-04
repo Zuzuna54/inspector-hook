@@ -1,45 +1,11 @@
 /**
  * API Communication with VS Code Extension
  * Handles message passing between webview and extension
+ *
+ * `mergeActivity` lives in scripts/shared/activity-merge.js and is loaded
+ * before this file. It is referenced here as a bare global, which resolves
+ * across classic script tags.
  */
-
-/**
- * Merge an incremental activity batch into what is already held.
- *
- * Keyed by id, resolved by `updatedAt` - NOT by arrival order. An item's
- * updatedAt differs from its timestamp only for a tool call, which keeps its
- * start time while status, result and duration arrive later; taking whichever
- * copy arrived last would let a slow or reordered response overwrite a newer
- * one with a stale one, turning a completed tool call back into a running one.
- *
- * The cursor is inclusive, so every poll deliberately re-sends the items on the
- * boundary instant - 35% of real logs share a timestamp with another, and one
- * instant covered twelve. Re-sending them is what stops an exclusive cursor
- * silently dropping the lot; merging by id is what makes the repeat harmless.
- *
- * Ordering is by timestamp, which is the order the feed reads in, not by
- * updatedAt, which would make a completing tool call jump to the end.
- *
- * @param {Array} existing
- * @param {Array} incoming
- * @returns {Array}
- */
-function mergeActivity(existing, incoming) {
-	if (!incoming.length) return existing;
-
-	const stamp = (item) => String(item?.updatedAt || item?.timestamp || "");
-
-	const byId = new Map();
-	for (const item of existing || []) byId.set(item.id, item);
-	for (const item of incoming) {
-		const held = byId.get(item.id);
-		if (!held || stamp(item) >= stamp(held)) byId.set(item.id, item);
-	}
-
-	return [...byId.values()].sort((a, b) =>
-		String(a.timestamp || "").localeCompare(String(b.timestamp || "")),
-	);
-}
 
 const API = {
 	// VS Code API instance
@@ -642,12 +608,21 @@ const API = {
 
 			// One case for stage/get/clear: each ends with "here is what is staged,
 			// or nothing", so the view re-renders from whatever came back.
-			case "memory-staged":
+			//
+			// A REFUSAL also comes back here, as `{staged:false, reason}`. That
+			// object is truthy, so assigning it straight to `staged` drew the
+			// "Staged for the next session" box over an empty body and an
+			// invalid expiry -- a failure rendered as a success, with the reason
+			// discarded. Branch on the explicit flag, and keep the reason.
+			case "memory-staged": {
+				const refused = payload && payload.staged === false;
 				State.update("contextView", {
 					...State.contextView,
-					staged: payload || null,
+					staged: refused ? null : payload || null,
+					stageRefusal: refused ? payload.reason || "Staging was refused." : null,
 				});
 				break;
+			}
 
 			case "memory-digest":
 				State.update("contextView", {

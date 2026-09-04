@@ -65,6 +65,16 @@ export interface SessionManagerEvents {
 		sessionId: string;
 		execution: ToolExecution;
 	}) => void;
+	/**
+	 * A tool call that ended without a completion event, so its outcome is not
+	 * known. Emitted instead of "tool:failed" for reaped executions — the status
+	 * was corrected to "unknown" but this event still asserted failure, so a
+	 * listener acting on the event name was told the opposite of the record.
+	 */
+	"tool:unknown": (data: {
+		sessionId: string;
+		execution: ToolExecution;
+	}) => void;
 }
 
 // Default timeout values
@@ -138,7 +148,9 @@ export class SessionManager extends EventEmitter {
 	 *    denial, for instance, is followed by neither PostToolUse nor
 	 *    PostToolUseFailure.
 	 *
-	 * Marked "failed" rather than left running, because "running" is a definite
+	 * Marked "unknown" rather than left running: "running" is a definite false
+	 * statement once nothing can complete the call, and "failed" is an equally
+	 * definite one for a call that succeeded. Previously this said "failed",
 	 * false statement while the error text is honest that the outcome is unknown.
 	 *
 	 * @param maxAgeMs Only resolve executions that started at least this long
@@ -162,7 +174,11 @@ export class SessionManager extends EventEmitter {
 
 			for (const exec of abandoned) {
 				markAbandoned(exec);
-				this.emit("tool:failed", { sessionId: session.id, execution: exec });
+				// NOT "tool:failed": markAbandoned records "unknown", and an event
+				// named for failure tells a listener the opposite of the record it
+				// just wrote. Half of eb2073d's fix; the status was corrected and
+				// this emit was missed.
+				this.emit("tool:unknown", { sessionId: session.id, execution: exec });
 				resolved++;
 			}
 			await this.persistSession(session);
@@ -345,7 +361,12 @@ export class SessionManager extends EventEmitter {
 				exec.endTime = log.timestamp;
 				exec.result = log.details;
 
+				const wasReaped = exec.status === "unknown";
 				exec.status = terminalStatusFor(log);
+				// Clear the reaper's note. It said no completion event was
+				// received, and one has now been received, so leaving it is a
+				// statement the record itself contradicts.
+				if (wasReaped) exec.error = undefined;
 				if (exec.status === "blocked") exec.error = log.message;
 				this.emit(
 					exec.status === "failed"
@@ -632,6 +653,9 @@ export class SessionManager extends EventEmitter {
 			logCount: logCounts?.logCount ?? 0,
 			toolExecutions: executions.length,
 			fileChangesCount: session.fileChanges.length,
+			// "unknown" is deliberately NOT counted. A call whose completion event
+			// never arrived has not failed — some tools never emit one — and
+			// counting it here is how the reaper's guess became a reported error.
 			errors: executions.filter((e) => e.status === "failed").length,
 			warnings: logCounts?.warnings ?? 0,
 			blocked: executions.filter((e) => e.status === "blocked").length,

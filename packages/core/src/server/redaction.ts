@@ -42,21 +42,38 @@ export interface RedactionOptions {
 	extraPatterns?: RegExp[];
 	/** Set false to pass content through untouched. */
 	enabled?: boolean;
+	/**
+	 * Also report which patterns matched, and how often.
+	 *
+	 * Off by default so the ingest path pays nothing for it. The injection path
+	 * needs it: text staged for a model's context is worth showing the user a
+	 * redaction summary for, and "3 secrets removed" is only actionable if it
+	 * says which kinds, so a false positive can be recognised as one.
+	 */
+	detail?: boolean;
+}
+
+/** What matched, when `detail` is set. */
+export interface RedactionMatch {
+	name: string;
+	count: number;
 }
 
 /** Redact secrets in a single string. */
 export function redactString(
 	value: string,
 	options?: RedactionOptions,
-): { value: string; redacted: number } {
+): { value: string; redacted: number; matches?: RedactionMatch[] } {
 	if (options?.enabled === false) return { value, redacted: 0 };
 
 	let out = value;
 	let count = 0;
+	const byName = options?.detail ? new Map<string, number>() : null;
 
 	for (const { name, pattern } of SECRET_PATTERNS) {
 		out = out.replace(new RegExp(pattern.source, pattern.flags), (...args) => {
 			count++;
+			if (byName) byName.set(name, (byName.get(name) ?? 0) + 1);
 			// Keep the variable name for an assignment, so the record still says
 			// WHICH secret was present without disclosing it.
 			if (name === "assigned-secret") {
@@ -72,11 +89,19 @@ export function redactString(
 	for (const extra of options?.extraPatterns ?? []) {
 		out = out.replace(new RegExp(extra.source, extra.flags || "g"), () => {
 			count++;
+			if (byName) byName.set("custom", (byName.get("custom") ?? 0) + 1);
 			return REDACTED;
 		});
 	}
 
-	return { value: out, redacted: count };
+	if (!byName) return { value: out, redacted: count };
+	return {
+		value: out,
+		redacted: count,
+		matches: [...byName.entries()]
+			.map(([name, n]) => ({ name, count: n }))
+			.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+	};
 }
 
 /**

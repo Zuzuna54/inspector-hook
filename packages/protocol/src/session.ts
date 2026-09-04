@@ -64,7 +64,26 @@ export interface Session {
 }
 
 
-export type ExecutionStatus = "running" | "completed" | "failed" | "blocked";
+/**
+ * How a tool call ended.
+ *
+ * `unknown` exists because the vocabulary previously had no way to say what was
+ * true. A call whose completion event never arrived was recorded as `failed`,
+ * on the reasoning that leaving it `running` was itself a false statement — but
+ * `failed` is equally false for a call that succeeded, and an audit of the live
+ * store found that EVERY `failed` execution reported by the reaper was of this
+ * kind, including a `Read` that demonstrably succeeded.
+ *
+ * Some tools legitimately emit no completion event at all (`ExitPlanMode` and
+ * `AskUserQuestion` among those observed), so this is a normal outcome, not an
+ * error condition. Consumers must not count it as a failure.
+ */
+export type ExecutionStatus =
+	| "running"
+	| "completed"
+	| "failed"
+	| "blocked"
+	| "unknown";
 
 
 /**

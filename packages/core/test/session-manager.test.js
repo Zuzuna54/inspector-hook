@@ -227,7 +227,10 @@ describe("SessionManager", () => {
 			const { resolved } = await mgr.reconcileStuckExecutions({ maxAgeMs: 0 });
 
 			assert.equal(resolved, 1);
-			assert.equal(exec.status, "failed");
+			// "unknown", not "failed". This assertion used to say "failed" while
+			// the line below demanded the error text "must be honest, not claim
+			// failure" -- the test contradicted itself and still passed.
+			assert.equal(exec.status, "unknown");
 			assert.ok(exec.endTime, "must be given an end time");
 			assert.match(exec.error, /outcome is unknown/i, "must be honest, not claim failure");
 		});
@@ -287,8 +290,9 @@ describe("SessionManager", () => {
 			const session = await mgr.getSession("dead");
 			assert.equal(
 				session.toolExecutions[0].status,
-				"failed",
-				"nothing can still be running in a store we just loaded",
+				"unknown",
+				"nothing can still be running in a store we just loaded, and we " +
+					"do not know whether it succeeded",
 			);
 		});
 	});
@@ -315,5 +319,126 @@ describe("SessionManager", () => {
 			assert.equal(sessions.length, 1);
 			assert.equal(sessions[0].id, "b");
 		});
+	});
+});
+describe("REGRESSION: an unreported outcome is not a failure", () => {
+	// Found by an auditing peer session against the live store: 22 executions
+	// had been reaped to `failed`, and NOT ONE had actually failed. Among them a
+	// `Read` that succeeded, sat running for 15 minutes because no completion
+	// event arrived, and was then reported as a failure. Some tools legitimately
+	// emit no completion event at all -- ExitPlanMode and AskUserQuestion were
+	// both in the reaped set -- so this is a normal outcome, not an error.
+	//
+	// The old code hedged in the error TEXT while the status still asserted
+	// failure, which a status badge does not show.
+	it("marks an abandoned execution unknown, not failed", async () => {
+		const { markAbandoned } = await import("../dist/index.js");
+		const exec = {
+			id: "e1", tool: "Read", input: {}, startTime: "2026-09-03T10:00:00.000Z",
+			status: "running",
+		};
+
+		markAbandoned(exec);
+
+		assert.equal(exec.status, "unknown", "not failed — we do not know that it failed");
+		assert.match(exec.error, /outcome is unknown/);
+		assert.ok(exec.endTime, "and it is terminal, so it stops being reported as running");
+	});
+
+	it("REGRESSION: a late completion reconciles a reaped execution", async () => {
+		// After a reap the execution kept `error: "No completion event was
+		// received for this tool call"` even when one later arrived — a
+		// statement the record itself contradicted. findRunningExecution
+		// required status "running" on both branches, so the completion matched
+		// nothing and was dropped.
+		const manager = await newManager();
+		manager.trackActivity("s1", makeLog({
+			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-late", details: { cwd: "/w" },
+		}));
+		await manager.reconcileStuckExecutions({ maxAgeMs: 0 });
+
+		const before = (await manager.getSession("s1")).toolExecutions[0];
+		assert.equal(before.status, "unknown");
+		assert.match(before.error, /No completion event/);
+
+		// The real completion finally arrives.
+		manager.trackActivity("s1", makeLog({
+			hook: "PostToolUse", event: "PostToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-late", details: { cwd: "/w" },
+		}));
+
+		const after = (await manager.getSession("s1")).toolExecutions;
+		assert.equal(after.length, 1, "reconciled, not duplicated");
+		assert.equal(after[0].status, "completed");
+		assert.equal(after[0].error, undefined, "the stale reaper note must be cleared");
+	});
+
+	it("a late completion may NOT reconcile by tool name alone", async () => {
+		// Only the exact tool_use_id branch reconciles an unknown. Matching by
+		// name could attach a late completion to a different call, which is the
+		// cross-pairing bug B2 exists to prevent.
+		const manager = await newManager();
+		manager.trackActivity("s1", makeLog({
+			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-a", details: { cwd: "/w" },
+		}));
+		await manager.reconcileStuckExecutions({ maxAgeMs: 0 });
+
+		// A completion with a DIFFERENT id must not claim the reaped one.
+		manager.trackActivity("s1", makeLog({
+			hook: "PostToolUse", event: "PostToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-b", details: { cwd: "/w" },
+		}));
+
+		const execs = (await manager.getSession("s1")).toolExecutions;
+		const reaped = execs.find((e) => e.id === "tu-a");
+		assert.equal(reaped.status, "unknown", "the reaped call is untouched");
+	});
+
+	it("closes a session that never received SessionEnd, via idle", async () => {
+		// Answers a question left open in the plan's risk list: a session whose
+		// Claude Code exits without SessionEnd does close, but only through the
+		// two-step active -> idle -> completed sweep, so it needs two ticks.
+		const manager = await newManager({
+			idleTimeoutMs: 1,
+			completedTimeoutMs: 2,
+		});
+		manager.trackActivity("s1", makeLog({
+			hook: "SessionStart", event: "session.start", sessionId: "s1",
+			details: { cwd: "/w" },
+		}));
+
+		const session = await manager.getSession("s1");
+		session.lastActivityTime = new Date(Date.now() - 60_000).toISOString();
+
+		manager.checkStaleSessions();
+		assert.equal((await manager.getSession("s1")).status, "idle", "first tick");
+		manager.checkStaleSessions();
+		assert.equal(
+			(await manager.getSession("s1")).status,
+			"completed",
+			"second tick — no SessionEnd was ever received",
+		);
+	});
+
+	it("does not count an unknown outcome as an error in session stats", async () => {
+		// This is where the reaper's guess became a reported error count.
+		const manager = await newManager();
+		// trackActivity(sessionId, log) — synchronous, two arguments.
+		manager.trackActivity("s1", makeLog({
+			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
+			tool: "ExitPlanMode", executionId: "tu-x",
+			details: { cwd: "/w/proj" },
+		}));
+
+		const session = await manager.getSession("s1");
+		assert.equal(session.toolExecutions.length, 1, "the execution was recorded");
+		const { markAbandoned } = await import("../dist/index.js");
+		markAbandoned(session.toolExecutions[0]);
+
+		const stats = await manager.getSessionStats("s1");
+		assert.equal(stats.errors, 0, "an unreported outcome is not an error");
+		assert.equal(stats.blocked, 0);
 	});
 });

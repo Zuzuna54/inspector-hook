@@ -266,6 +266,95 @@ describe("FileTracker", () => {
 		});
 	});
 
+	describe("restoreVersion and clearHistory", () => {
+		// Both were named in the plan's Open Risk 5 as needing an audit and
+		// neither had a test. clearHistory turned out to be honest; restoreVersion
+		// did not.
+
+		it("REGRESSION: a restore records real provenance, not a fake session", async () => {
+			// It passed `sessionId: restore-${n}` -- a fabricated id in a field
+			// meaning "the session that created this version", so anything
+			// resolving it found nothing. It was also the only restore path not
+			// recording `tool`, leaving a restore indistinguishable from an edit.
+			const { tracker, storagePath } = await newTracker();
+			const file = join(storagePath, "a.ts");
+			await tracker.addVersion(file, "v1", { sessionId: "s1", tool: "Edit" });
+			await tracker.addVersion(file, "v2", { sessionId: "s1", tool: "Edit" });
+
+			await tracker.restoreVersion(file, 1);
+
+			const history = await tracker.getVersions(file);
+			const newest = history.versions[history.versions.length - 1];
+			assert.equal(newest.tool, "restore");
+			assert.equal(newest.label, "Restored from version 1");
+			assert.ok(
+				!String(newest.sessionId).startsWith("restore-"),
+				"no fabricated session id",
+			);
+			assert.equal(
+				newest.content,
+				await readFile(file, "utf-8"),
+				"and history's newest still matches disk",
+			);
+		});
+
+		it("clearHistory reports exactly what it removed", async () => {
+			// The count is the thing worth pinning: a delete that over-reports is
+			// the failure class this whole audit targets.
+			const { tracker, storagePath } = await newTracker();
+			for (const n of [0, 1, 2]) {
+				const f = join(storagePath, `f${n}.ts`);
+				for (const v of [0, 1]) {
+					await tracker.addVersion(f, `f${n}v${v}`, { sessionId: "s" });
+				}
+			}
+			const before = (await tracker.getHistoryStats()).totalVersions;
+
+			const result = await tracker.clearHistory();
+			const after = await tracker.getHistoryStats();
+
+			assert.equal(result.deletedVersions, before - after.totalVersions);
+			assert.equal(after.trackedFiles, 0, "and everything is actually gone");
+		});
+
+		it("clearHistory does not over-report when two filters overlap", async () => {
+			// olderThan and maxVersionsPerFile can select the same version, which
+			// is where a naive counter double-counts.
+			const { tracker, storagePath } = await newTracker();
+			const file = join(storagePath, "a.ts");
+			for (let v = 0; v < 6; v++) {
+				const version = await tracker.addVersion(file, `v${v}`, { sessionId: "s" });
+				version.timestamp =
+					v < 4 ? "2020-01-01T00:00:00.000Z" : "2026-09-01T00:00:00.000Z";
+			}
+			const before = (await tracker.getHistoryStats()).totalVersions;
+
+			const result = await tracker.clearHistory({
+				olderThan: "2025-01-01T00:00:00.000Z",
+				maxVersionsPerFile: 1,
+			});
+			const after = await tracker.getHistoryStats();
+
+			assert.equal(
+				result.deletedVersions,
+				before - after.totalVersions,
+				"the reported count must equal the real one",
+			);
+		});
+
+		it("clearHistory reports zero when nothing matches", async () => {
+			const { tracker, storagePath } = await newTracker();
+			await tracker.addVersion(join(storagePath, "a.ts"), "v1", { sessionId: "s" });
+
+			const result = await tracker.clearHistory({
+				olderThan: "2000-01-01T00:00:00.000Z",
+			});
+
+			assert.equal(result.deletedVersions, 0);
+			assert.equal((await tracker.getHistoryStats()).totalVersions, 1);
+		});
+	});
+
 	describe("version history", () => {
 		it("records a version per distinct content", async () => {
 			const { tracker, storagePath } = await newTracker();

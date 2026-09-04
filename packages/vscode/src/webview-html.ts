@@ -56,6 +56,12 @@ export function buildWebviewHtml(
 	// real <link>/<script> tags rather than CSS @import. An @import with a
 	// wrong path fails silently and takes the whole stylesheet with it; a
 	// missing tag here costs only the one file.
+	//
+	// The cost of that tolerance is that a typo is free and permanent, and two
+	// entries did exactly that -- naming a stylesheet and a script nobody ever
+	// wrote. So test/manifest.test.js now requires every path to exist unless
+	// it is named in that file's PENDING map with a reason. The tolerance is
+	// intact; it just has to be claimed rather than assumed.
 	const styles: string[][] = [
 		["styles", "variables.css"],
 		["styles", "layout.css"],
@@ -65,7 +71,6 @@ export function buildWebviewHtml(
 		["styles", "components", "feedback.css"],
 		["styles", "components", "nav.css"],
 		["styles", "prism-theme.css"],
-		["styles", "shared", "diff.css"],
 		["styles", "views", "dashboard.css"],
 		["styles", "views", "logs.css"],
 		["styles", "views", "sessions.css"],
@@ -93,11 +98,12 @@ export function buildWebviewHtml(
 	const scripts: string[][] = [
 		["scripts", "state.js"],
 		["scripts", "router.js"],
+		// mergeActivity, before api.js which calls it.
+		["scripts", "shared", "activity-merge.js"],
 		["scripts", "api.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
 		["scripts", "shared", "diff-render.js"],
-		["scripts", "shared", "session-accordion.js"],
 		["scripts", "views", "dashboard.js"],
 		["scripts", "views", "logs.js"],
 		// Sessions modules load before sessions.js.
@@ -125,6 +131,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "archived.js"],
 		// Context modules load before context.js.
 		["scripts", "views", "context", "memory-render.js"],
+		["scripts", "views", "context", "injection-render.js"],
 		["scripts", "views", "context", "curation.js"],
 		["scripts", "views", "context.js"],
 		// main.js wires everything up and must be last.
@@ -298,12 +305,22 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
       <!-- Context View: native auto memory, across every project -->
       <div id="view-context" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
         <div class="ctx-bar">
-          <div class="ctx-mode-toggle" id="ctx-mode-toggle" role="group" aria-label="Context mode"></div>
+          <!-- Static chrome. These were rendered by JS, which meant that if the
+               view's init did not run there was nothing to click and nothing to
+               explain why — a blank pane with no way out. Buttons that always
+               exist fail visibly instead: JS only sets which one is active. -->
+          <div class="ctx-mode-toggle" id="ctx-mode-toggle" role="group" aria-label="Context mode">
+            <button class="ctx-mode active" data-mode="memory">Memory</button>
+            <button class="ctx-mode" data-mode="injection">Context injection</button>
+          </div>
           <input type="text" id="ctx-search" class="input ctx-search"
                  placeholder="Search every project's memory..."
                  aria-label="Search memory across all projects">
         </div>
-        <div class="ctx-injection-pane" id="ctx-injection-pane"></div>
+        <div class="ctx-injection-pane" id="ctx-injection-pane">
+          <div class="ctx-notice">Loading sessions…</div>
+        </div>
+        <div class="ctx-status" id="ctx-status"></div>
         <div class="ctx-container">
           <div class="ctx-projects">
             <div class="ctx-pane-header"><h3>Projects</h3></div>

@@ -320,6 +320,7 @@ export class InspectorPanel {
 					message.params as {
 						memoryDir: string;
 						name: string;
+						fileName?: string;
 						description?: string;
 						type?: string;
 						body?: string;
@@ -377,12 +378,18 @@ export class InspectorPanel {
 			}
 
 			case "memory-build-digest": {
-				// Only the sessionId is forwarded. A `write` flag in the params
-				// is deliberately ignored rather than passed through.
-				const digest = await this._coreBridge.buildSessionDigest(
+				// Only the sessionId is forwarded; a `write` flag is ignored. The
+				// core replies with an ENVELOPE `{ digest, written }`, and sending
+				// it whole meant the view read worthKeeping, body and sessionId off
+				// the wrapper — undefined for all three, so Preview drew an empty
+				// box and Stage was a no-op. An {error} reply passes through.
+				const { digest, ...outcome } = ((await this._coreBridge.buildSessionDigest(
 					(message.params as { sessionId: string }).sessionId,
-				);
-				this._sendMessage({ type: "memory-digest", payload: digest });
+				)) ?? {}) as { digest?: Record<string, unknown> };
+				this._sendMessage({
+					type: "memory-digest",
+					payload: digest ? { ...digest, ...outcome } : outcome,
+				});
 				break;
 			}
 

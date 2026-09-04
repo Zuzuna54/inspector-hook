@@ -65,8 +65,19 @@ export function findRunningExecution(
 	log: LogEntry,
 ): ToolExecution | undefined {
 	if (log.executionId) {
+		// An exact tool_use_id match may reconcile an execution the reaper has
+		// already resolved to "unknown". A completion arriving after the 15
+		// minute window is rare (2 of 1184 paired calls measured) but the record
+		// it leaves behind is actively false: the execution keeps the error "No
+		// completion event was received for this tool call" when one just was.
+		//
+		// Only the EXACT branch may do this. The tool-name fallback below could
+		// attach a late completion to the wrong call, which is the cross-pairing
+		// bug B2 existed to fix.
 		const exact = executions.find(
-			(e) => e.id === log.executionId && e.status === "running",
+			(e) =>
+				e.id === log.executionId &&
+				(e.status === "running" || e.status === "unknown"),
 		);
 		if (exact) return exact;
 	}
@@ -126,12 +137,20 @@ export function findAbandonedExecutions(
 /**
  * Mark an execution abandoned.
  *
- * "failed" rather than left running, because "running" is a definite false
- * statement once nothing can complete it — while the error text is honest that
- * the outcome is unknown rather than claiming the call failed on its merits.
+ * Marked `unknown`, not `failed`.
+ *
+ * This used to write "failed", reasoning that leaving it "running" was a false
+ * statement so a terminal one was better. That traded one false statement for
+ * another: an audit of the live store found 22 executions reaped this way and
+ * NOT ONE had actually failed — among them a `Read` that succeeded, sat
+ * running for 15 minutes because no completion event arrived, and was then
+ * reported as a failure. The hedge lived only in the error text, which a status
+ * badge does not show.
+ *
+ * `unknown` is what is true: the call ended, and we do not know how.
  */
 export function markAbandoned(exec: ToolExecution): void {
-	exec.status = "failed";
+	exec.status = "unknown";
 	exec.endTime = new Date().toISOString();
 	exec.error = ABANDONED_REASON;
 }
