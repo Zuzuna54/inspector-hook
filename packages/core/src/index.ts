@@ -120,5 +120,11 @@ export {
 	type ResearchIndexOptions,
 } from "./research/research-index.js";
 
+export {
+	clearProjectCache,
+	resolveProject,
+	type ProjectInfo,
+} from "./managers/project-resolver.js";
+
 // Export version
 export const VERSION = "0.1.0";

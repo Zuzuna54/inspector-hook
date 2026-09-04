@@ -13,6 +13,7 @@ import type {
 	SortOptions,
 } from "@inspector-hook/protocol";
 import type { PersistenceStore } from "../persistence/store.js";
+import { resolveProject } from "./project-resolver.js";
 
 export interface LogManagerOptions {
 	storagePath: string;
@@ -139,6 +140,32 @@ export class LogManager extends EventEmitter {
 		// Also capture raw input if present
 		if ((data as Record<string, unknown>).rawInput) {
 			details.rawInput = (data as Record<string, unknown>).rawInput;
+		}
+
+		// Restore the project metadata the hook stopped sending.
+		//
+		// M2's hook consolidation removed the `git -C` and package.json reads
+		// that produced gitBranch/gitRemote/projectName, because they were most
+		// of the 337ms per-event cost — and removed the fields with them
+		// unnoticed. Measured after the fact: 0 of 1752 recent events carried
+		// them where 1610 of 4325 older ones did.
+		//
+		// Derived here instead, from the `cwd` every event already carries. The
+		// hook pays nothing, the result is cached per directory, and it resolves
+		// to the REPOSITORY ROOT — which is what stops one repo fragmenting into
+		// five projectKeys, as it had in the live index.
+		//
+		// A value the payload already carries always wins: a producer that knows
+		// its own project must not be overridden by our inference.
+		const project = resolveProject(details.cwd);
+		if (project) {
+			if (!details.projectName) details.projectName = project.projectName;
+			if (!details.gitBranch && project.gitBranch) {
+				details.gitBranch = project.gitBranch;
+			}
+			if (!details.gitRemote && project.gitRemote) {
+				details.gitRemote = project.gitRemote;
+			}
 		}
 
 		const log: LogEntry = {

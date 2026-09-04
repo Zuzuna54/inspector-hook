@@ -65,6 +65,16 @@ export interface SessionManagerEvents {
 		sessionId: string;
 		execution: ToolExecution;
 	}) => void;
+	/**
+	 * A tool call that ended without a completion event, so its outcome is not
+	 * known. Emitted instead of "tool:failed" for reaped executions — the status
+	 * was corrected to "unknown" but this event still asserted failure, so a
+	 * listener acting on the event name was told the opposite of the record.
+	 */
+	"tool:unknown": (data: {
+		sessionId: string;
+		execution: ToolExecution;
+	}) => void;
 }
 
 // Default timeout values
@@ -164,7 +174,11 @@ export class SessionManager extends EventEmitter {
 
 			for (const exec of abandoned) {
 				markAbandoned(exec);
-				this.emit("tool:failed", { sessionId: session.id, execution: exec });
+				// NOT "tool:failed": markAbandoned records "unknown", and an event
+				// named for failure tells a listener the opposite of the record it
+				// just wrote. Half of eb2073d's fix; the status was corrected and
+				// this emit was missed.
+				this.emit("tool:unknown", { sessionId: session.id, execution: exec });
 				resolved++;
 			}
 			await this.persistSession(session);
