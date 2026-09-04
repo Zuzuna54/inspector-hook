@@ -361,7 +361,12 @@ export class SessionManager extends EventEmitter {
 				exec.endTime = log.timestamp;
 				exec.result = log.details;
 
+				const wasReaped = exec.status === "unknown";
 				exec.status = terminalStatusFor(log);
+				// Clear the reaper's note. It said no completion event was
+				// received, and one has now been received, so leaving it is a
+				// statement the record itself contradicts.
+				if (wasReaped) exec.error = undefined;
 				if (exec.status === "blocked") exec.error = log.message;
 				this.emit(
 					exec.status === "failed"

@@ -65,8 +65,19 @@ export function findRunningExecution(
 	log: LogEntry,
 ): ToolExecution | undefined {
 	if (log.executionId) {
+		// An exact tool_use_id match may reconcile an execution the reaper has
+		// already resolved to "unknown". A completion arriving after the 15
+		// minute window is rare (2 of 1184 paired calls measured) but the record
+		// it leaves behind is actively false: the execution keeps the error "No
+		// completion event was received for this tool call" when one just was.
+		//
+		// Only the EXACT branch may do this. The tool-name fallback below could
+		// attach a late completion to the wrong call, which is the cross-pairing
+		// bug B2 existed to fix.
 		const exact = executions.find(
-			(e) => e.id === log.executionId && e.status === "running",
+			(e) =>
+				e.id === log.executionId &&
+				(e.status === "running" || e.status === "unknown"),
 		);
 		if (exact) return exact;
 	}

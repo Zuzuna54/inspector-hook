@@ -345,6 +345,83 @@ describe("REGRESSION: an unreported outcome is not a failure", () => {
 		assert.ok(exec.endTime, "and it is terminal, so it stops being reported as running");
 	});
 
+	it("REGRESSION: a late completion reconciles a reaped execution", async () => {
+		// After a reap the execution kept `error: "No completion event was
+		// received for this tool call"` even when one later arrived — a
+		// statement the record itself contradicted. findRunningExecution
+		// required status "running" on both branches, so the completion matched
+		// nothing and was dropped.
+		const manager = await newManager();
+		manager.trackActivity("s1", makeLog({
+			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-late", details: { cwd: "/w" },
+		}));
+		await manager.reconcileStuckExecutions({ maxAgeMs: 0 });
+
+		const before = (await manager.getSession("s1")).toolExecutions[0];
+		assert.equal(before.status, "unknown");
+		assert.match(before.error, /No completion event/);
+
+		// The real completion finally arrives.
+		manager.trackActivity("s1", makeLog({
+			hook: "PostToolUse", event: "PostToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-late", details: { cwd: "/w" },
+		}));
+
+		const after = (await manager.getSession("s1")).toolExecutions;
+		assert.equal(after.length, 1, "reconciled, not duplicated");
+		assert.equal(after[0].status, "completed");
+		assert.equal(after[0].error, undefined, "the stale reaper note must be cleared");
+	});
+
+	it("a late completion may NOT reconcile by tool name alone", async () => {
+		// Only the exact tool_use_id branch reconciles an unknown. Matching by
+		// name could attach a late completion to a different call, which is the
+		// cross-pairing bug B2 exists to prevent.
+		const manager = await newManager();
+		manager.trackActivity("s1", makeLog({
+			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-a", details: { cwd: "/w" },
+		}));
+		await manager.reconcileStuckExecutions({ maxAgeMs: 0 });
+
+		// A completion with a DIFFERENT id must not claim the reaped one.
+		manager.trackActivity("s1", makeLog({
+			hook: "PostToolUse", event: "PostToolUse", sessionId: "s1",
+			tool: "Bash", executionId: "tu-b", details: { cwd: "/w" },
+		}));
+
+		const execs = (await manager.getSession("s1")).toolExecutions;
+		const reaped = execs.find((e) => e.id === "tu-a");
+		assert.equal(reaped.status, "unknown", "the reaped call is untouched");
+	});
+
+	it("closes a session that never received SessionEnd, via idle", async () => {
+		// Answers a question left open in the plan's risk list: a session whose
+		// Claude Code exits without SessionEnd does close, but only through the
+		// two-step active -> idle -> completed sweep, so it needs two ticks.
+		const manager = await newManager({
+			idleTimeoutMs: 1,
+			completedTimeoutMs: 2,
+		});
+		manager.trackActivity("s1", makeLog({
+			hook: "SessionStart", event: "session.start", sessionId: "s1",
+			details: { cwd: "/w" },
+		}));
+
+		const session = await manager.getSession("s1");
+		session.lastActivityTime = new Date(Date.now() - 60_000).toISOString();
+
+		manager.checkStaleSessions();
+		assert.equal((await manager.getSession("s1")).status, "idle", "first tick");
+		manager.checkStaleSessions();
+		assert.equal(
+			(await manager.getSession("s1")).status,
+			"completed",
+			"second tick — no SessionEnd was ever received",
+		);
+	});
+
 	it("does not count an unknown outcome as an error in session stats", async () => {
 		// This is where the reaper's guess became a reported error count.
 		const manager = await newManager();

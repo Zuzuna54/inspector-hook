@@ -42,7 +42,15 @@
  *    never read, which is worse than not writing it.
  */
 
-import { readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readFile,
+	readdir,
+	rename,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
@@ -494,6 +502,17 @@ export async function writeMemoryFile(
 	const source =
 		!fileExisted || existingSource === AUTHORED_BY ? AUTHORED_BY : null;
 	const text = formatMemoryFile({ ...entry, source });
+
+	// Create the directory. Claude Code creates `memory/` lazily on its own
+	// first write, so a project that has never had a memory has no such
+	// directory — 13 of 31 project directories on this machine are in that
+	// state. Without this the FIRST write for a project failed with ENOENT,
+	// which is precisely the write the whole feature exists to make.
+	//
+	// The tests did not catch it because both suites `mkdir` the directory in
+	// setup, creating a state production never creates.
+	await mkdir(memoryDir, { recursive: true });
+
 	const temp = `${target}.${process.pid}.tmp`;
 	await writeFile(temp, text, "utf-8");
 	await rename(temp, target);
@@ -548,6 +567,9 @@ export async function upsertIndexEntry(
 	}
 
 	const next = lines.join("\n");
+	// Same reason as writeMemoryFile: the index may be the first thing ever
+	// written into this project's memory.
+	await mkdir(memoryDir, { recursive: true });
 	const temp = `${indexPath}.${process.pid}.tmp`;
 	await writeFile(temp, next.endsWith("\n") ? next : `${next}\n`, "utf-8");
 	await rename(temp, indexPath);

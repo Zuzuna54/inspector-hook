@@ -12,6 +12,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -294,6 +295,47 @@ describe("listMemoryProjects", () => {
 });
 
 describe("writeMemoryFile", () => {
+	it("REGRESSION: creates the memory directory when the project has none", async () => {
+		// The FIRST write for a project — the entire point of the feature — used
+		// to fail with ENOENT, because nothing in this module ever called mkdir
+		// and Claude Code creates `memory/` lazily on its own first write. 13 of
+		// 31 project directories on this machine have no memory/ directory.
+		//
+		// No test caught it because every other test in this file, and in
+		// memory-ipc.test.js, mkdirs the directory in setup — creating a state
+		// production never creates. So this one deliberately does not.
+		const home = await makeTempStore();
+		tempDirs.push(home);
+		const memoryDir = join(home, ".claude", "projects", "-fresh", "memory");
+		assert.equal(existsSync(memoryDir), false, "the directory must not exist yet");
+
+		const result = await writeMemoryFile(memoryDir, {
+			name: "first-ever",
+			description: "the first memory this project has had",
+			type: "project",
+			body: "content",
+		});
+
+		assert.equal(result.written, true, result.reason ?? "");
+		assert.equal(result.indexUpdated, true, "and the index is created too");
+		const project = await readMemoryProject(memoryDir);
+		assert.deepEqual(project.files.map((f) => f.fileName), ["first-ever.md"]);
+		assert.equal(project.hasIndex, true);
+	});
+
+	it("creates the directory for an index-only write too", async () => {
+		const home = await makeTempStore();
+		tempDirs.push(home);
+		const memoryDir = join(home, ".claude", "projects", "-fresh2", "memory");
+		await mkdir(memoryDir, { recursive: true });
+		await writeFile(join(memoryDir, "note.md"), HANDWRITTEN("note"));
+		// Remove nothing — the point is upsertIndexEntry on a dir with no index.
+		assert.equal(
+			await upsertIndexEntry(memoryDir, { fileName: "note.md", title: "Note" }),
+			true,
+		);
+	});
+
 	it("writes the documented format and indexes it", async () => {
 		const { memoryDir } = await makeMemoryDir();
 
