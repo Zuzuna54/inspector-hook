@@ -18,10 +18,12 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
+import { PAYLOADS } from "./fixtures/payloads.js";
 import { installGlobals, readMedia } from "./harness.js";
 
 const CONTEXT_LOAD_ORDER = [
 	"scripts/views/context/memory-render.js",
+	"scripts/views/context/injection-render.js",
 	"scripts/views/context/curation.js",
 	"scripts/views/context.js",
 ];
@@ -243,13 +245,44 @@ describe("context: refusals", () => {
 		assert.ok(html.includes("metadata.source"));
 	});
 
-	it("says nothing when the action succeeded", () => {
-		assert.equal(view.renderRefusal({ written: true }), "");
-		assert.equal(view.renderRefusal({ deleted: true }), "");
-		assert.equal(view.renderRefusal({ indexed: true }), "");
+	it("says nothing for ANY success shape the backend actually returns", () => {
+		// Driven by the generated fixtures, so this enumerates the real result
+		// shapes rather than the three someone remembered. It used to list the
+		// success keys and treat everything else as a refusal, so
+		// memory.removeFromIndex -- which succeeds with `{changed:true}` and
+		// names none of them -- reported "The action was refused." on its happy
+		// path. Un-indexing is the reversible alternative offered next to
+		// Delete, so the one safe action was the one that looked broken.
+		const successes = ["written", "deleted", "indexed", "unindexed", "unindexNoop"];
+		for (const key of successes) {
+			assert.equal(
+				view.renderRefusal(PAYLOADS.results[key]),
+				"",
+				`${key} is a success and must render nothing`,
+			);
+		}
+	});
+
+	it("renders every real failure shape", () => {
+		for (const key of ["writeRefused", "deleteRefused", "indexRefused"]) {
+			const html = view.renderRefusal(PAYLOADS.results[key]);
+			assert.match(html, /ctx-notice-refused/, `${key} must render a refusal`);
+			assert.ok(
+				html.includes(PAYLOADS.results[key].reason),
+				`${key} must show the backend's own words`,
+			);
+		}
+	});
+
+	it("says nothing about a shape it does not recognise", () => {
+		// A result nobody anticipated must not become an assertion about it.
+		// Guessing "refused" for an unknown shape is what produced the
+		// un-index bug in the first place.
+		assert.equal(view.renderRefusal({ somethingNew: true }), "");
 	});
 
 	it("falls back to a generic message when none was given", () => {
+		// `written: false` with no reason still DECLARES failure, so it renders.
 		assert.match(view.renderRefusal({ written: false }), /refused/i);
 	});
 });
@@ -438,14 +471,24 @@ describe("context: staged context", () => {
 	it("shows the exact text that will be injected", () => {
 		// stageContext returns what the hook will emit, so preview and delivery
 		// are the same artefact rather than two renderings of one intent.
-		const html = view.renderStaged({
-			text: "session summary here",
-			stagedAt: "2026-09-03T20:00:00.000Z",
-			expiresAt: "2026-09-03T21:00:00.000Z",
-		});
-		assert.match(html, /session summary here/);
+		const html = view.renderStaged(PAYLOADS.stagedOk);
+		assert.match(html, /Handled CRLF in the tokenizer/);
 		assert.match(html, /used once/);
 		assert.match(html, /ctx-clear-staged/);
+	});
+
+	it("never renders a staging REFUSAL as a successful stage", () => {
+		// The refusal is `{staged:false, reason}` -- truthy, and previously
+		// assigned straight to `staged`, so the success box was drawn over an
+		// empty body with an invalid expiry and the reason was thrown away.
+		// api.js now branches on the flag; this pins the renderer's half.
+		const refusal = PAYLOADS.stagedRefusal;
+		assert.equal(refusal.staged, false, "fixture is the refusal shape");
+		assert.equal(refusal.text, undefined, "a refusal carries no text");
+
+		const html = view.renderInjection(null, [], null, refusal.reason);
+		assert.match(html, /no file changes and no tool executions/);
+		assert.ok(!html.includes("Staged for the next session"), "drew a success box");
 	});
 
 	it("says the context lands on the NEXT session, not this one", () => {
@@ -468,24 +511,48 @@ describe("context: digest preview", () => {
 		assert.equal(view.renderDigest(null), "");
 	});
 
-	it("previews the text and offers to stage it", () => {
-		const html = view.renderDigest({ sessionId: "s1", worthKeeping: true, text: "facts here" });
-		assert.match(html, /facts here/);
+	it("previews the real digest body and offers to stage it", () => {
+		// The fixture is what panel.ts actually forwards. The old version of
+		// this test asserted `{sessionId, worthKeeping, text}` -- a shape the
+		// backend has never produced -- which is why it stayed green while the
+		// pane rendered an empty box for as long as it shipped.
+		const html = view.renderDigest(PAYLOADS.digestPayload);
+		assert.match(html, /make the parser handle CRLF/);
 		assert.match(html, /ctx-stage-digest/);
 	});
 
+	it("renders nothing useful from the ENVELOPE, and says so", () => {
+		// The precise regression: handed `{digest, written}` instead of the
+		// digest, every field reads undefined. It must not look like an empty
+		// session -- that ambiguity is what made this take three attempts to
+		// diagnose.
+		const html = view.renderDigest(PAYLOADS.digestEnvelope);
+		assert.match(html, /payload-shape problem/);
+		assert.ok(!html.includes("ctx-stage-digest"), "offered to stage an unusable digest");
+	});
+
+	it("carries a session id, so staging is reachable at all", () => {
+		// B1: the stage handler guards on this. It was read off the envelope,
+		// where it does not exist, so the button was a permanent no-op.
+		assert.equal(typeof PAYLOADS.digestPayload.sessionId, "string");
+		assert.ok(PAYLOADS.digestPayload.sessionId.length > 0);
+	});
+
+	it("reports a backend error instead of drawing an empty preview", () => {
+		const html = view.renderDigest(PAYLOADS.digestError);
+		assert.match(html, /No session nope/);
+		assert.ok(!html.includes("ctx-stage-digest"));
+	});
+
 	it("explains a skip instead of showing an empty entry", () => {
-		const html = view.renderDigest({
-			worthKeeping: false,
-			skipReason: "no tool executions recorded",
-		});
-		assert.match(html, /no tool executions recorded/);
+		const html = view.renderDigest(PAYLOADS.emptyDigestPayload);
+		assert.match(html, /no file changes and no tool executions/);
 		assert.ok(!html.includes("ctx-stage-digest"), "offered to stage nothing");
 	});
 
 	it("has no write control anywhere in the preview", () => {
 		// v1 previews only; the client cannot even express a write.
-		const html = view.renderDigest({ sessionId: "s1", worthKeeping: true, text: "x" });
+		const html = view.renderDigest(PAYLOADS.digestPayload);
 		assert.ok(!/write/i.test(html), "a write affordance appeared in the preview");
 	});
 });

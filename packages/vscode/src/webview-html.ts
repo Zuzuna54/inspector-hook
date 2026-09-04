@@ -98,6 +98,8 @@ export function buildWebviewHtml(
 	const scripts: string[][] = [
 		["scripts", "state.js"],
 		["scripts", "router.js"],
+		// mergeActivity, before api.js which calls it.
+		["scripts", "shared", "activity-merge.js"],
 		["scripts", "api.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
@@ -129,6 +131,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "archived.js"],
 		// Context modules load before context.js.
 		["scripts", "views", "context", "memory-render.js"],
+		["scripts", "views", "context", "injection-render.js"],
 		["scripts", "views", "context", "curation.js"],
 		["scripts", "views", "context.js"],
 		// main.js wires everything up and must be last.

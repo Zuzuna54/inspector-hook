@@ -319,8 +319,32 @@ const ContextRenderMixin = {
 	 * @returns {string}
 	 */
 	renderRefusal(result) {
-		if (!result || result.written || result.deleted || result.indexed) return "";
-		const reason = result.reason || "The action was refused.";
+		if (!result) return "";
+
+		// Render only when the payload DECLARES a failure.
+		//
+		// This used to enumerate the success keys instead -- written, deleted,
+		// indexed -- and treat everything else as a refusal. So
+		// `memory.removeFromIndex`, which succeeds with `{changed:true}` and
+		// names none of those, reported "The action was refused." on the happy
+		// path. Un-indexing is the reversible alternative offered next to
+		// Delete, so the one safe action was the one that looked broken.
+		//
+		// Inverting it means a result shape nobody anticipated renders nothing
+		// rather than an assertion about it, and the accompanying test
+		// enumerates every shape the mutating methods actually return.
+		const declaresFailure =
+			result.reason !== undefined ||
+			result.refused !== undefined ||
+			result.error !== undefined ||
+			result.written === false ||
+			result.deleted === false ||
+			result.indexed === false ||
+			result.staged === false;
+		if (!declaresFailure) return "";
+
+		const reason =
+			result.reason || result.error || result.refused || "The action was refused.";
 		return `<div class="ctx-notice ctx-notice-refused">${Utils.escapeHtml(reason)}</div>`;
 	},
 
@@ -454,103 +478,6 @@ const ContextRenderMixin = {
           <button class="btn btn-xs btn-success ctx-edit-save" ${changed ? "" : "disabled"}>Save</button>
         </div>
         <textarea class="ctx-editor-body" aria-label="Memory body">${Utils.escapeHtml(draft)}</textarea>
-      </div>
-    `;
-	},
-
-	/**
-	 * The injection pane: what is staged, and the sessions you can stage from.
-	 * @param {Object} staged
-	 * @param {Array} sessions
-	 * @param {Object} digest
-	 * @returns {string}
-	 */
-	renderInjection(staged, sessions, digest) {
-		return `
-      <div class="ctx-injection">
-        ${this.renderStaged(staged)}
-        <div class="ctx-injection-sessions">
-          <h4>Stage a session's digest</h4>
-          <p class="ctx-hint">
-            Nothing is injected unless you stage it, and it lands on the
-            <strong>next session that starts</strong> — not this one.
-          </p>
-          ${
-						(sessions || []).length
-							? (sessions || [])
-									.map(
-										(s) => `
-              <div class="ctx-session-row" data-session-id="${Utils.escapeHtml(s.id)}">
-                <span class="ctx-session-name">${Utils.escapeHtml(s.name || s.id.slice(0, 8))}</span>
-                <span class="ctx-session-meta">${Utils.formatDate(s.startTime)}</span>
-                <button class="btn btn-xs ctx-preview-digest" data-session-id="${Utils.escapeHtml(s.id)}">Preview</button>
-              </div>
-            `,
-									)
-									.join("")
-							: '<div class="empty-state"><div class="empty-state-title">No sessions retained</div></div>'
-					}
-        </div>
-        ${this.renderDigest(digest)}
-      </div>
-    `;
-	},
-
-	/**
-	 * What is currently staged.
-	 * @param {Object} staged
-	 * @returns {string}
-	 */
-	renderStaged(staged) {
-		if (!staged) {
-			return `
-        <div class="ctx-notice">
-          Nothing staged. The next session starts with only its native memory.
-        </div>
-      `;
-		}
-		return `
-      <div class="ctx-staged">
-        <div class="ctx-staged-head">
-          <strong>Staged for the next session</strong>
-          <span class="ctx-staged-meta">expires ${Utils.formatDate(staged.expiresAt)}</span>
-          <button class="btn btn-xs btn-danger ctx-clear-staged">Clear</button>
-        </div>
-        <p class="ctx-hint">This is exactly the text the hook will emit, and it is used once.</p>
-        <pre class="ctx-staged-text">${Utils.escapeHtml(staged.text || "")}</pre>
-      </div>
-    `;
-	},
-
-	/**
-	 * A previewed digest, and the button that stages it.
-	 *
-	 * Preview is the whole feature: what is staged is the text shown here, so
-	 * nothing can be injected that was not read first.
-	 * @param {Object} digest
-	 * @returns {string}
-	 */
-	renderDigest(digest) {
-		if (!digest) return "";
-
-		// A session with nothing recorded produces no useful digest, and the
-		// backend says why rather than handing back an empty entry.
-		if (digest.worthKeeping === false) {
-			return `
-        <div class="ctx-notice">
-          Nothing worth staging from this session${digest.skipReason ? `: ${Utils.escapeHtml(digest.skipReason)}` : "."}
-        </div>
-      `;
-		}
-
-		const text = digest.text || digest.body || "";
-		return `
-      <div class="ctx-digest">
-        <div class="ctx-digest-head">
-          <strong>Digest preview</strong>
-          <button class="btn btn-xs btn-success ctx-stage-digest">Stage this</button>
-        </div>
-        <pre class="ctx-digest-text">${Utils.escapeHtml(text)}</pre>
       </div>
     `;
 	},

@@ -49,7 +49,8 @@ const ContextView = {
 				// failure in this codebase.
 				if (
 					newVal.digest !== oldVal?.digest ||
-					newVal.staged !== oldVal?.staged
+					newVal.staged !== oldVal?.staged ||
+					newVal.stageRefusal !== oldVal?.stageRefusal
 				) {
 					this.renderInjectionPane();
 				}
@@ -130,8 +131,13 @@ const ContextView = {
 	renderInjectionPane() {
 		const el = document.getElementById("ctx-injection-pane");
 		if (!el) return;
-		const { staged, digest } = State.contextView;
-		el.innerHTML = this.renderInjection(staged, State.sessions || [], digest);
+		const { staged, digest, stageRefusal } = State.contextView;
+		el.innerHTML = this.renderInjection(
+			staged,
+			State.sessions || [],
+			digest,
+			stageRefusal,
+		);
 	},
 
 	/**
@@ -355,6 +361,9 @@ const ContextView = {
 					...State.contextView,
 					mode: mode.dataset.mode,
 					digest: null,
+					// A stale refusal outliving the action it described would
+					// accuse the next preview of a failure that was not its own.
+					stageRefusal: null,
 				});
 				this.renderMode();
 				if (mode.dataset.mode === "injection") API.memoryGetStaged();
@@ -394,8 +403,25 @@ const ContextView = {
 			}
 
 			if (e.target.closest(".ctx-stage-digest")) {
+				// The button only renders for a digest worth keeping, so the
+				// session id is the only thing that has to be present. It was
+				// not: the guard read `digest.sessionId` off the IPC envelope
+				// rather than the digest, so it never passed and the button did
+				// nothing, silently, for as long as it shipped. Now that the
+				// panel unwraps the envelope and SessionDigest carries the id,
+				// this resolves -- and a missing id reports itself rather than
+				// returning quietly, because a no-op that looks like a click is
+				// the failure that took three attempts to find.
 				const { digest } = State.contextView;
-				if (digest?.sessionId) API.memoryStageContext({ sessionId: digest.sessionId });
+				if (digest?.sessionId) {
+					API.memoryStageContext({ sessionId: digest.sessionId });
+				} else {
+					State.update("contextView", {
+						...State.contextView,
+						stageRefusal:
+							"This digest arrived without a session id, so it cannot be staged.",
+					});
+				}
 				return;
 			}
 
@@ -515,7 +541,12 @@ const ContextView = {
  * Compose the renderers and curation actions onto the view, after the literal
  * so a stale local cannot shadow them. panel.ts loads both before this file.
  */
-Object.assign(ContextView, window.ContextRenderMixin, window.ContextCurationMixin);
+Object.assign(
+	ContextView,
+	window.ContextRenderMixin,
+	window.ContextInjectionMixin,
+	window.ContextCurationMixin,
+);
 
 Router.register("context", ContextView);
 
