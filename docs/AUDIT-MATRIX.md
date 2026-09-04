@@ -228,7 +228,7 @@ work". Two rows changed status purely by someone running the command.
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Core process starts in < 500ms | **broken** | **533ms measured** — over the 500ms target |
+| Core process starts in < 500ms | **broken** | **Depends entirely on store size, and the bare number here was wrong.** Re-measured 2026-09-05: empty store 134–179 ms (passes); the real store, 2686 logs plus sessions and the research index, 705–826 ms over three runs (fails). An audit session measured ~1520 ms on a larger store. The original `533ms` cited no conditions, which is why three parties got three numbers — the defect is the unconditioned claim, not the value |
 | Hook log delivery < 100ms | **verified** | **37ms** measured (was 337ms before M2) |
 | Webview update latency < 1 second | **untested** | Not measured |
 | Zero memory leaks in 1-hour test | **untested** | Leaked timers fixed (B8) and unref'd; no 1-hour soak run |
@@ -621,7 +621,7 @@ work". Two rows changed status purely by someone running the command.
 | Criterion | Status | Evidence |
 |---|---|---|
 | Add input validation | **verified** | `ingest.test.js` — rejects malformed JSON and bad payloads |
-| Implement rate limiting | **verified** | `hardening.test.js` — 600/min sliding window, 429 + Retry-After |
+| Implement rate limiting | **verified** | `hardening.test.js` — 600/min sliding window, `X-RateLimit-*` headers, 429. **Correction: this row previously claimed a `Retry-After` header. The code never sets one** — only `X-RateLimit-Limit/Remaining/Reset`. An asserted header that does not exist, in the document written to catch exactly that |
 | Add path sanitization | **verified** | **Found a live traversal and fixed it** — `persistence.test.js` SECURITY tests |
 | Security audit | **broken** | See Pre-Release: partial |
 
