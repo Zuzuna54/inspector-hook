@@ -16,6 +16,7 @@ import { IpcServer } from "./ipc/ipc-server.js";
 import { FileTracker } from "./managers/file-tracker.js";
 import { LogManager } from "./managers/log-manager.js";
 import { SessionManager } from "./managers/session-manager.js";
+import { collectDigestInput } from "./memory/digest-input.js";
 import { resolveMemoryDir, writeMemoryFile } from "./memory/native-memory.js";
 import { buildSessionDigest } from "./memory/session-digest.js";
 import { migrateStore } from "./persistence/migrations.js";
@@ -386,6 +387,22 @@ export class InspectorCore {
 	 * Returns false on failure, which cancels that session's deletion. A
 	 * session we could not preserve is worth more on disk than freed.
 	 */
+	/**
+	 * Everything a digest is built from, for either path here.
+	 *
+	 * Both callers used to pass a bare session, which silently produced a
+	 * thinner digest than the one the panel showed for the same session. One
+	 * collector means there is no longer a "which path built this" question to
+	 * get wrong.
+	 */
+	private async digestInputFor(session: Session) {
+		return collectDigestInput({
+			session,
+			logs: this.logManager,
+			changes: this.fileTracker,
+		});
+	}
+
 	private async collapseSession(
 		id: string,
 		session: unknown,
@@ -394,7 +411,13 @@ export class InspectorCore {
 			const record = session as Session | undefined;
 			if (!record || typeof record !== "object") return false;
 
-			const digest = buildSessionDigest({ session: record });
+			// The full input, not a bare session. This is the retention path: its
+			// whole purpose is to preserve value before the raw data is deleted,
+			// so it must not write the weakest of the three digests. It used to
+			// -- the summary that survives permanently said "N changes (paths
+			// unresolved)" and carried no counts, while the preview you can
+			// regenerate any time got the good one. Exactly backwards.
+			const digest = buildSessionDigest(await this.digestInputFor(record));
 			const summary: SessionSummaryRecord = {
 				id,
 				collapsedAt: new Date().toISOString(),
@@ -436,7 +459,7 @@ export class InspectorCore {
 		if (!this.config.writeSessionMemory) return;
 
 		try {
-			const digest = buildSessionDigest({ session });
+			const digest = buildSessionDigest(await this.digestInputFor(session));
 			if (!digest.worthKeeping) {
 				this.logManager.addLog({
 					hook: "SessionMemory",

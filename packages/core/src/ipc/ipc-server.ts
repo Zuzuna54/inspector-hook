@@ -35,6 +35,7 @@ import {
 	writeMemoryFile,
 	type MemoryType,
 } from "../memory/native-memory.js";
+import { collectDigestInput } from "../memory/digest-input.js";
 import { buildSessionDigest } from "../memory/session-digest.js";
 import {
 	clearStagedContext,
@@ -953,11 +954,7 @@ export class IpcServer {
 			if (!text && sessionId) {
 				const session = await this.sessionManager.getSession(sessionId);
 				if (!session) return { staged: false, reason: `No session ${sessionId}.` };
-				const digest = buildSessionDigest({
-					session,
-					counts: await this.logCountsForSession(sessionId),
-					filePaths: await this.filePathsForSession(session.fileChanges),
-				});
+				const digest = await this.digestFor(session);
 				if (!digest.worthKeeping) {
 					return { staged: false, reason: digest.skipReason };
 				}
@@ -995,11 +992,7 @@ export class IpcServer {
 			const session = await this.sessionManager.getSession(sessionId);
 			if (!session) return { error: `No session ${sessionId}.` };
 
-			const digest = buildSessionDigest({
-				session,
-				counts: await this.logCountsForSession(sessionId),
-				filePaths: await this.filePathsForSession(session.fileChanges),
-			});
+			const digest = await this.digestFor(session);
 
 			if (!asBool(rec.write)) return { digest, written: false };
 			if (!digest.worthKeeping) {
@@ -1035,38 +1028,24 @@ export class IpcServer {
 		);
 	}
 
-	/** Error/warning/blocked counts for one session, from the log index. */
-	private async logCountsForSession(sessionId: string): Promise<{
-		errors: number;
-		warnings: number;
-		blocked: number;
-		logs: number;
-	}> {
-		const counts = { errors: 0, warnings: 0, blocked: 0, logs: 0 };
-		const { logs } = await this.logManager.getLogs({
-			filter: { sessionId },
-			pagination: { limit: Number.MAX_SAFE_INTEGER, offset: 0 },
-		});
-		for (const log of logs) {
-			counts.logs++;
-			if (log.level === "error") counts.errors++;
-			else if (log.level === "warn") counts.warnings++;
-			else if (log.level === "blocked") counts.blocked++;
-		}
-		return counts;
-	}
-
-	/** Resolve change IDs to file paths, which only the tracker can do. */
-	private async filePathsForSession(
-		changeIds: string[] | undefined,
-	): Promise<string[]> {
-		if (!Array.isArray(changeIds) || changeIds.length === 0) return [];
-		const paths: string[] = [];
-		for (const id of changeIds) {
-			const change = await this.fileTracker.getChangeById(id);
-			if (change?.filePath) paths.push(change.filePath);
-		}
-		return paths;
+	/**
+	 * Build a session's digest.
+	 *
+	 * The only place this server builds one, so preview and delivery cannot
+	 * drift: `collectDigestInput` gathers counts, prompts, replies and resolved
+	 * paths, and every caller here gets all four. Two local helpers that
+	 * assembled a partial input by hand used to live here; they were the reason
+	 * the same session produced different digests depending on which path
+	 * reached it.
+	 */
+	private async digestFor(session: Session) {
+		return buildSessionDigest(
+			await collectDigestInput({
+				session,
+				logs: this.logManager,
+				changes: this.fileTracker,
+			}),
+		);
 	}
 
 	/**

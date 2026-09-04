@@ -56,6 +56,12 @@ export function buildWebviewHtml(
 	// real <link>/<script> tags rather than CSS @import. An @import with a
 	// wrong path fails silently and takes the whole stylesheet with it; a
 	// missing tag here costs only the one file.
+	//
+	// The cost of that tolerance is that a typo is free and permanent, and two
+	// entries did exactly that -- naming a stylesheet and a script nobody ever
+	// wrote. So test/manifest.test.js now requires every path to exist unless
+	// it is named in that file's PENDING map with a reason. The tolerance is
+	// intact; it just has to be claimed rather than assumed.
 	const styles: string[][] = [
 		["styles", "variables.css"],
 		["styles", "layout.css"],
@@ -65,7 +71,6 @@ export function buildWebviewHtml(
 		["styles", "components", "feedback.css"],
 		["styles", "components", "nav.css"],
 		["styles", "prism-theme.css"],
-		["styles", "shared", "diff.css"],
 		["styles", "views", "dashboard.css"],
 		["styles", "views", "logs.css"],
 		["styles", "views", "sessions.css"],
@@ -97,7 +102,6 @@ export function buildWebviewHtml(
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
 		["scripts", "shared", "diff-render.js"],
-		["scripts", "shared", "session-accordion.js"],
 		["scripts", "views", "dashboard.js"],
 		["scripts", "views", "logs.js"],
 		// Sessions modules load before sessions.js.

@@ -23,7 +23,13 @@ const DEFAULT_CONFIG = {
 	// upward if it is taken. Set to 0 explicitly to always let the OS choose.
 	httpPort: parseInt(process.env.INSPECTOR_HOOK_HTTP_PORT || "52376", 10),
 	maxLogsInMemory: parseInt(process.env.INSPECTOR_HOOK_MAX_LOGS || "10000", 10),
-	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "7", 10),
+	// Off by default. Retention is fully implemented and was deleting sessions
+	// after seven days -- which is correct behaviour for a log tool and wrong
+	// for one whose whole point is answering "where did I solve this before".
+	// The mechanism stays: `enforceRetention` treats <= 0 as disabled, so this
+	// is a policy change, not a removal, and anyone whose store grows can set
+	// INSPECTOR_HOOK_RETENTION_DAYS and get it straight back.
+	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "0", 10),
 	// Opt-in. Writing into ~/.claude/projects/<p>/memory changes what every
 	// future Claude session in that project is told, so it is not something to
 	// switch on by default on the user's behalf.

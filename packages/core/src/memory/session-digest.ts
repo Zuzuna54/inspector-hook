@@ -33,6 +33,15 @@ export interface DigestInput {
 	/** Prompts the user sent, oldest first, when available. */
 	prompts?: string[];
 	/**
+	 * Claude's closing message per turn, oldest first, when available.
+	 *
+	 * Sourced from `Stop` only. `StopFailure` writes an API error into the same
+	 * field, and recording "API Error: rate limit reached" as something the
+	 * session concluded is exactly the invented fact this module exists to
+	 * avoid.
+	 */
+	replies?: string[];
+	/**
 	 * File paths for the session's change IDs.
 	 *
 	 * `Session.fileChanges` holds change IDs, not paths — resolving them needs
@@ -45,6 +54,16 @@ export interface DigestInput {
 }
 
 export interface SessionDigest {
+	/**
+	 * The session this digest describes.
+	 *
+	 * Derived from the session already -- `digestName` slices it for the entry
+	 * name -- but surfaced so consumers do not have to parse it back out of a
+	 * string. Its absence was a real bug: the panel's "Stage this" button
+	 * guarded on `digest.sessionId`, a field that had never existed, so the
+	 * button was a silent no-op for as long as it shipped.
+	 */
+	sessionId: string;
 	/** Frontmatter `name:`, and the basis of the file name. */
 	name: string;
 	/** Frontmatter `description:` — the line that decides recall relevance. */
@@ -112,7 +131,8 @@ function bulletList(items: string[], max = MAX_LISTED): string[] {
  * line budget, so every worthless entry costs a real one.
  */
 export function buildSessionDigest(input: DigestInput): SessionDigest {
-	const { session, counts = {}, prompts = [] } = input;
+	const { session, counts = {}, prompts = [], replies = [] } = input;
+	const sessionId = String(session.id ?? "");
 
 	const meta = (session.metadata ?? {}) as Record<string, unknown>;
 	const project = str(meta.projectName) ?? str(session.name) ?? "unknown project";
@@ -165,6 +185,7 @@ export function buildSessionDigest(input: DigestInput): SessionDigest {
 
 	if (files.length === 0 && executions.length === 0 && changeIds.length === 0) {
 		return {
+			sessionId,
 			name,
 			title,
 			type: "project",
@@ -208,6 +229,7 @@ export function buildSessionDigest(input: DigestInput): SessionDigest {
 	if (changeIds.length > 0) {
 		lines.push(`- Change records: ${changeIds.length}`);
 	}
+	if (counts.logs) lines.push(`- Log entries: ${counts.logs}`);
 	if (counts.errors) lines.push(`- Errors logged: ${counts.errors}`);
 	if (counts.warnings) lines.push(`- Warnings logged: ${counts.warnings}`);
 	if (counts.blocked) lines.push(`- Blocked operations: ${counts.blocked}`);
@@ -243,7 +265,18 @@ export function buildSessionDigest(input: DigestInput): SessionDigest {
 		lines.push("");
 	}
 
+	if (replies.length > 0) {
+		lines.push("## What was concluded", "");
+		// Same rule as the prompts above: verbatim and truncated, never
+		// summarised. These are Claude's own closing messages, and a paraphrase
+		// of a conclusion is indistinguishable from a conclusion once it is in
+		// the memory file.
+		lines.push(...bulletList(replies.map((r) => truncate(oneLine(r), 300)), 8));
+		lines.push("");
+	}
+
 	return {
+		sessionId,
 		name,
 		title,
 		type: "project",

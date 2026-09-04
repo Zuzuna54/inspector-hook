@@ -98,6 +98,12 @@ export {
 	type DigestInput,
 	type SessionDigest,
 } from "./memory/session-digest.js";
+export {
+	collectDigestInput,
+	type ChangeSource,
+	type CollectOptions,
+	type LogSource,
+} from "./memory/digest-input.js";
 
 // Export research history + search (Milestone 4)
 export {
