@@ -79,8 +79,8 @@ Each component has one clear responsibility:
 | File Tracker | Monitor file changes |
 | Version History | Maintain file versions |
 | Archive Manager | Store kept changes |
-| Rules Engine | Evaluate automation rules |
-| Staging Manager | Manage pending applies |
+| ~~Rules Engine~~ | **Not implemented.** Specified in Milestone 5, never built; `automation.ts` declares the types and nothing consumes them |
+| ~~Staging Manager~~ | **Not implemented.** Same as above — `StagedChange` and `ApplyResult` are declared and unreferenced |
 
 ### 3. Event-Driven Architecture
 
@@ -504,7 +504,7 @@ inspector-hook.vsix
 | Logs in memory | 10,000 | Reasonable for single session |
 | Sessions | 100 | More than typical usage |
 | File changes | 1,000 | Reasonable for project |
-| Version history | 100 per file | Balance history vs memory |
+| Version history | **50** per file | Balance history vs memory. `file-tracker.ts:103` — the documented 100 was never the default |
 
 ### Future Scalability
 

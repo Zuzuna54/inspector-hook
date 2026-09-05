@@ -118,6 +118,11 @@ interface JsonRpcNotification {
 
 #### Core Management
 
+> **`core.initialize` is not implemented.** The core takes its configuration
+> from `CoreInitParams` at construction and from environment variables; there
+> is no initialize method on the IPC surface. Verified against
+> `ipc-server.ts`: 55 methods are registered and this is not one of them.
+
 ##### `core.initialize`
 
 Initialize the core process with configuration.
@@ -1525,6 +1530,11 @@ Get archive statistics.
 
 #### Rules Operations
 
+> **The entire `rules.*` group is not implemented.** `rules.getAll`, `create`,
+> `update` and `delete` are registered nowhere. `protocol/src/automation.ts`
+> declares the `Rule` types and nothing outside the protocol package references
+> them. This is Milestone 5 of the plan, which was specified and never built.
+
 ##### `rules.getAll`
 
 Get all rules.
@@ -1679,6 +1689,13 @@ Delete a rule.
 ---
 
 #### Hook Management Operations
+
+> **The entire `hooks.*` group is not implemented.** Fourteen methods are
+> documented below — `getAll`, `getById`, `create`, `update`, `delete`,
+> `enable`, `disable`, `validate`, `test`, `install`, `repair`, `export`,
+> `import`, `getTemplates` — and none is registered. There is no `HookManager`
+> or `HookInstaller` class in the codebase; hook installation is `install.sh`,
+> which edits `~/.claude/settings.json` directly.
 
 ##### `hooks.getAll`
 
@@ -2230,6 +2247,9 @@ Get available hook script templates.
 
 #### Analytics Operations
 
+> **`analytics.get` is not implemented.** `protocol/src/automation.ts` declares
+> the `Analytics` types; nothing computes or serves them.
+
 ##### `analytics.get`
 
 Get analytics data.
@@ -2574,6 +2594,64 @@ Content-Type: application/json
 
 ---
 
+### Native memory (Milestone 3)
+
+Eleven methods, all registered in `ipc-server.ts` and none previously documented
+here. They operate on Claude Code's own auto-memory files under
+`~/.claude/projects/<slug>/memory/`, so the write guards matter as much as the
+signatures.
+
+| Method | Params | Returns |
+|---|---|---|
+| `memory.getProjects` | `{ includeEmpty? }` | `MemoryProject[]` — every project on the machine with memory |
+| `memory.getProject` | `{ memoryDir }` or `{ sessionId }` | `MemoryProject`, or `{ memoryDir: null, reason }` |
+| `memory.getFile` | `{ memoryDir\|sessionId, fileName }` | `MemoryFile \| null` |
+| `memory.write` | `{ …entry, userInitiated? }` | `{ written, path?, indexUpdated?, refused?, reason? }` |
+| `memory.delete` | `{ memoryDir, fileName, force? }` | `{ deleted, reason? }` |
+| `memory.addToIndex` | `{ memoryDir, fileName, title?, description? }` | `{ indexed, changed?, reason? }` |
+| `memory.removeFromIndex` | `{ memoryDir, fileName }` | `{ changed }` |
+| `memory.buildDigest` | `{ sessionId, write? }` | `{ digest, written, reason? }` |
+| `memory.stageContext` | `{ sessionId\|text, label?, ttlMs? }` | the staged object, or `{ staged: false, reason }` |
+| `memory.getStagedContext` | — | `StagedContext \| null` (expiry applied on read) |
+| `memory.clearStagedContext` | — | `{ cleared }` |
+
+**Refusals are part of the contract, not errors.** `memory.write` returns
+`refused: "not-authored-by-us"` for a file lacking `metadata.source:
+inspector-hook` unless `userInitiated` is set, and `refused: "no-memory-dir"`
+when a session carries no transcript path. `memory.delete` refuses a
+hand-written file without `force`. Callers should render `reason` verbatim.
+
+**`memory.buildDigest` returns an envelope**, `{ digest, written }` — the digest
+itself is nested. A caller reading `sessionId` or `text` off the top level gets
+`undefined`.
+
+### Research history (Milestone 4)
+
+| Method | Params | Returns |
+|---|---|---|
+| `research.search` | `{ query, projectKey?, kinds?, since?, limit? }` | `{ hits, total, searched, terms, scope, projectKey? }` |
+| `research.get` | `{ id }` | `ResearchItem \| null` |
+| `research.getStats` | — | `{ items, terms, byKind, byProject, oldest, newest, defaultProjectKey? }` |
+
+`scope` is always reported: `"project"` when `projectKey` was supplied,
+`"all"` otherwise. A result never leaves its own breadth implicit.
+
+### Sessions, additional
+
+| Method | Params | Returns |
+|---|---|---|
+| `sessions.getSummaries` | `{ sessionId?, limit? }` | `{ summaries, total }` — sessions collapsed by retention before their raw record was deleted |
+
+### File changes
+
+Eleven registered methods that were never documented here:
+`fileChanges.getPending`, `fileChanges.getAll`, `fileChanges.getById`,
+`fileChanges.getDiff`, `fileChanges.keep`, `fileChanges.keepAll`,
+`fileChanges.revert`, `fileChanges.revertAll`, `fileChanges.updateContent`,
+`fileChanges.delete`, `fileChanges.clear`.
+
+---
+
 ## WebSocket Protocol
 
 **Not implemented — and no longer planned in this form.**
@@ -2614,6 +2692,22 @@ interface WebviewCommand {
 ```
 
 ### Messages (Wrapper → Webview)
+
+> **Correction: the notification names below were wrong in both directions.**
+> This document specified eight dotted names — `log.received`, `stats.updated`,
+> `session.started`, `session.ended`, `hook.executed`, `hook.error`,
+> `hook.installed`, `file.changed`. The core emits **four**, undotted:
+>
+>     log          a new LogEntry
+>     stats        the Stats object, after every log
+>     session      a Session, on created / ended / idle / terminated
+>     fileChange   a FileChange, on tracked / kept / reverted / version:created
+>
+> There was **no overlap in either direction**, so anyone implementing a second
+> wrapper from this section would have subscribed to eight events and received
+> none of them. Verified against `core.ts`'s `sendNotification` call sites.
+> The names below are the webview's postMessage types, which are a different
+> protocol and are correct as documented.
 
 #### `init`
 

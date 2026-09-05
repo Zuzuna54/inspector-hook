@@ -14,6 +14,24 @@ status with evidence.
 | **broken** | Implemented but does not meet the criterion |
 | **not-impl** | No implementation exists (spec only) |
 | **untested** | Implemented and plausibly working, but not actually verified. Counted as a gap, not a pass |
+| **inert** | **Code that exists, is tested, and cannot run in the live system.** Distinct from `broken`, which is code that runs and gets the wrong answer. Every serious finding in the external audit of this project belongs to this class, and the matrix had no way to say it — which is why the audit found them and the matrix did not |
+
+**Evidence classes.** A status is only as good as what backs it, so each row's
+evidence falls into one of these, strongest first:
+
+| Class | Meaning |
+|---|---|
+| **live** | Observed against a running core, or a measurement with its conditions stated |
+| **test** | A named test that fails when the behaviour is removed |
+| **artifact** | The criterion IS a static artifact (`Create .gitignore`), and observing the file is the whole proof |
+| **read** | Someone read the code and concluded it works |
+
+**Rule: `read` alone may not support `verified` for a behavioural criterion.**
+An external audit re-derived all 268 rows and moved 41 out of `verified`,
+almost entirely from rows resting on `read`. Where a row below still says
+`verified` on a code read, treat it as `untested` until someone runs it — and
+`artifact` is not a loophole: it applies only where the criterion names a file,
+not where it names a behaviour.
 
 | | Count | Share |
 |---|---:|---:|

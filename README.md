@@ -314,7 +314,6 @@ It also writes the port to `/tmp/inspector-hook.port` for hook scripts to discov
 
 ```bash
 INSPECTOR_HOOK_HTTP_PORT=52376        # HTTP server port (0 = auto-assign)
-INSPECTOR_HOOK_WS_PORT=52377          # WebSocket port (future use)
 INSPECTOR_HOOK_MAX_LOGS=10000         # Maximum logs in memory
 INSPECTOR_HOOK_RETENTION_DAYS=7       # Log retention period
 INSPECTOR_HOOK_WORKSPACE=/path        # Working directory
@@ -474,7 +473,7 @@ Configure in VS Code settings (`settings.json`):
 
 ### Port Already in Use
 
-If port 52376 is in use, the core will fail to start. Solutions:
+If port 52376 is in use, the core **scans upward for the next free port** and writes the one it bound to the port file, so hooks still find it. It does not fail to start. If you want a specific port:
 
 1. Change the port in VS Code settings
 2. Kill the process using the port: `lsof -i :52376 | awk 'NR>1 {print $2}' | xargs kill`
@@ -482,9 +481,12 @@ If port 52376 is in use, the core will fail to start. Solutions:
 
 ### Hooks Not Working
 
-1. Verify hooks are installed: `ls ~/.claude/*.sh`
+1. Verify hooks are installed: `jq '.hooks | keys' ~/.claude/settings.json`
+   (the installer registers commands in `settings.json`; it copies no scripts into `~/.claude/`)
 2. Check Claude Code settings: `cat ~/.claude/settings.json`
-3. Verify hook permissions: `chmod +x ~/.claude/*.sh`
+3. Verify hook permissions: `ls -l packages/hooks/claude/*.sh`
+   (the hooks run from the repo; the installer registers their absolute paths
+   rather than copying them into `~/.claude/`)
 4. Check port file exists: `cat /tmp/inspector-hook.port`
 
 ### Extension Not Starting
