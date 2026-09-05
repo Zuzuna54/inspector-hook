@@ -8,7 +8,10 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { installGlobals, readMedia } from "./harness.js";
 
@@ -142,5 +145,61 @@ describe("api message routing", () => {
 		// "is not a function".
 		assert.match(api, /getVersionContent\(filePath, versionNumber\)/);
 		assert.ok(api.includes('case "version-content"'));
+	});
+});
+
+describe("archived diffs reach the archive, not the pending map", () => {
+	// 155 of 155 archived diffs returned nothing, silently, for the life of the
+	// view. Two independent causes, both fixed here:
+	//
+	//  1. The view asked `get-diff`, which routes to fileChanges.getDiff and
+	//     reads `this.changes`. Archived changes live in `this.archived`, so
+	//     the lookup was null by construction. The correct method existed on
+	//     both sides and nothing dispatched to it.
+	//  2. panel.ts spread that null: `{ ...diff, changeId }` yields a truthy
+	//     `{ changeId }`, so the error branch could never fire and a missing
+	//     change rendered as a well-formed diff with no hunks -- which is
+	//     indistinguishable from a file that genuinely did not change.
+	//
+	// The second is why the first survived: the failure had no symptom.
+
+	it("the view requests the archived diff", () => {
+		const src = readMedia("scripts/views/archived.js");
+		assert.match(src, /API\.getArchivedDiff\(changeId\)/, "still asking the pending map");
+		assert.ok(
+			!/API\.getDiff\(changeId\)/.test(src),
+			"still calls the pending lookup, which returns null for every archived change",
+		);
+	});
+
+	it("api.js can express the request", () => {
+		const src = readMedia("scripts/api.js");
+		assert.match(src, /getArchivedDiff\(changeId\)/);
+		assert.match(src, /send\("get-archived-diff"/);
+	});
+
+	it("panel.ts dispatches it to the archive lookup", () => {
+		const src = readFileSync(
+			join(dirname(fileURLToPath(import.meta.url)), "..", "src", "panel.ts"),
+			"utf8",
+		);
+		assert.match(src, /case "get-archived-diff"/, "no handler for the command");
+		assert.match(
+			src,
+			/_coreBridge\.getArchivedDiff\(changeId\)/,
+			"the case exists but does not call the archive lookup",
+		);
+	});
+
+	it("a null lookup is reported as an error, not as an empty diff", () => {
+		const src = readFileSync(
+			join(dirname(fileURLToPath(import.meta.url)), "..", "src", "panel.ts"),
+			"utf8",
+		).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+		assert.match(
+			src,
+			/if \(!diff\) \{[\s\S]*?type: "diff-error"/,
+			"a null diff can still be spread into a truthy, empty-looking result",
+		);
 	});
 });

@@ -508,9 +508,12 @@ const ArchivedView = {
       this._currentDiff = null;
     } else {
       this._selectedChangeId = changeId;
-      // Request diff
-      if (typeof API !== 'undefined' && API.getDiff) {
-        API.getDiff(changeId);
+      // Request diff from the ARCHIVE. This view lists kept and reverted
+      // changes, which the tracker holds in a different map from pending
+      // ones -- asking the pending lookup returns null for every one of
+      // them, which is what this view did for its whole existence.
+      if (typeof API !== 'undefined' && API.getArchivedDiff) {
+        API.getArchivedDiff(changeId);
       }
     }
     this.renderSessionAccordions();

@@ -25,7 +25,12 @@ import { readMedia } from "./harness.js";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 const panel = readFileSync(join(srcDir, "panel.ts"), "utf8");
-const api = readMedia("scripts/api.js");
+// api.js plus its sender mixins. The senders live in ./api/ now, and reading
+// only api.js would make every "does the webview send this?" assertion here
+// silently vacuous the moment a domain is extracted — which is exactly the
+// drift this suite exists to catch, so it must follow the split.
+const API_SOURCES = ["scripts/api.js", "scripts/api/memory-senders.js"];
+const api = API_SOURCES.map((p) => readMedia(p)).join("\n");
 
 /** Strip comments so a checked pattern cannot match its own explanation. */
 const stripComments = (text) =>

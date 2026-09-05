@@ -251,9 +251,21 @@ const LogsView = {
       filteredLogs = filteredLogs.filter(log => log.sessionId === filters.session);
     }
 
-    // Update count
+    // Update count.
+    //
+    // Says "N of M" whenever the core holds more than the panel fetched, so a
+    // number smaller than the Dashboard's is explained rather than simply
+    // wrong. An unqualified "100" next to a Dashboard reading thousands is a
+    // false statement about the same quantity.
     const logCount = document.getElementById('log-count');
-    if (logCount) logCount.textContent = filteredLogs.length;
+    if (logCount) {
+      const total = State.logsTotal || 0;
+      const held = logs.length;
+      logCount.textContent =
+        total > held
+          ? `${filteredLogs.length} of ${total}`
+          : String(filteredLogs.length);
+    }
 
     // Render empty state
     if (filteredLogs.length === 0) {

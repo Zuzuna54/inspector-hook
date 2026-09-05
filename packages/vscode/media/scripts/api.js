@@ -258,76 +258,26 @@ const API = {
 	},
 
 	/**
+	 * Get the diff for an ARCHIVED change.
+	 *
+	 * Separate from getDiff because the tracker keeps kept/reverted changes in
+	 * a different map: `fileChanges.getDiff` reads `this.changes` and returns
+	 * null for anything archived, by construction. Every archived diff had
+	 * therefore always come back empty -- 155 of 155 on this machine -- and
+	 * rendered as "+0 / -0" rather than as an error.
+	 *
+	 * @param {string} changeId - Change ID
+	 */
+	getArchivedDiff(changeId) {
+		this.send("get-archived-diff", { changeId });
+	},
+
+	/**
 	 * Restore an archived change
 	 * @param {string} changeId - Change ID
 	 */
 	restoreArchived(changeId) {
 		this.send("restore-archived", { changeId });
-	},
-
-	// ==========================================================================
-	// Memory API (M3 - native auto memory)
-	// ==========================================================================
-
-	/** Every project's memory. `includeEmpty` keeps projects with no files. */
-	memoryGetProjects(params = {}) {
-		this.send("memory-get-projects", params);
-	},
-
-	/** Reference an existing file from MEMORY.md without rewriting the file. */
-	memoryAddToIndex(params) {
-		this.send("memory-add-to-index", params);
-	},
-
-	/** Drop a file's index line, leaving the file in place. */
-	memoryRemoveFromIndex(params) {
-		this.send("memory-remove-from-index", params);
-	},
-
-	/**
-	 * Create or update a memory entry.
-	 *
-	 * `userInitiated` is what allows editing a note the tool did not author, and
-	 * is set only from an explicit save in the curation UI.
-	 */
-	memoryWrite(params) {
-		this.send("memory-write", params);
-	},
-
-	/** Delete a memory entry. `force` is required for anything we did not author. */
-	memoryDelete(params) {
-		this.send("memory-delete", params);
-	},
-
-	/**
-	 * Stage context for the next session that starts.
-	 *
-	 * The backend returns exactly the text the hook will emit, which is what
-	 * lets the preview and the delivery be the same artefact rather than two
-	 * renderings of one intent.
-	 */
-	memoryStageContext(params) {
-		this.send("memory-stage-context", params);
-	},
-
-	/** What is staged right now, if anything. Expiry is applied on read. */
-	memoryGetStaged() {
-		this.send("memory-get-staged", {});
-	},
-
-	/** Discard whatever is staged. */
-	memoryClearStaged() {
-		this.send("memory-clear-staged", {});
-	},
-
-	/**
-	 * Preview a session's digest WITHOUT writing it.
-	 *
-	 * No write flag is sent: v1 previews only, and the surest way to keep that
-	 * true is for the client to be unable to ask for a write.
-	 */
-	memoryBuildDigest(sessionId) {
-		this.send("memory-build-digest", { sessionId });
 	},
 
 	// ==========================================================================
@@ -415,11 +365,20 @@ const API = {
 				break;
 			}
 
-			case "logs":
-				// Bulk logs response
-				State.update("logs", payload.logs || []);
-				this._updateTabBadge("logs", (payload.logs || []).length);
+			case "logs": {
+				// `total` is what the core holds; `logs` is the page we asked for.
+				// Badging the page length made the tab report the request limit
+				// rather than reality -- 100, next to a Dashboard reading 7,773
+				// for the same quantity.
+				const rows = payload.logs || [];
+				State.update("logs", rows);
+				State.update(
+					"logsTotal",
+					typeof payload.total === "number" ? payload.total : rows.length,
+				);
+				this._updateTabBadge("logs", State.logsTotal);
 				break;
+			}
 
 			case "sessions":
 				State.update("sessions", payload.sessions || []);
@@ -698,4 +657,8 @@ const API = {
 window.addEventListener("message", (event) => API.handleMessage(event));
 
 // Make globally available
+// Senders split into ./api/, composed after the literal so a missing module
+// is a load-time absence rather than a silently undefined method.
+Object.assign(API, window.MemoryApiMixin);
+
 window.API = API;

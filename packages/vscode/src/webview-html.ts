@@ -100,6 +100,9 @@ export function buildWebviewHtml(
 		["scripts", "router.js"],
 		// mergeActivity, before api.js which calls it.
 		["scripts", "shared", "activity-merge.js"],
+		// Sender mixins load before api.js, which composes them onto API at
+		// its own load time.
+		["scripts", "api", "memory-senders.js"],
 		["scripts", "api.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],

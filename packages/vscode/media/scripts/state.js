@@ -14,6 +14,15 @@ const State = {
 	// Data
 	// ==========================================================================
 	logs: [],
+	/**
+	 * How many logs the CORE holds, which is not how many are in `logs`.
+	 *
+	 * `logs.getAll` has always returned `{ logs, total }` and `total` was read
+	 * nowhere, while the request hardcoded a limit of 100. So the Logs tab
+	 * reported "100" and the Dashboard reported the real figure for the same
+	 * quantity, on adjacent tabs, with the smaller number unqualified.
+	 */
+	logsTotal: 0,
 	sessions: [],
 	fileChanges: [],
 	archivedChanges: [],
@@ -204,6 +213,7 @@ const State = {
 			connected: this.connected,
 			port: this.port,
 			logs: this.logs,
+			logsTotal: this.logsTotal,
 			sessions: this.sessions,
 			fileChanges: this.fileChanges,
 			archivedChanges: this.archivedChanges,
@@ -227,6 +237,7 @@ const State = {
 		this.connected = false;
 		this.port = null;
 		this.logs = [];
+		this.logsTotal = 0;
 		this.sessions = [];
 		this.fileChanges = [];
 		this.archivedChanges = [];
