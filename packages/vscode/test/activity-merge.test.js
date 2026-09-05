@@ -10,6 +10,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
+import { apiSource } from "./api-sources.js";
 import { readMedia } from "./harness.js";
 
 // mergeActivity now has its own module, so the whole file is the function --
@@ -115,7 +116,7 @@ describe("activity merge", () => {
 });
 
 describe("activity polling contract", () => {
-	const api = readMedia("scripts/api.js");
+	const api = apiSource();
 	const sessions = readMedia("scripts/views/sessions.js");
 	const list = readMedia("scripts/views/sessions/session-list.js");
 

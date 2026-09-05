@@ -21,6 +21,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { apiSource } from "./api-sources.js";
 import { readMedia } from "./harness.js";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
@@ -40,12 +41,7 @@ const panel = PANEL_SOURCES.map((f) => readFileSync(f, "utf8")).join("\n");
 // only api.js would make every "does the webview send this?" assertion here
 // silently vacuous the moment a domain is extracted — which is exactly the
 // drift this suite exists to catch, so it must follow the split.
-const API_SOURCES = [
-	"scripts/api.js",
-	"scripts/api/memory-senders.js",
-	"scripts/api/history-senders.js",
-];
-const api = API_SOURCES.map((p) => readMedia(p)).join("\n");
+const api = apiSource();
 
 /** Strip comments so a checked pattern cannot match its own explanation. */
 const stripComments = (text) =>
@@ -62,8 +58,21 @@ const handled = [...panelCode.matchAll(/case\s+"([\w-]+)":/g)].map((m) => m[1]);
 const replied = [
 	...panelCode.matchAll(/_sendMessage\(\s*\{\s*type:\s*"([\w-]+)"/g),
 ].map((m) => m[1]);
-/** Reply types api.js handles. */
-const received = [...apiCode.matchAll(/case\s+"([\w-]+)":/g)].map((m) => m[1]);
+/**
+ * Reply types the webview handles.
+ *
+ * The inbound switch became a registry, so consumption is now expressed as
+ * `API.on(["type", ...], ...)` rather than a `case` label. Both forms are read:
+ * dropping the old pattern would be right today and would silently stop
+ * matching if anything is ever written the other way, and matching only the old
+ * one would have made this whole suite vacuous the moment the registry landed.
+ */
+const received = [
+	...[...apiCode.matchAll(/case\s+"([\w-]+)":/g)].map((m) => m[1]),
+	...[...apiCode.matchAll(/API\.on\(\s*\[([^\]]+)\]/g)].flatMap((m) =>
+		[...m[1].matchAll(/"([\w-]+)"/g)].map((t) => t[1]),
+	),
+];
 
 describe("every command the webview sends is handled", () => {
 	/**

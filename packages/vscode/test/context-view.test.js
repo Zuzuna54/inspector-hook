@@ -22,6 +22,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { PAYLOADS } from "./fixtures/payloads.js";
+import { apiSource } from "./api-sources.js";
 import { installGlobals, readMedia } from "./harness.js";
 
 const CONTEXT_LOAD_ORDER = [
@@ -720,7 +721,7 @@ describe("context: a staging refusal is not a staged context", () => {
 	it("api.js branches on the flag rather than truthiness", () => {
 		// B3's actual fix. The renderer half was tested; this half -- the one
 		// that decides success from failure -- was not.
-		const src = readMedia("scripts/api.js");
+		const src = apiSource();
 		assert.match(src, /payload\.staged === false/, "no explicit refusal branch");
 		assert.match(
 			src,

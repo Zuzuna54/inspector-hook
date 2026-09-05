@@ -419,6 +419,10 @@ function init() {
   setupClearButton();
 
   // Set up header stats updates
+  // Handlers are all registered by now (main.js loads last), so release
+  // anything that arrived before they were in place.
+  API.ready();
+
   setupHeaderStats();
   setupConnectionIndicator();
 

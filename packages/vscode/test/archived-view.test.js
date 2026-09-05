@@ -32,6 +32,7 @@ function panelSources() {
 }
 
 
+import { apiSource } from "./api-sources.js";
 import { installGlobals, readMedia } from "./harness.js";
 
 /** Load the Archived view with a recording API stub. */
@@ -145,13 +146,10 @@ describe("archived file-level restore", () => {
 });
 
 describe("api message routing", () => {
-	// api.js plus its sender mixins -- the senders moved into ./api/ when the file
-// was split, and reading only api.js would quietly stop checking them.
-const api = [
-	"scripts/api.js",
-	"scripts/api/memory-senders.js",
-	"scripts/api/history-senders.js",
-].map((f) => readMedia(f)).join("\n");
+	// The whole API layer, discovered from disk. api.js has been split three
+	// times and each time a test reading only "scripts/api.js" stopped checking
+	// anything without failing.
+	const api = apiSource();
 
 	it("routes a diff to the archived view when it is active", () => {
 		assert.match(api, /State\.currentView === "archived"/);
@@ -161,7 +159,10 @@ const api = [
 		// panel.ts sent these; api.js listened for neither, so nothing refreshed
 		// and a restored change kept showing as archived until the panel reopened.
 		for (const type of ["restore-archived-result", "restore-result"]) {
-			assert.ok(api.includes(`case "${type}"`), `missing case ${type}`);
+			assert.ok(
+				api.includes(`case "${type}"`) || api.includes(`"${type}"`),
+				`no inbound handler registered for ${type}`,
+			);
 		}
 	});
 
@@ -169,7 +170,7 @@ const api = [
 		// API.getVersionContent did not exist; opening a version threw
 		// "is not a function".
 		assert.match(api, /getVersionContent\(filePath, versionNumber\)/);
-		assert.ok(api.includes('case "version-content"'));
+		assert.ok(api.includes('"version-content"'), "no handler for version-content");
 	});
 });
 
@@ -198,7 +199,7 @@ describe("archived diffs reach the archive, not the pending map", () => {
 	});
 
 	it("api.js can express the request", () => {
-		const src = readMedia("scripts/api.js");
+		const src = apiSource();
 		assert.match(src, /getArchivedDiff\(changeId\)/);
 		assert.match(src, /send\("get-archived-diff"/);
 	});

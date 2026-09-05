@@ -105,6 +105,13 @@ export function buildWebviewHtml(
 		["scripts", "api", "memory-senders.js"],
 		["scripts", "api", "history-senders.js"],
 		["scripts", "api.js"],
+		// Inbound handlers register onto API, so they load after it. Each
+		// claims its message types via API.on, which throws on a duplicate.
+		["scripts", "api", "inbound-core.js"],
+		["scripts", "api", "inbound-sessions.js"],
+		["scripts", "api", "inbound-changes.js"],
+		["scripts", "api", "inbound-history.js"],
+		["scripts", "api", "inbound-context.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
 		["scripts", "shared", "diff-render.js"],
