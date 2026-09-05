@@ -372,8 +372,11 @@ Inspector Hook uses **JSON-RPC 2.0** for communication between the VS Code exten
 
 **Sessions**:
 - `sessions.getAll` - Get all sessions
-- `sessions.get` - Get single session by ID
-- `sessions.getLogs` - Get logs for a session
+- `sessions.getById` - Get single session by ID
+- `sessions.getActivity` - Ordered activity feed for a session
+- `sessions.getStats` - Per-session counts
+- `sessions.getSummaries` - Sessions collapsed by retention
+- `sessions.terminate` - End a session
 - `sessions.delete` - Delete a session
 
 **File Changes**:
@@ -500,7 +503,15 @@ If port 52376 is in use, the core **scans upward for the next free port** and wr
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Make your changes
-4. Run tests and linting: `pnpm test && pnpm lint`
+4. Run the checks: `pnpm build && pnpm typecheck && pnpm test`
+
+   > **There is no linter.** `pnpm lint` exists in the root `package.json` as
+   > `pnpm -r lint`, no package defines a `lint` script, and no linter is
+   > configured — so running it fails with `ERR_PNPM_RECURSIVE_RUN_NO_SCRIPT`.
+   > This step used to say `pnpm test && pnpm lint`, which fails for every
+   > contributor at the second command. `typecheck` is the check that actually
+   > runs, and `bash -n` over the shipped shell scripts is worth adding by hand:
+   > a syntax break in a hook fails silently at runtime, and has shipped twice.
 5. Commit with conventional commits: `git commit -m "feat: add new feature"`
 6. Push and create a pull request
 
