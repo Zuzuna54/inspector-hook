@@ -31,6 +31,16 @@ import {
 } from "./tool-executions.js";
 
 export interface SessionManagerOptions {
+	/**
+	 * How many sessions stay resident. Older ones load from disk on demand.
+	 * Defaults to 200; set 0 or less to keep everything in memory.
+	 */
+	maxSessionsInMemory?: number;
+	/**
+	 * Byte budget for resident sessions, measured from file size. This is the
+	 * bound that actually binds: sessions run to tens of megabytes each.
+	 */
+	maxSessionBytesInMemory?: number;
 	storagePath: string;
 	persistence?: PersistenceStore;
 	/** Time in milliseconds before marking active session as idle (default: 30 minutes) */
@@ -93,15 +103,50 @@ const STUCK_EXECUTION_TIMEOUT_MS = 15 * 60 * 1000;
  * events in one turn collapses into a single write.
  */
 const PERSIST_DEBOUNCE_MS = 250;
+/**
+ * How many sessions stay resident.
+ *
+ * `load()` used to parse EVERY session file into memory, and session records
+ * run to megabytes each -- 939 MB resident against a 200 MB budget, and a
+ * ~1,520 ms start against a real store versus ~120 ms empty. Both grow with
+ * history rather than levelling off, and turning retention off (so the corpus
+ * this feature searches stops being deleted) makes them grow faster.
+ *
+ * `maxLogsInMemory` already bounds the log buffer; nothing bounded this. The
+ * newest are resident and anything older is loaded from disk on demand, so the
+ * bound costs a read rather than making a session invisible.
+ *
+ * Bounded by BYTES, not by count. Measured on a real store, four sessions cost
+ * 101 MB of heap -- roughly 25 MB each, because a session carries its whole
+ * tool-execution history. A count cap of 200 would therefore permit several
+ * gigabytes and would not be a bound at all; it would only look like one. The
+ * count cap is kept as a secondary ceiling for the opposite case, a store full
+ * of tiny sessions.
+ */
+const DEFAULT_MAX_SESSION_BYTES_IN_MEMORY = 32 * 1024 * 1024;
+const DEFAULT_MAX_SESSIONS_IN_MEMORY = 200;
+/** Always keep at least this many, so a few huge sessions cannot starve the list. */
+const MIN_RESIDENT_SESSIONS = 5;
 
 export class SessionManager extends EventEmitter {
 	private sessions: Map<string, Session> = new Map();
 	private options: SessionManagerOptions;
 	private persistence?: PersistenceStore;
 	private staleCheckInterval: NodeJS.Timeout | null = null;
+	/**
+	 * Every session id on disk, resident or not.
+	 *
+	 * Cheap to hold (one string each) and it is what stops a non-resident
+	 * session being mistaken for a new one: `trackActivity` auto-creates on an
+	 * unseen id, so without this an event for an evicted session would silently
+	 * start a second record for it.
+	 */
+	private knownSessionIds: Set<string> = new Set();
 	private dirtySessionIds: Set<string> = new Set();
 	private persistTimer: NodeJS.Timeout | null = null;
 	private writeChain: Promise<void> = Promise.resolve();
+	private maxSessionsInMemory: number;
+	private maxSessionBytesInMemory: number;
 	private idleTimeoutMs: number;
 	private completedTimeoutMs: number;
 
@@ -109,6 +154,10 @@ export class SessionManager extends EventEmitter {
 		super();
 		this.options = options;
 		this.persistence = options.persistence;
+		this.maxSessionsInMemory =
+			options.maxSessionsInMemory ?? DEFAULT_MAX_SESSIONS_IN_MEMORY;
+		this.maxSessionBytesInMemory =
+			options.maxSessionBytesInMemory ?? DEFAULT_MAX_SESSION_BYTES_IN_MEMORY;
 		this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
 		this.completedTimeoutMs =
 			options.completedTimeoutMs ?? DEFAULT_COMPLETED_TIMEOUT_MS;
@@ -121,10 +170,31 @@ export class SessionManager extends EventEmitter {
 	async load(): Promise<void> {
 		if (!this.persistence) return;
 
-		const sessions = await this.persistence.loadAllJSON<Session>("sessions");
-		for (const [id, session] of sessions) {
-			this.sessions.set(id, session);
+		// Rank by mtime with `stat` -- one syscall each, parsing nothing -- and
+		// only parse the newest. Reading everything to find out what is recent
+		// is what made start time and memory scale with history.
+		const entries = await this.persistence.listJSONDetailed("sessions");
+		entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+		// Newest first, until either budget is spent. The byte budget is the one
+		// that matters; the count is a backstop for many small sessions.
+		let bytes = 0;
+		let loaded = 0;
+		for (const entry of entries) {
+			const overBudget =
+				bytes + entry.size > this.maxSessionBytesInMemory ||
+				loaded >= this.maxSessionsInMemory;
+			if (overBudget && loaded >= MIN_RESIDENT_SESSIONS) break;
+
+			const session = await this.persistence.loadJSON<Session>(
+				"sessions",
+				entry.id,
+			);
+			if (!session) continue;
+			this.sessions.set(entry.id, session);
+			bytes += entry.size;
+			loaded++;
 		}
+		this.knownSessionIds = new Set(entries.map((e) => e.id));
 
 		// Any execution still marked "running" in a store we just loaded cannot
 		// actually be running -- the process that owned it is gone. Resolve them
@@ -289,6 +359,10 @@ export class SessionManager extends EventEmitter {
 		};
 
 		this.sessions.set(id, session);
+		// Registered as known so a later eviction can still find it on disk.
+		// Without this, an evicted session would read as absent and the next
+		// event for it would silently start a SECOND record.
+		this.knownSessionIds.add(id);
 		this.emit("session:created", session);
 		this.schedulePersist(session);
 
@@ -313,6 +387,24 @@ export class SessionManager extends EventEmitter {
 	trackActivity(sessionId: string, log: LogEntry): void {
 		let session = this.sessions.get(sessionId);
 		const cwd = log.details?.cwd as string | undefined;
+
+		// Not resident is not the same as not existing. Since the resident set
+		// became bounded, an event can arrive for a session that is on disk and
+		// simply was not loaded -- resuming an older session does exactly that.
+		// Creating a fresh record for it would overwrite its real history on the
+		// next persist, so hydrate first. This method is synchronous and cannot
+		// await, which is why the read is too; it happens at most once per
+		// session per process, on a path that is rare by construction.
+		if (!session && this.persistence && this.knownSessionIds.has(sessionId)) {
+			const stored = this.persistence.loadJSONSync<Session>(
+				"sessions",
+				sessionId,
+			);
+			if (stored) {
+				this.sessions.set(sessionId, stored);
+				session = stored;
+			}
+		}
 
 		if (!session) {
 			// Create new session with metadata extracted from the log entry
@@ -521,7 +613,44 @@ export class SessionManager extends EventEmitter {
 	 * Get a single session by ID
 	 */
 	async getSession(id: string): Promise<Session | null> {
-		return this.sessions.get(id) || null;
+		const resident = this.sessions.get(id);
+		if (resident) return resident;
+
+		// Not resident does not mean absent. Only the newest sessions are held
+		// in memory; older ones are read on demand and become resident, which
+		// is what keeps the bound from turning into data loss.
+		if (!this.persistence || !this.knownSessionIds.has(id)) return null;
+		const stored = await this.persistence.loadJSON<Session>("sessions", id);
+		if (!stored) return null;
+		this.sessions.set(id, stored);
+		this.evictIfOverCap();
+		return stored;
+	}
+
+	/**
+	 * Drop the least recently active resident sessions once over the cap.
+	 *
+	 * A session with unsaved changes is never evicted -- it is only in memory
+	 * that those changes exist, so dropping it would lose them. Everything else
+	 * is on disk and costs one read to bring back.
+	 */
+	private evictIfOverCap(): void {
+		if (this.sessions.size <= this.maxSessionsInMemory) return;
+
+		const evictable = [...this.sessions.values()]
+			.filter((s) => !this.dirtySessionIds.has(s.id))
+			.sort((a, b) =>
+				String(a.lastActivityTime ?? a.startTime ?? "").localeCompare(
+					String(b.lastActivityTime ?? b.startTime ?? ""),
+				),
+			);
+
+		let excess = this.sessions.size - this.maxSessionsInMemory;
+		for (const session of evictable) {
+			if (excess <= 0) break;
+			this.sessions.delete(session.id);
+			excess--;
+		}
 	}
 
 	/**

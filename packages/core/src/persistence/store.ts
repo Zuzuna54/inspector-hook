@@ -15,7 +15,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 export interface PersistenceStoreOptions {
@@ -182,6 +182,28 @@ export class PersistenceStore {
 	/**
 	 * Check if a JSON file exists
 	 */
+	/**
+	 * Read one document synchronously.
+	 *
+	 * Exists for exactly one caller: `SessionManager.trackActivity`, which is
+	 * synchronous and cannot await. Since sessions became bounded in memory, an
+	 * event can arrive for a session that is on disk but not resident -- and
+	 * auto-creating a fresh record there would overwrite the real one on the
+	 * next persist. Blocking for a single file read on that rare path is a much
+	 * better trade than silently replacing a session's history.
+	 *
+	 * Do not reach for this anywhere else; every other path can await.
+	 */
+	loadJSONSync<T>(category: string, id: string): T | null {
+		try {
+			return JSON.parse(
+				readFileSync(this.getJSONPath(category, id), "utf-8"),
+			) as T;
+		} catch {
+			return null;
+		}
+	}
+
 	async existsJSON(category: string, id: string): Promise<boolean> {
 		const filePath = this.getJSONPath(category, id);
 		return existsSync(filePath);
@@ -201,6 +223,35 @@ export class PersistenceStore {
 		} catch {
 			return [];
 		}
+	}
+
+	/**
+	 * List a category with each entry's size and last-modified time.
+	 *
+	 * Uses `stat`, so it costs one syscall per file and parses nothing. That
+	 * distinction is the whole point: `loadAllJSON` reads and JSON-parses every
+	 * document, and for sessions those run to megabytes each -- which is how the
+	 * core reached 939 MB resident against a 200 MB budget, and why start took
+	 * ~1,520 ms against a real store versus ~120 ms against an empty one. Both
+	 * grow with history rather than levelling off.
+	 *
+	 * Ranking by mtime lets a caller decide WHICH documents are worth parsing
+	 * without parsing all of them first to find out.
+	 */
+	async listJSONDetailed(
+		category: string,
+	): Promise<Array<{ id: string; mtimeMs: number; size: number }>> {
+		const ids = await this.listJSON(category);
+		const out: Array<{ id: string; mtimeMs: number; size: number }> = [];
+		for (const id of ids) {
+			try {
+				const info = await stat(this.getJSONPath(category, id));
+				out.push({ id, mtimeMs: info.mtimeMs, size: info.size });
+			} catch {
+				// Vanished between listing and stat; skip it.
+			}
+		}
+		return out;
 	}
 
 	/**
