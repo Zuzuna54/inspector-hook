@@ -16,7 +16,10 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { PAYLOADS } from "./fixtures/payloads.js";
 import { installGlobals, readMedia } from "./harness.js";
@@ -617,5 +620,113 @@ describe("context: state changes actually re-render", () => {
 				`${field} changes without re-rendering the pane`,
 			);
 		}
+	});
+});
+
+describe("context: the index is reachable", () => {
+	// renderIndex existed, was styled, and had five tests while being called
+	// from nowhere and having no possible data source -- the backend read
+	// MEMORY.md only to measure it and discarded the text. These pin the data
+	// path that makes it real, because a renderer with no caller is the exact
+	// shape of dead code that reads as covered.
+	const { view } = loadContext();
+
+	it("renderDetail shows the index when a project is selected but no file", () => {
+		const src = readMedia("scripts/views/context.js");
+		assert.match(
+			src,
+			/if \(!file && project\) \{[\s\S]*?this\.renderIndex\(/,
+			"nothing calls renderIndex, so it is dead again",
+		);
+	});
+
+	it("renders the index prose, not just its links", () => {
+		const html = view.renderIndex(
+			"# Memory\n\n## Notes\n\nSome prose a human wrote.\n\n- [A](a.md) — first\n",
+			{ hasIndex: true, indexLines: 6, indexBytes: 70 },
+		);
+		assert.match(html, /Some prose a human wrote/, "prose was dropped");
+		assert.match(html, /ctx-index-link/);
+		assert.match(html, /data-file-name="a\.md"/);
+	});
+
+	it("says when it is showing only the slice Claude loads", () => {
+		const truncated = view.renderIndex("# Memory\n", {
+			hasIndex: true,
+			indexLines: 900,
+			indexBytes: 40000,
+			indexTruncated: true,
+		});
+		assert.match(truncated, /the file continues past it/);
+
+		const whole = view.renderIndex("# Memory\n", {
+			hasIndex: true,
+			indexLines: 6,
+			indexBytes: 70,
+		});
+		assert.ok(!whole.includes("continues past it"));
+	});
+
+	it("uses the same load budget the protocol declares", () => {
+		// Two copies of one constant is how a budget indicator starts lying, and
+		// the webview cannot import from the protocol package.
+		const protocolSrc = readFileSync(
+			join(dirname(fileURLToPath(import.meta.url)), "..", "..", "protocol", "src", "memory.ts"),
+			"utf8",
+		);
+		// Compared as NUMBERS, not as source text. Building a regex out of
+		// "25 * 1024" makes the asterisk a quantifier, so a textual comparison
+		// silently matches "25 1024" and passes whatever the values are -- a
+		// vacuous guard, which is the thing this suite exists to not ship.
+		const valueOf = (src, name) => {
+			const m = new RegExp(`${name}\\s*=\\s*([0-9*\\s]+?);`).exec(src);
+			if (!m) return null;
+			return m[1]
+				.split("*")
+				.map((part) => Number(part.trim()))
+				.reduce((a, b) => a * b, 1);
+		};
+
+		const viewSrc = readMedia("scripts/views/context/memory-render.js");
+		for (const name of ["INDEX_LOAD_LINES", "INDEX_LOAD_BYTES"]) {
+			const declared = valueOf(protocolSrc, `export const ${name}`);
+			const used = valueOf(viewSrc, `const ${name}`);
+			assert.ok(declared, `protocol no longer declares ${name}`);
+			assert.equal(used, declared, `${name} drifted: view ${used}, protocol ${declared}`);
+		}
+	});
+});
+
+describe("context: retyping a file", () => {
+	it("enables save on a type change with no body edit", () => {
+		// The selector rendered and accepted a value, but save was gated purely
+		// on the body diff -- so retyping alone could never be committed.
+		const src = readMedia("scripts/views/context.js");
+		assert.match(src, /ctx-type-select/, "no change handler for the selector");
+		assert.match(
+			src,
+			/typeChanged/,
+			"save is still gated on the body diff alone",
+		);
+		assert.match(
+			src,
+			/save\.disabled = !bodyChanged && !typeChanged/,
+			"the save gate does not account for a retype",
+		);
+	});
+});
+
+describe("context: a staging refusal is not a staged context", () => {
+	it("api.js branches on the flag rather than truthiness", () => {
+		// B3's actual fix. The renderer half was tested; this half -- the one
+		// that decides success from failure -- was not.
+		const src = readMedia("scripts/api.js");
+		assert.match(src, /payload\.staged === false/, "no explicit refusal branch");
+		assert.match(
+			src,
+			/staged: refused \? null :/,
+			"a refusal can still be stored as a staged context",
+		);
+		assert.match(src, /stageRefusal: refused \?/, "the reason is discarded");
 	});
 });

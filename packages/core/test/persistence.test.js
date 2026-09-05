@@ -9,7 +9,8 @@
 
 import { strict as assert } from "node:assert";
 import { existsSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { mkdtemp, readdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 
@@ -306,8 +307,25 @@ describe("PersistenceStore", () => {
 		// A security test that passes against the vulnerability it names is
 		// worse than no test: it certifies the bug. Now it asserts the property
 		// (nothing outside the store at all) rather than guessing one path.
-		const { store, basePath } = await newStore();
-		const outside = resolve(basePath, "..");
+		// The store gets a PRIVATE parent directory, so "outside the store" means
+		// a directory only this test writes to.
+		//
+		// It used to snapshot resolve(basePath, "..") -- which is the shared
+		// os.tmpdir(). `node --test` runs files in parallel, every suite makes
+		// its temp store there, and any sibling appearing mid-test was counted
+		// as an escape. So this failed at random depending on scheduling, while
+		// passing in isolation.
+		//
+		// A SECURITY test that fails for unrelated reasons is how a real
+		// regression eventually gets waved through as "the flaky one". This test
+		// has now been wrong twice: first it asserted one guessed path and
+		// passed against the unfixed code, and then it watched a directory it
+		// did not own.
+		const outside = await mkdtemp(join(tmpdir(), "inspector-hook-contain-"));
+		tempDirs.push(outside);
+		const basePath = join(outside, "store");
+		const store = new PersistenceStore({ basePath });
+		await store.initialize();
 
 		const before = new Set(await readdir(outside));
 		await store.saveJSON("../../evil", "id", { x: 1 });
@@ -351,9 +369,15 @@ describe("PersistenceStore", () => {
 		// and then failed this test in the main tree for an unrelated reason.
 		//
 		// A test that can be broken by another run's debris is not testing what
-		// it claims to.
-		const { store, basePath } = await newStore();
-		const outside = resolve(basePath, "..");
+		// it claims to. That fix was half of it: watching resolve(basePath, "..")
+		// is watching the shared os.tmpdir(), where every parallel test file
+		// creates its own store -- so a sibling appearing mid-test read as an
+		// escape. A PRIVATE parent is the property this test actually needs.
+		const outside = await mkdtemp(join(tmpdir(), "inspector-hook-contain-"));
+		tempDirs.push(outside);
+		const basePath = join(outside, "store");
+		const store = new PersistenceStore({ basePath });
+		await store.initialize();
 
 		const before = new Set(await readdir(outside));
 		await store.appendLog("../../escaped", { n: 1 });

@@ -19,7 +19,7 @@
  */
 
 import { strict as assert } from "node:assert";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,15 @@ const htmlSource = readFileSync(join(packageRoot, "src", "webview-html.ts"), "ut
 const PENDING = {
 	// e.g. "scripts/tray/tray-host.js": "tray lands in P3",
 };
+
+/**
+ * Files that ship but are deliberately not loaded.
+ *
+ * Empty, and it should stay that way. An unloaded asset is dead weight that
+ * looks alive: styles/main.css sat here for months at 548 lines, redefining
+ * theme variables nothing read.
+ */
+const UNLOADED = [];
 
 /**
  * Pull one `const <name>: string[][] = [ … ];` manifest out of the source.
@@ -75,6 +84,38 @@ describe("webview asset manifests", () => {
 			.filter((relPath) => !(relPath in PENDING))
 			.filter((relPath) => !existsSync(join(packageRoot, "media", relPath)));
 		assert.deepEqual(missing, [], "manifest names a file that is not there");
+	});
+
+	it("loads every asset that ships", () => {
+		// The other direction, and the one this test originally missed.
+		//
+		// Checking only manifest -> file catches a path naming nothing. It cannot
+		// catch a file nothing names, and there was one: styles/main.css, 548
+		// lines, the largest stylesheet in the project, loaded by nothing. It
+		// reads like the entry point and redefines the theme variables, so
+		// editing colours there changes nothing and reports no error.
+		//
+		// A one-directional check on a two-directional invariant is how half a
+		// problem stays invisible, which is the failure this suite exists to
+		// stop rather than repeat.
+		const shipped = [];
+		const walk = (dir) => {
+			for (const entry of readdirSync(join(packageRoot, "media", dir), {
+				withFileTypes: true,
+			})) {
+				const rel = dir ? `${dir}/${entry.name}` : entry.name;
+				if (entry.isDirectory()) walk(rel);
+				else if (/\.(css|js)$/.test(entry.name)) shipped.push(rel);
+			}
+		};
+		walk("");
+
+		const unloaded = shipped.filter((relPath) => !all.includes(relPath));
+		assert.deepEqual(
+			unloaded,
+			UNLOADED,
+			"a stylesheet or script ships but no manifest loads it",
+		);
 	});
 
 	it("has no stale PENDING entry", () => {

@@ -810,11 +810,23 @@ export class IpcServer {
 		// ---------------------------------------------------------------------
 
 		/** Every project on the machine that has memory — the cross-project rollup. */
-		this.methods.set("memory.getProjects", async (params) =>
-			listMemoryProjects({
+		this.methods.set("memory.getProjects", async (params) => {
+			const projects = await listMemoryProjects({
 				includeEmpty: asBool(asRec(params)?.includeEmpty) ?? false,
-			}),
-		);
+			});
+			// Resolve each project's real workspace path from the sessions we
+			// hold. `workspacePath` has been declared, copied through and
+			// rendered against since it was introduced, and populated by no
+			// caller -- so the view's branch for it was permanently dead and
+			// every project was labelled by the slug's tail instead.
+			//
+			// This resolves it EXACTLY rather than guessing: a session's
+			// transcript path maps to a memory dir by the same function the rest
+			// of this file uses, so a match is the same directory, not a
+			// reconstruction of one. The slug cannot be reversed -- it flattens
+			// both "/" and "_" to "-" -- which is why nothing had populated it.
+			return this.withWorkspacePaths(projects);
+		});
 
 		/**
 		 * One project's memory. Addressed either by directory, or by session so
@@ -1044,6 +1056,43 @@ export class IpcServer {
 	 * the same session produced different digests depending on which path
 	 * reached it.
 	 */
+	/**
+	 * Attach each project's workspace path, where a held session reveals it.
+	 *
+	 * Built by mapping every session's transcript path through the same
+	 * `resolveMemoryDir` the memory methods use, so a hit is an identity rather
+	 * than an inference. A project with no retained session keeps
+	 * `workspacePath` undefined, which is the honest answer: the slug flattens
+	 * both "/" and "_" to "-", so it cannot be reversed into a path. That is
+	 * why nothing had ever populated this field.
+	 */
+	private async withWorkspacePaths<T extends { memoryDir: string }>(
+		projects: T[],
+	): Promise<T[]> {
+		const byMemoryDir = new Map<string, string>();
+		try {
+			const { sessions } = await this.sessionManager.getSessions();
+			for (const session of sessions) {
+				const meta = (session.metadata ?? {}) as Record<string, unknown>;
+				const cwd = asStr(meta.workingDirectory);
+				if (!cwd) continue;
+				const dir = resolveMemoryDir(meta.transcriptPath);
+				// Newest first from getSessions, so the first hit is the most
+				// recent session that used this directory.
+				if (dir && !byMemoryDir.has(dir)) byMemoryDir.set(dir, cwd);
+			}
+		} catch {
+			// A listing failure must not take out the memory rollup: the label
+			// falls back to the slug, which is what it did before.
+			return projects;
+		}
+
+		return projects.map((project) => {
+			const workspacePath = byMemoryDir.get(project.memoryDir);
+			return workspacePath ? { ...project, workspacePath } : project;
+		});
+	}
+
 	private async digestFor(session: Session) {
 		return buildSessionDigest(
 			await collectDigestInput({

@@ -62,6 +62,7 @@ const ContextView = {
 		// on "No sessions retained" for as long as the panel is up.
 		this._unsubscribers.push(
 			State.subscribe("sessions", () => {
+				this.renderStatus();
 				if (State.contextView.mode === "injection") this.renderInjectionPane();
 			}),
 		);
@@ -73,6 +74,12 @@ const ContextView = {
 		// true state, and hiding it makes "nothing here" indistinguishable from
 		// "this project does not exist".
 		API.memoryGetProjects({ includeEmpty: true });
+
+		// Sessions belong to another slice and this view never asked for them,
+		// so "N sessions retained" reported whatever happened to be in state --
+		// zero, if Context was the first view opened -- and the injection pane
+		// showed "No sessions retained" for as long as the panel was up.
+		API.getSessions();
 	},
 
 	/**
@@ -240,6 +247,21 @@ const ContextView = {
 		const file = this.selectedFile();
 		if (editing && file && editing === file.fileName) {
 			el.innerHTML = this.renderEditor(file, draft);
+			return;
+		}
+
+		// No file chosen, but a project is: show MEMORY.md itself.
+		//
+		// The index is the artefact that decides what loads, and it was the one
+		// thing the view could never display — `renderIndex` existed, was
+		// styled, and had five tests, while being called from nowhere and having
+		// no possible data source, because the backend read the text only to
+		// measure it and then threw it away. Now that `indexText` comes back,
+		// this is where it belongs: the natural answer to "I picked a project,
+		// what does Claude load from it?"
+		const project = this.selectedProject();
+		if (!file && project) {
+			el.innerHTML = this.renderIndex(project.indexText, project);
 			return;
 		}
 
@@ -456,6 +478,17 @@ const ContextView = {
 				this.refreshDiffSummary();
 			}
 		});
+
+		// Changing the type is an edit in its own right. Save was gated purely
+		// on the body diff, so retyping a file without also touching its text
+		// was impossible -- the control rendered, accepted a new value, and had
+		// no way to commit it. commitEdit already reads the selector; only the
+		// gate was wrong.
+		root.addEventListener("change", (e) => {
+			if (e.target.classList?.contains("ctx-type-select")) {
+				this.refreshDiffSummary();
+			}
+		});
 	},
 
 	/**
@@ -505,10 +538,20 @@ const ContextView = {
 		const save = document.querySelector(".ctx-edit-save");
 		if (!file || !el) return;
 		const summary = this.diffSummary(file.body || "", State.contextView.draft);
-		const changed = summary.added > 0 || summary.removed > 0;
-		el.textContent = changed ? `+${summary.added} / -${summary.removed} lines` : "no changes";
-		el.classList.toggle("unchanged", !changed);
-		if (save) save.disabled = !changed;
+		const bodyChanged = summary.added > 0 || summary.removed > 0;
+
+		// A retype with no body edit is still a change worth saving.
+		const select = document.querySelector(".ctx-type-select");
+		const currentType = file.type || file.inferredType || "project";
+		const typeChanged = Boolean(select) && select.value !== currentType;
+
+		el.textContent = bodyChanged
+			? `+${summary.added} / -${summary.removed} lines`
+			: typeChanged
+				? `type → ${select.value}`
+				: "no changes";
+		el.classList.toggle("unchanged", !bodyChanged && !typeChanged);
+		if (save) save.disabled = !bodyChanged && !typeChanged;
 	},
 
 	/**
