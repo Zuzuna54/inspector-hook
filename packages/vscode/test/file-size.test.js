@@ -39,19 +39,7 @@ const LIMIT = 600;
  * notices — which is the whole point. Each entry is scheduled for a split.
  */
 const OVER_LIMIT = {
-	// The `handleMessage` switch is the bulk of what is left, and it is pure
-	// dispatch. It needs a registry before it can be split across files: two
-	// modules silently claiming one message type would let the last loaded win.
-	// Down from 726 -> 701 -> 664 as mergeActivity and the memory senders moved.
-	"media/scripts/api.js": { lines: 664, why: "handleMessage switch; needs a registry" },
 	"src/core-bridge.ts": { lines: 720, why: "one method per IPC call; split by domain" },
-	// Raised twice now: 669 -> 676 for the memory-digest envelope unwrap, then
-	// -> 704 for archived-diff routing and its null guard. Both are fixes for
-	// bugs that shipped, and refusing them to protect a line count would be the
-	// wrong trade. But two raises is the signal, not the exception: this file
-	// is a message switch that grows with every feature and it needs splitting
-	// by domain before it takes another one.
-	"src/panel.ts": { lines: 704, why: "message switch; split by domain, overdue" },
 };
 
 const ROOTS = ["media", "src"];

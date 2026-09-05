@@ -8,10 +8,29 @@
  */
 
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+
+/**
+ * panel.ts plus the handler modules it delegates to.
+ *
+ * The diff cases moved to src/messages/ when panel.ts was split. Reading only
+ * panel.ts would silently stop checking anything -- the same vacuous-guard
+ * shape these tests exist to catch.
+ */
+function panelSources() {
+	const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+	const files = [join(srcDir, "panel.ts")];
+	for (const entry of readdirSync(join(srcDir, "messages"), { withFileTypes: true })) {
+		if (entry.isFile() && entry.name.endsWith(".ts")) {
+			files.push(join(srcDir, "messages", entry.name));
+		}
+	}
+	return files.map((f) => readFileSync(f, "utf8")).join("\n");
+}
+
 
 import { installGlobals, readMedia } from "./harness.js";
 
@@ -126,7 +145,13 @@ describe("archived file-level restore", () => {
 });
 
 describe("api message routing", () => {
-	const api = readMedia("scripts/api.js");
+	// api.js plus its sender mixins -- the senders moved into ./api/ when the file
+// was split, and reading only api.js would quietly stop checking them.
+const api = [
+	"scripts/api.js",
+	"scripts/api/memory-senders.js",
+	"scripts/api/history-senders.js",
+].map((f) => readMedia(f)).join("\n");
 
 	it("routes a diff to the archived view when it is active", () => {
 		assert.match(api, /State\.currentView === "archived"/);
@@ -179,23 +204,19 @@ describe("archived diffs reach the archive, not the pending map", () => {
 	});
 
 	it("panel.ts dispatches it to the archive lookup", () => {
-		const src = readFileSync(
-			join(dirname(fileURLToPath(import.meta.url)), "..", "src", "panel.ts"),
-			"utf8",
-		);
+		const src = panelSources();
 		assert.match(src, /case "get-archived-diff"/, "no handler for the command");
 		assert.match(
 			src,
-			/_coreBridge\.getArchivedDiff\(changeId\)/,
+			/coreBridge\.getArchivedDiff\(changeId\)/,
 			"the case exists but does not call the archive lookup",
 		);
 	});
 
 	it("a null lookup is reported as an error, not as an empty diff", () => {
-		const src = readFileSync(
-			join(dirname(fileURLToPath(import.meta.url)), "..", "src", "panel.ts"),
-			"utf8",
-		).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+		const src = panelSources()
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/^\s*\/\/.*$/gm, "");
 		assert.match(
 			src,
 			/if \(!diff\) \{[\s\S]*?type: "diff-error"/,

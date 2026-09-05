@@ -11,6 +11,8 @@ import type {
 } from "@inspector-hook/protocol";
 import * as vscode from "vscode";
 import type { CoreBridge } from "./core-bridge.js";
+import { handleDiffCommand } from "./messages/diff-handlers.js";
+import { handleMemoryCommand } from "./messages/memory-handlers.js";
 import { buildWebviewHtml } from "./webview-html.js";
 
 export class InspectorPanel {
@@ -59,6 +61,19 @@ export class InspectorPanel {
 		const fileChangeHandler = (change: unknown) => {
 			this._sendMessage({ type: "fileChange", payload: change });
 		};
+
+		// The header shipped hardcoded to "Connected" with nothing reading the
+		// element, so the panel claimed a healthy core while the core was dead
+		// -- a false statement about the system's own health, made by the part
+		// of the UI whose only job is reporting it. CoreBridge already knows.
+		const exitHandler = (code: unknown) => {
+			this._sendMessage({
+				type: "core-status",
+				payload: { connected: false, reason: `Core exited (${String(code)})` },
+			});
+		};
+		this._coreBridge.on("exit", exitHandler);
+		this._eventCleanups.push(() => this._coreBridge.off("exit", exitHandler));
 
 		this._coreBridge.onLog(logHandler);
 		this._coreBridge.onStats(statsHandler);
@@ -148,6 +163,15 @@ export class InspectorPanel {
 	 * Handle messages from webview
 	 */
 	private async _handleMessage(message: WebviewCommand): Promise<void> {
+		// Memory/context commands live in ./messages/; it reports whether it
+		// took the command, so anything else falls through to the switch below.
+		const ctx = {
+			coreBridge: this._coreBridge,
+			send: (payload: WebviewMessage) => this._sendMessage(payload),
+		};
+		if (await handleMemoryCommand(message.command, message.params, ctx)) return;
+		if (await handleDiffCommand(message.command, message.params, ctx)) return;
+
 		switch (message.command) {
 			case "webview-ready": {
 				this._webviewReady = true;
@@ -171,52 +195,6 @@ export class InspectorPanel {
 			case "get-logs": {
 				const logs = await this._coreBridge.getLogs(message.params as any);
 				this._sendMessage({ type: "logs", payload: logs });
-				break;
-			}
-
-			// Pending and archived changes live in DIFFERENT maps in the tracker,
-			// and each has its own lookup. Asking the pending one for an archived
-			// change returns null by construction -- which is why every archived
-			// diff had always rendered as an empty "+0 / -0" and never as an
-			// error. See the null guard below for the second half of that.
-			case "get-diff":
-			case "get-archived-diff": {
-				const changeId = (message.params as any).changeId;
-				const archived = message.command === "get-archived-diff";
-				try {
-					const diff = archived
-						? await this._coreBridge.getArchivedDiff(changeId)
-						: await this._coreBridge.getDiff(changeId);
-
-					// A null lookup is a FAILURE, not an empty diff. Spreading null
-					// yields a truthy `{ changeId }`, so the error branch could
-					// never run and a missing change rendered as a well-formed diff
-					// with no hunks -- indistinguishable from a file that genuinely
-					// did not change.
-					if (!diff) {
-						this._sendMessage({
-							type: "diff-error",
-							payload: {
-								changeId,
-								message: archived
-									? `No archived change ${changeId}.`
-									: `No pending change ${changeId}. It may have been kept or reverted.`,
-							},
-						});
-						break;
-					}
-
-					// Include changeId in the response so webview can match it
-					this._sendMessage({
-						type: "diff-result",
-						payload: { ...diff, changeId },
-					});
-				} catch (error) {
-					this._sendMessage({
-						type: "diff-error",
-						payload: { changeId, message: String(error) },
-					});
-				}
 				break;
 			}
 
@@ -307,120 +285,6 @@ export class InspectorPanel {
 			}
 
 			// ----------------------------------------------------------------
-			// Native auto memory (Milestone 3)
-			//
-			// The four mutating cases all reply as "memory-result" with the
-			// core's response passed through UNCHANGED, including `reason`. The
-			// view renders refusals verbatim, so rewording one here would mean
-			// two explanations of the same refusal drifting apart.
-			// ----------------------------------------------------------------
-
-			case "memory-get-projects": {
-				const projects = await this._coreBridge.getMemoryProjects(
-					Boolean((message.params as any)?.includeEmpty),
-				);
-				this._sendMessage({ type: "memory-projects", payload: projects });
-				break;
-			}
-
-			case "memory-add-to-index": {
-				const p = message.params as { memoryDir: string; fileName: string };
-				const result = await this._coreBridge.addMemoryToIndex(
-					p.memoryDir,
-					p.fileName,
-				);
-				this._sendMessage({ type: "memory-result", payload: result });
-				break;
-			}
-
-			case "memory-remove-from-index": {
-				const p = message.params as { memoryDir: string; fileName: string };
-				const result = await this._coreBridge.removeMemoryFromIndex(
-					p.memoryDir,
-					p.fileName,
-				);
-				this._sendMessage({ type: "memory-result", payload: result });
-				break;
-			}
-
-			case "memory-write": {
-				const result = await this._coreBridge.writeMemory(
-					message.params as {
-						memoryDir: string;
-						name: string;
-						fileName?: string;
-						description?: string;
-						type?: string;
-						body?: string;
-						title?: string;
-						userInitiated?: boolean;
-					},
-				);
-				this._sendMessage({ type: "memory-result", payload: result });
-				break;
-			}
-
-			case "memory-delete": {
-				const p = message.params as {
-					memoryDir: string;
-					fileName: string;
-					force?: boolean;
-				};
-				const result = await this._coreBridge.deleteMemory(
-					p.memoryDir,
-					p.fileName,
-					Boolean(p.force),
-				);
-				this._sendMessage({ type: "memory-result", payload: result });
-				break;
-			}
-
-			// The three staging calls share one reply type on purpose: each ends
-			// with "here is what is staged, or nothing", so the view re-renders
-			// from whatever came back. The staged object is passed through
-			// untouched — rebuilding it here would quietly break the guarantee
-			// that the preview is the delivery.
-			case "memory-stage-context": {
-				const staged = await this._coreBridge.stageContext(
-					message.params as {
-						sessionId?: string;
-						text?: string;
-						label?: string;
-						ttlMs?: number;
-					},
-				);
-				this._sendMessage({ type: "memory-staged", payload: staged });
-				break;
-			}
-
-			case "memory-get-staged": {
-				const staged = await this._coreBridge.getStagedContext();
-				this._sendMessage({ type: "memory-staged", payload: staged });
-				break;
-			}
-
-			case "memory-clear-staged": {
-				await this._coreBridge.clearStagedContext();
-				this._sendMessage({ type: "memory-staged", payload: null });
-				break;
-			}
-
-			case "memory-build-digest": {
-				// Only the sessionId is forwarded; a `write` flag is ignored. The
-				// core replies with an ENVELOPE `{ digest, written }`, and sending
-				// it whole meant the view read worthKeeping, body and sessionId off
-				// the wrapper — undefined for all three, so Preview drew an empty
-				// box and Stage was a no-op. An {error} reply passes through.
-				const { digest, ...outcome } = ((await this._coreBridge.buildSessionDigest(
-					(message.params as { sessionId: string }).sessionId,
-				)) ?? {}) as { digest?: Record<string, unknown> };
-				this._sendMessage({
-					type: "memory-digest",
-					payload: digest ? { ...digest, ...outcome } : outcome,
-				});
-				break;
-			}
-
 			case "delete-session": {
 				const result = await this._coreBridge.deleteSession(
 					(message.params as any).sessionId,

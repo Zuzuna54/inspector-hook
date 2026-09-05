@@ -103,6 +103,7 @@ export function buildWebviewHtml(
 		// Sender mixins load before api.js, which composes them onto API at
 		// its own load time.
 		["scripts", "api", "memory-senders.js"],
+		["scripts", "api", "history-senders.js"],
 		["scripts", "api.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
@@ -161,8 +162,12 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <span class="status-indicator connected" id="status-indicator"></span>
-        <span class="status-text" id="status-text">Connected</span>
+        <!-- Neutral until something measures it. This shipped hardcoded to
+             "connected"/"Connected" with nothing reading either element, so
+             the panel asserted a healthy core instead of reporting one and
+             kept saying Connected after the core had exited. -->
+        <span class="status-indicator" id="status-indicator"></span>
+        <span class="status-text" id="status-text">Connecting…</span>
         <div class="header-stats">
           <span class="header-stat error" id="stat-errors">0 errors</span>
           <span class="header-stat changes" id="stat-changes">0 changes</span>

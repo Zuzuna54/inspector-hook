@@ -17,19 +17,34 @@
 
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readMedia } from "./harness.js";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
-const panel = readFileSync(join(srcDir, "panel.ts"), "utf8");
+// panel.ts plus the handler modules it delegates to. Reading only panel.ts
+// would make every "is this command handled?" assertion silently vacuous the
+// moment a domain is extracted -- which is the drift this suite exists to
+// catch, so it has to follow the split. Same reason the api.js side reads its
+// sender mixins.
+const PANEL_SOURCES = [
+	join(srcDir, "panel.ts"),
+	...readdirSync(join(srcDir, "messages"), { withFileTypes: true })
+		.filter((e) => e.isFile() && e.name.endsWith(".ts"))
+		.map((e) => join(srcDir, "messages", e.name)),
+];
+const panel = PANEL_SOURCES.map((f) => readFileSync(f, "utf8")).join("\n");
 // api.js plus its sender mixins. The senders live in ./api/ now, and reading
 // only api.js would make every "does the webview send this?" assertion here
 // silently vacuous the moment a domain is extracted — which is exactly the
 // drift this suite exists to catch, so it must follow the split.
-const API_SOURCES = ["scripts/api.js", "scripts/api/memory-senders.js"];
+const API_SOURCES = [
+	"scripts/api.js",
+	"scripts/api/memory-senders.js",
+	"scripts/api/history-senders.js",
+];
 const api = API_SOURCES.map((p) => readMedia(p)).join("\n");
 
 /** Strip comments so a checked pattern cannot match its own explanation. */

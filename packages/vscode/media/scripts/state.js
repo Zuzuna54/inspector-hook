@@ -8,6 +8,8 @@ const State = {
 	// Connection State
 	// ==========================================================================
 	connected: false,
+	/** Why the core is unreachable, when it is. */
+	connectionReason: null,
 	port: null,
 
 	// ==========================================================================
@@ -211,6 +213,7 @@ const State = {
 	getSnapshot() {
 		return {
 			connected: this.connected,
+			connectionReason: this.connectionReason,
 			port: this.port,
 			logs: this.logs,
 			logsTotal: this.logsTotal,
@@ -235,6 +238,7 @@ const State = {
 	 */
 	reset() {
 		this.connected = false;
+		this.connectionReason = null;
 		this.port = null;
 		this.logs = [];
 		this.logsTotal = 0;
