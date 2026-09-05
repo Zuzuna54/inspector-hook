@@ -22,6 +22,7 @@ import { installGlobals, readMedia } from "./harness.js";
 /** Every type the pre-split switch handled. */
 const EXPECTED_TYPES = [
 	"archived",
+	"context-tray",
 	"core-status",
 	"delete-session-result",
 	"delete-version-result",

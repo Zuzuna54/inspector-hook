@@ -147,6 +147,63 @@ export async function handleMemoryCommand(
 			break;
 		}
 
+		// ---------------------------------------------------------------------
+		// The context tray. A draft the panel composes; nothing here reaches a
+		// hook. Every mutation replies with the whole tray AND the preview, so
+		// the view never has to recompute the byte cost itself and cannot
+		// disagree with the core about what would be injected.
+		// ---------------------------------------------------------------------
+
+		case "context-get-tray": {
+			ctx.send({ type: "context-tray", payload: await ctx.coreBridge.getContextTray() });
+			break;
+		}
+
+		case "context-add-item": {
+			const result = await ctx.coreBridge.addContextItem(
+				params as { kind: string; title: string; text: string },
+			);
+			ctx.send({ type: "context-tray", payload: result });
+			break;
+		}
+
+		case "context-update-item": {
+			const result = await ctx.coreBridge.updateContextItem(
+				params as { itemId: string; text?: string; title?: string; include?: boolean },
+			);
+			ctx.send({ type: "context-tray", payload: result });
+			break;
+		}
+
+		case "context-reset-item": {
+			const result = await ctx.coreBridge.resetContextItem(
+				(params as { itemId: string }).itemId,
+			);
+			ctx.send({ type: "context-tray", payload: result });
+			break;
+		}
+
+		case "context-remove-item": {
+			const result = await ctx.coreBridge.removeContextItem(
+				(params as { itemId: string }).itemId,
+			);
+			ctx.send({ type: "context-tray", payload: result });
+			break;
+		}
+
+		case "context-reorder-items": {
+			const result = await ctx.coreBridge.reorderContextItems(
+				(params as { itemIds: string[] }).itemIds,
+			);
+			ctx.send({ type: "context-tray", payload: result });
+			break;
+		}
+
+		case "context-clear-tray": {
+			ctx.send({ type: "context-tray", payload: await ctx.coreBridge.clearContextTray() });
+			break;
+		}
+
 		default:
 			return false;
 	}

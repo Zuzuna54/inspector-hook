@@ -54,8 +54,15 @@ export const DEFAULT_TTL_MS = 60 * 60 * 1000;
  * A whole session transcript would swamp the window it is injected into, and
  * the point of a digest is that it is short. Truncation is reported rather than
  * silent — a caller that gets back less than it staged is told so.
+ *
+ * Raised from 16 KB once staging became a multi-item tray: composing a digest,
+ * a memory file and some notes hits 16 KB quickly, and silently truncating a
+ * composition someone assembled deliberately is worse than letting them send
+ * it. 256 KB is roughly 70k tokens, which is most of a context window — so the
+ * tray reports a running byte total and warns past WARN_CONTEXT_BYTES rather
+ * than pretending this is free. The cap is a backstop, not a budget.
  */
-export const MAX_CONTEXT_BYTES = 16 * 1024;
+export const MAX_CONTEXT_BYTES = 256 * 1024;
 
 export function stagedContextPath(storagePath: string): string {
 	return join(storagePath, STAGED_CONTEXT_FILE);
@@ -159,7 +166,7 @@ export async function clearStagedContext(storagePath: string): Promise<boolean> 
  * Byte-based because the cap is about payload size, and a naive slice on
  * `length` would let a run of multi-byte characters through at up to 4x.
  */
-function truncateToBytes(text: string, maxBytes: number): string {
+export function truncateToBytes(text: string, maxBytes: number): string {
 	const notice = "\n\n[truncated by Inspector Hook]";
 	const budget = maxBytes - Buffer.byteLength(notice, "utf-8");
 	const buf = Buffer.from(text, "utf-8");

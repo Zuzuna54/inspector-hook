@@ -139,6 +139,7 @@ const ContextInjectionMixin = {
       <div class="ctx-digest">
         <div class="ctx-digest-head">
           <strong>Digest preview</strong>
+          <button class="btn btn-xs ctx-tray-digest">Add to tray</button>
           <button class="btn btn-xs btn-success ctx-stage-digest">Stage this</button>
         </div>
         <pre class="ctx-digest-text">${Utils.escapeHtml(text)}</pre>

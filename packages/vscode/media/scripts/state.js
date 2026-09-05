@@ -99,6 +99,29 @@ const State = {
 	},
 
 	// ==========================================================================
+	// Context Tray State (M3 - the multi-item staging tray)
+	//
+	// Its own top-level slice rather than a field on contextView: subscriptions
+	// are per top-level key, so folding it in would re-run the memory view's
+	// five render branches on every keystroke in a tray editor.
+	// ==========================================================================
+	contextTray: {
+		/** The tray as the core holds it: { version, items, updatedAt }. */
+		tray: null,
+		/**
+		 * The rendered preview, computed BY THE CORE from the tray it just
+		 * wrote. Never recomputed here: two places deciding "what would be
+		 * injected" is how a preview starts disagreeing with the delivery.
+		 */
+		preview: null,
+		/** Why the last operation was refused, in the core's own words. */
+		lastRefusal: null,
+		/** The item open in the editor, and its working copy. */
+		editing: null,
+		draft: "",
+	},
+
+	// ==========================================================================
 	// File Changes View State
 	// ==========================================================================
 	fileChangesView: {
@@ -229,6 +252,7 @@ const State = {
 			searchQuery: this.searchQuery,
 			filters: { ...this.filters },
 			stats: { ...this.stats },
+			contextTray: this.contextTray,
 			config: { ...this.config },
 		};
 	},
@@ -287,6 +311,13 @@ const State = {
 			staged: null,
 			digest: null,
 			stageRefusal: null,
+		};
+		this.contextTray = {
+			tray: null,
+			preview: null,
+			lastRefusal: null,
+			editing: null,
+			draft: "",
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

@@ -5,6 +5,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { createMemoryBridge, type MemoryBridge } from "./bridge/memory-bridge.js";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
@@ -44,6 +45,15 @@ type ResponseCallback = {
 	reject: (error: Error) => void;
 };
 
+/**
+ * Memory and context-tray methods live in ./bridge/memory-bridge.ts.
+ *
+ * Declaration merging puts them on the class type, and the constructor spreads
+ * the real implementations onto the instance, so every existing caller keeps
+ * working unchanged -- the split is structural, not a rename.
+ */
+export interface CoreBridge extends MemoryBridge {}
+
 export class CoreBridge extends EventEmitter {
 	private process: ChildProcess | null = null;
 	private readline: Interface | null = null;
@@ -57,6 +67,14 @@ export class CoreBridge extends EventEmitter {
 	constructor(options: CoreBridgeOptions) {
 		super();
 		this.options = options;
+		// The memory and tray methods, from ./bridge/. Assigned rather than
+		// inherited so `sendRequest` can stay private.
+		Object.assign(
+			this,
+			createMemoryBridge(<T,>(method: string, params?: unknown) =>
+				this.sendRequest<T>(method, params),
+			),
+		);
 	}
 
 	/**
@@ -426,99 +444,6 @@ export class CoreBridge extends EventEmitter {
 		});
 	}
 
-	// ==========================================================================
-	// Native auto memory (Milestone 3)
-	//
-	// Thin pass-throughs. Every refusal reason from the core is returned
-	// untouched: these operate on files the user wrote by hand, so "why not"
-	// is the most useful thing the UI can show, and paraphrasing it here would
-	// put a second, drifting explanation between the core and the reader.
-	// ==========================================================================
-
-	/** Every project on the machine that has memory. */
-	async getMemoryProjects(includeEmpty = false): Promise<unknown> {
-		return this.sendRequest("memory.getProjects", { includeEmpty });
-	}
-
-	/** Reference an existing file from MEMORY.md, without touching the file. */
-	async addMemoryToIndex(
-		memoryDir: string,
-		fileName: string,
-	): Promise<unknown> {
-		return this.sendRequest("memory.addToIndex", { memoryDir, fileName });
-	}
-
-	/** Drop a file's index line, leaving the file in place. */
-	async removeMemoryFromIndex(
-		memoryDir: string,
-		fileName: string,
-	): Promise<unknown> {
-		return this.sendRequest("memory.removeFromIndex", { memoryDir, fileName });
-	}
-
-	/**
-	 * Create or update a memory entry.
-	 *
-	 * `userInitiated` is what allows editing a note the user wrote by hand; the
-	 * core refuses otherwise, which is correct for anything automated.
-	 */
-	async writeMemory(params: {
-		memoryDir: string;
-		name: string;
-		description?: string;
-		type?: string;
-		body?: string;
-		title?: string;
-		userInitiated?: boolean;
-	}): Promise<unknown> {
-		return this.sendRequest("memory.write", params);
-	}
-
-	/** Delete a memory entry. `force` is required for a file we did not author. */
-	async deleteMemory(
-		memoryDir: string,
-		fileName: string,
-		force = false,
-	): Promise<unknown> {
-		return this.sendRequest("memory.delete", { memoryDir, fileName, force });
-	}
-
-	/**
-	 * Stage context for the next session that starts.
-	 *
-	 * Returns exactly what will be injected. That is the point: the preview and
-	 * the delivery cannot diverge if they are the same object, so nothing here
-	 * reshapes it.
-	 */
-	async stageContext(params: {
-		sessionId?: string;
-		text?: string;
-		label?: string;
-		ttlMs?: number;
-	}): Promise<unknown> {
-		return this.sendRequest("memory.stageContext", params);
-	}
-
-	/** What is currently staged, or null. Expiry is applied on read. */
-	async getStagedContext(): Promise<unknown> {
-		return this.sendRequest("memory.getStagedContext", {});
-	}
-
-	/** Discard a staged pick before it is consumed. */
-	async clearStagedContext(): Promise<unknown> {
-		return this.sendRequest("memory.clearStagedContext", {});
-	}
-
-	/**
-	 * Build a session's digest WITHOUT writing it.
-	 *
-	 * No `write` flag is accepted. v1 has no write button by decision, and the
-	 * most durable way to keep that true is for the extension to be unable to
-	 * express it — an option that cannot be passed cannot be passed by accident.
-	 */
-	async buildSessionDigest(sessionId: string): Promise<unknown> {
-		return this.sendRequest("memory.buildDigest", { sessionId });
-	}
 
 	/**
 	 * Keep all pending changes

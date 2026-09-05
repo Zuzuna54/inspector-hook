@@ -315,6 +315,11 @@ window.addEventListener("message", (event) => API.handleMessage(event));
 // Make globally available
 // Senders split into ./api/, composed after the literal so a missing module
 // is a load-time absence rather than a silently undefined method.
-Object.assign(API, window.MemoryApiMixin, window.HistoryApiMixin);
+Object.assign(
+	API,
+	window.MemoryApiMixin,
+	window.HistoryApiMixin,
+	window.TrayApiMixin,
+);
 
 window.API = API;

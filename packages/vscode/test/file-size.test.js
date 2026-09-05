@@ -39,7 +39,10 @@ const LIMIT = 600;
  * notices — which is the whole point. Each entry is scheduled for a split.
  */
 const OVER_LIMIT = {
-	"src/core-bridge.ts": { lines: 720, why: "one method per IPC call; split by domain" },
+	// 720 -> 645: memory and tray calls moved to src/bridge/memory-bridge.ts.
+	// Still one method per IPC call, so it still grows with every feature; the
+	// remaining domains (changes, history, sessions) split the same way.
+	"src/core-bridge.ts": { lines: 645, why: "one method per IPC call; more domains to split out" },
 };
 
 const ROOTS = ["media", "src"];

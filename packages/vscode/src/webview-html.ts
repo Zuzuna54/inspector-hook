@@ -93,6 +93,7 @@ export function buildWebviewHtml(
 		["styles", "views", "archived", "accordion.css"],
 		["styles", "views", "archived", "preview.css"],
 		["styles", "views", "context.css"],
+		["styles", "views", "tray.css"],
 	];
 
 	const scripts: string[][] = [
@@ -104,6 +105,7 @@ export function buildWebviewHtml(
 		// its own load time.
 		["scripts", "api", "memory-senders.js"],
 		["scripts", "api", "history-senders.js"],
+		["scripts", "api", "tray-senders.js"],
 		["scripts", "api.js"],
 		// Inbound handlers register onto API, so they load after it. Each
 		// claims its message types via API.on, which throws on a duplicate.
@@ -112,6 +114,7 @@ export function buildWebviewHtml(
 		["scripts", "api", "inbound-changes.js"],
 		["scripts", "api", "inbound-history.js"],
 		["scripts", "api", "inbound-context.js"],
+		["scripts", "api", "inbound-tray.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
 		["scripts", "shared", "diff-render.js"],
@@ -143,8 +146,12 @@ export function buildWebviewHtml(
 		// Context modules load before context.js.
 		["scripts", "views", "context", "memory-render.js"],
 		["scripts", "views", "context", "injection-render.js"],
+		["scripts", "views", "context", "handlers.js"],
 		["scripts", "views", "context", "curation.js"],
 		["scripts", "views", "context.js"],
+		// The tray: renderers before the controller that composes them.
+		["scripts", "tray", "tray-render.js"],
+		["scripts", "tray", "tray-host.js"],
 		// main.js wires everything up and must be last.
 		["scripts", "main.js"],
 	];
@@ -211,6 +218,9 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         <div class="nav-group-label" id="nav-group-knowledge">Knowledge</div>
         <button class="tab" data-view="context" role="tab" aria-selected="false" tabindex="-1">
           Context
+        </button>
+        <button class="tab" data-view="tray" role="tab" aria-selected="false" tabindex="-1">
+          Tray
         </button>
       </div>
       <div class="nav-group">
@@ -349,6 +359,22 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
             <div id="ctx-result"></div>
             <div id="ctx-detail"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Context Tray: the multi-item staging surface.
+           Markup is static for the same reason every other view's is: a pane
+           whose existence depends on a render function running cannot report
+           why it is empty. -->
+      <div id="view-tray" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
+        <div class="ctx-bar">
+          <h3>Context tray</h3>
+          <span class="ctx-hint">
+            Compose what the next session should know. Items inject in order.
+          </span>
+        </div>
+        <div id="tray-body">
+          <div class="empty-state"><div class="empty-state-title">Loading the tray…</div></div>
         </div>
       </div>
 

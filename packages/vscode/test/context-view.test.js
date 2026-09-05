@@ -28,6 +28,7 @@ import { installGlobals, readMedia } from "./harness.js";
 const CONTEXT_LOAD_ORDER = [
 	"scripts/views/context/memory-render.js",
 	"scripts/views/context/injection-render.js",
+	"scripts/views/context/handlers.js",
 	"scripts/views/context/curation.js",
 	"scripts/views/context.js",
 ];

@@ -98,6 +98,23 @@ export {
 	type DigestInput,
 	type SessionDigest,
 } from "./memory/session-digest.js";
+// Export the context tray (Milestone 3, P3)
+export {
+	addItem,
+	clearTray,
+	effectiveText,
+	emptyTray,
+	isEdited,
+	readTray,
+	removeItem,
+	reorderItems,
+	resetItem,
+	trayPath,
+	updateItem,
+	writeTray,
+} from "./context/tray-store.js";
+export { includedCount, renderTray } from "./context/render.js";
+
 export {
 	collectDigestInput,
 	type ChangeSource,

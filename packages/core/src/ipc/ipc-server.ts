@@ -35,7 +35,19 @@ import {
 	writeMemoryFile,
 	type MemoryType,
 } from "../memory/native-memory.js";
+import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
+import { renderTray } from "../context/render.js";
+import {
+	addItem,
+	clearTray,
+	readTray,
+	removeItem,
+	reorderItems,
+	resetItem,
+	updateItem,
+	writeTray,
+} from "../context/tray-store.js";
 import { buildSessionDigest } from "../memory/session-digest.js";
 import {
 	clearStagedContext,
@@ -992,6 +1004,88 @@ export class IpcServer {
 			});
 			return { staged: true, ...staged };
 		});
+
+		// ---------------------------------------------------------------------
+		// The context tray (Milestone 3, P3).
+		//
+		// A DRAFT. No hook reads it. `context.preview` renders it to the exact
+		// text arming will write, and staging goes through the existing
+		// memory.stageContext with that text -- so the tray needs no hook change
+		// and no reinstall, and the "preview is the delivery" guarantee holds by
+		// construction rather than by two code paths agreeing.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("context.getTray", async () => {
+			const tray = await readTray(this.storagePath);
+			return { tray, preview: renderTray(tray) };
+		});
+
+		this.methods.set("context.addItem", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: (asStr(rec.kind) as ContextItemKind) ?? "free_text",
+				title: asStr(rec.title) ?? "Untitled",
+				text: asStr(rec.text) ?? "",
+				source: asRec(rec.source) as Record<string, string> | undefined,
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return { ok: true, tray: saved, item: result.item, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.updateItem", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tray = await readTray(this.storagePath);
+			const result = updateItem(tray, asStr(rec.itemId) ?? "", {
+				text: asStr(rec.text),
+				title: asStr(rec.title),
+				include: asBool(rec.include),
+			});
+			if (result.reason) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.resetItem", async (params) => {
+			const tray = await readTray(this.storagePath);
+			const result = resetItem(tray, asStr(asRec(params)?.itemId) ?? "");
+			if (result.reason) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.removeItem", async (params) => {
+			const tray = removeItem(
+				await readTray(this.storagePath),
+				asStr(asRec(params)?.itemId) ?? "",
+			);
+			const saved = await writeTray(this.storagePath, tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.reorderItems", async (params) => {
+			const ids = asRec(params)?.itemIds;
+			const tray = reorderItems(
+				await readTray(this.storagePath),
+				Array.isArray(ids) ? ids.filter((i): i is string => typeof i === "string") : [],
+			);
+			const saved = await writeTray(this.storagePath, tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.clearTray", async () => {
+			const saved = await writeTray(
+				this.storagePath,
+				clearTray(await readTray(this.storagePath)),
+			);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		/** Exactly what arming would write. Same renderer, no second path. */
+		this.methods.set("context.preview", async () =>
+			renderTray(await readTray(this.storagePath)),
+		);
 
 		/** What is staged, or null. Expiry is applied on read. */
 		this.methods.set("memory.getStagedContext", async () =>
