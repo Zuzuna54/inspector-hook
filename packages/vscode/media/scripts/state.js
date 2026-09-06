@@ -161,6 +161,14 @@ const State = {
 		hasMore: false,
 		/** Why there is nothing, when there is nothing. */
 		reason: null,
+		/**
+		 * Entry indexes picked for the composer, as a Set.
+		 *
+		 * Indexes rather than copies of the text: the core re-reads the
+		 * transcript when composing, so what reaches a future session is what
+		 * the file says now, not what this view happened to be holding.
+		 */
+		selected: new Set(),
 	},
 
 	// ==========================================================================
@@ -372,6 +380,7 @@ const State = {
 			total: 0,
 			hasMore: false,
 			reason: null,
+			selected: new Set(),
 		};
 		this.contextTray = {
 			tray: null,

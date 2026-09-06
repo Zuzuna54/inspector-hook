@@ -96,6 +96,15 @@ export function createMemoryBridge(send: SendRequest) {
 		// The session transcript (P5)
 		// =====================================================================
 
+		/** Compose selected transcript turns into a tray item, core-side. */
+		async addFromTranscript(params: {
+			sessionId: string;
+			indexes: number[];
+			title?: string;
+		}): Promise<unknown> {
+			return send("context.addFromTranscript", params);
+		},
+
 		/** A page of transcript entries, plus whole-file statistics. */
 		async getTranscript(params: {
 			sessionId?: string;

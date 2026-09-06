@@ -114,6 +114,12 @@ export {
 	writeTray,
 } from "./context/tray-store.js";
 export { includedCount, renderTray } from "./context/render.js";
+export {
+	composeFromTranscript,
+	composeTitle,
+	MAX_ENTRY_BYTES,
+	type ComposeResult,
+} from "./context/compose.js";
 // Export the transcript reader (Milestone 3, P5)
 export {
 	readTranscript,

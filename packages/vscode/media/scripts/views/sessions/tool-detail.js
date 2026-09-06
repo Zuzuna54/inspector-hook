@@ -114,6 +114,27 @@ const ToolDetailMixin = {
 		// items re-bound several hundred listeners on each 2s tick and on every
 		// expand click - and any node replaced in place silently lost its own.
 		contentEl.addEventListener("click", (e) => {
+			// The composer: pick turns, then carry their real text into the tray.
+			if (e.target.closest(".sv-compose-add")) {
+				const view = State.transcriptView;
+				if (view.selected?.size) {
+					API.contextAddFromTranscript({
+						sessionId: view.sessionId,
+						indexes: [...view.selected].sort((a, b) => a - b),
+					});
+					State.update("transcriptView", { ...view, selected: new Set() });
+				}
+				return;
+			}
+
+			if (e.target.closest(".sv-compose-clear")) {
+				State.update("transcriptView", {
+					...State.transcriptView,
+					selected: new Set(),
+				});
+				return;
+			}
+
 			// More transcript. Paged by entry offset rather than by line, because
 			// one line can produce several entries and the two would drift.
 			if (e.target.closest(".sv-transcript-more")) {
@@ -150,6 +171,20 @@ const ToolDetailMixin = {
 			if (turnHeader) {
 				this.toggleTurn(turnHeader.dataset.turnKey);
 			}
+		});
+
+		// Ticking a turn. A Set of indexes, not copies of the text: the core
+		// re-reads the transcript when composing, so the item carries what the
+		// file says at compose time rather than what this view last rendered.
+		contentEl.addEventListener("change", (e) => {
+			if (!e.target.classList?.contains("sv-tr-pick")) return;
+			const row = e.target.closest(".sv-tr-entry");
+			const index = Number(row?.dataset.entryIndex);
+			if (!Number.isInteger(index)) return;
+			const selected = new Set(State.transcriptView.selected);
+			if (e.target.checked) selected.add(index);
+			else selected.delete(index);
+			State.update("transcriptView", { ...State.transcriptView, selected });
 		});
 	},
 

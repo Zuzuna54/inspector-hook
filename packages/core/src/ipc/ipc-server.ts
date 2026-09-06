@@ -38,6 +38,7 @@ import {
 import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
 import { renderTray } from "../context/render.js";
+import { composeFromTranscript, composeTitle } from "../context/compose.js";
 import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
@@ -1239,6 +1240,56 @@ export class IpcServer {
 			const path = await this.transcriptPathFor(asRec(params) ?? {});
 			if (!path) return { reason: "No transcript path for this session." };
 			return transcriptStats(path);
+		});
+
+		/**
+		 * Add selected transcript turns to the tray, as one item.
+		 *
+		 * The selection is resolved HERE against a fresh read rather than taking
+		 * text the panel is holding: composing from a client-side copy would mean
+		 * the text reaching a future session came from whatever the view last
+		 * rendered, which can be stale. Indexes that no longer resolve are
+		 * reported rather than silently producing a shorter item.
+		 */
+		this.methods.set("context.addFromTranscript", async (params) => {
+			const rec = asRec(params) ?? {};
+			const path = await this.transcriptPathFor(rec);
+			if (!path) {
+				return { ok: false, reason: "This session has no transcript to read." };
+			}
+
+			const raw = rec.indexes;
+			const indexes = Array.isArray(raw)
+				? raw.filter((n): n is number => typeof n === "number")
+				: [];
+			const composed = await composeFromTranscript(path, indexes);
+			if (!composed.text) {
+				return { ok: false, reason: composed.reason ?? "Nothing to add." };
+			}
+
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: "session_digest",
+				title: asStr(rec.title) ?? `${composed.matched} turns from a session`,
+				text: composed.text,
+				source: { sessionId: asStr(rec.sessionId) },
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+
+			const saved = await writeTray(this.storagePath, result.tray);
+			return {
+				ok: true,
+				tray: saved,
+				item: result.item,
+				preview: renderTray(saved),
+				// Said plainly rather than folded into the item: a selection that
+				// partly failed should not look like one that succeeded.
+				...(composed.missing.length
+					? {
+							reason: `${composed.missing.length} of ${composed.requested} selected turns are no longer in the transcript.`,
+						}
+					: {}),
+			};
 		});
 
 		/** Exactly what arming would write. Same renderer, no second path. */

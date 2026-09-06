@@ -331,7 +331,12 @@ export async function readTranscript(
 			}
 		}
 
-		for (const entry of toEntries(parsed, index++, clipped)) {
+		// Indexed per ENTRY, not per line. One assistant line can produce a
+		// thinking block, a reply and a tool call, and sharing one index across
+		// them makes a selection ambiguous -- you could not pick the reply
+		// without also picking the reasoning that preceded it.
+		for (const entry of toEntries(parsed, 0, clipped)) {
+			entry.index = index++;
 			if (entry.kind === "unknown") stats.unrecognised++;
 			stats.byKind[entry.kind] = (stats.byKind[entry.kind] ?? 0) + 1;
 

@@ -78,6 +78,7 @@ export function buildWebviewHtml(
 		["styles", "views", "sessions", "feed.css"],
 		["styles", "views", "sessions", "tool-detail.css"],
 		["styles", "views", "sessions", "detail.css"],
+		["styles", "views", "sessions", "transcript.css"],
 		["styles", "views", "file-changes.css"],
 		["styles", "views", "file-changes", "layout.css"],
 		["styles", "views", "file-changes", "sidebar.css"],

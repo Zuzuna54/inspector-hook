@@ -18,6 +18,7 @@ const SESSION_MODULES = [
 	"styles/views/sessions/feed.css",
 	"styles/views/sessions/tool-detail.css",
 	"styles/views/sessions/detail.css",
+	"styles/views/sessions/transcript.css",
 ];
 
 const COMPONENT_MODULES = [

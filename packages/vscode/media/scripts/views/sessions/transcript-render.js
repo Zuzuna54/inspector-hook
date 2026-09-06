@@ -76,8 +76,30 @@ const TranscriptRenderMixin = {
     `;
 	},
 
+	/**
+	 * The selection bar: what is picked, and what to do with it.
+	 *
+	 * This is the composer. A digest is derived from hook events -- counts of
+	 * tools, lists of files -- so it can say a session touched fifteen files and
+	 * nothing about what was decided. Picking turns carries what was actually
+	 * said.
+	 */
+	renderComposerBar(selected) {
+		const n = selected ? selected.size : 0;
+		return `
+      <div class="sv-composer ${n ? "active" : ""}">
+        <span class="sv-composer-count">${n} turn${n === 1 ? "" : "s"} selected</span>
+        <span class="ctx-hint">Tick turns to carry their actual text into the tray.</span>
+        <button class="btn btn-xs sv-compose-clear" ${n ? "" : "disabled"}>Clear</button>
+        <button class="btn btn-xs btn-success sv-compose-add" ${n ? "" : "disabled"}>
+          Add to tray
+        </button>
+      </div>
+    `;
+	},
+
 	/** One transcript entry. */
-	renderTranscriptEntry(entry) {
+	renderTranscriptEntry(entry, selected) {
 		const label =
 			{
 				prompt: "You",
@@ -96,8 +118,10 @@ const TranscriptRenderMixin = {
 		const shown = clamped ? full.slice(0, 4000) : full;
 
 		return `
-      <div class="sv-tr-entry ${entry.kind}">
+      <div class="sv-tr-entry ${entry.kind}" data-entry-index="${entry.index}">
         <div class="sv-tr-head">
+          <input type="checkbox" class="sv-tr-pick" ${selected && selected.has(entry.index) ? "checked" : ""}
+                 aria-label="Select ${Utils.escapeHtml(label)}">
           <span class="sv-tr-kind">${Utils.escapeHtml(label)}</span>
           ${entry.timestamp ? `<span class="sv-tr-time">${Utils.formatTime(entry.timestamp)}</span>` : ""}
           ${entry.clipped ? '<span class="sv-transcript-warn">line clipped at source</span>' : ""}
@@ -124,8 +148,9 @@ const TranscriptRenderMixin = {
 		return `
       ${this.renderContextUsage(view.stats)}
       ${this.renderTranscriptStats(view.stats)}
+      ${this.renderComposerBar(view.selected)}
       <div class="sv-transcript">
-        ${view.entries.map((e) => this.renderTranscriptEntry(e)).join("")}
+        ${view.entries.map((e) => this.renderTranscriptEntry(e, view.selected)).join("")}
       </div>
       ${
 				view.hasMore

@@ -259,6 +259,14 @@ export async function handleMemoryCommand(
 			break;
 		}
 
+		case "context-add-from-transcript": {
+			const result = await ctx.coreBridge.addFromTranscript(
+				params as { sessionId: string; indexes: number[]; title?: string },
+			);
+			ctx.send({ type: "context-tray", payload: result });
+			break;
+		}
+
 		default:
 			return false;
 	}
