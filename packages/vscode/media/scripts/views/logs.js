@@ -9,6 +9,8 @@ const LogsView = {
 
   // Virtual scrolling state
   _visibleRowCount: 100,
+  /** How many rows we have asked the core for. Grows with Load More. */
+  _fetchLimit: 1000,
   _currentOffset: 0,
 
   // Currently open popup row
@@ -282,11 +284,22 @@ const LogsView = {
       return;
     }
 
-    // Virtual scrolling: limit visible rows for performance
+    // Head truncation with progressive reveal. NOT virtual scrolling -- the
+    // comment here used to say it was, and that is why nobody looked: every
+    // Load More rebuilds the whole table's innerHTML and attaches a listener
+    // per row, so the DOM grows monotonically, which is the opposite of
+    // windowing. Real windowing exists in views/history/virtual-scroll.js and
+    // this view has never loaded it.
     const VISIBLE_ROWS = this._visibleRowCount;
     const visibleLogs = filteredLogs.slice(0, VISIBLE_ROWS);
-    const hasMore = filteredLogs.length > VISIBLE_ROWS;
-    const remainingCount = filteredLogs.length - VISIBLE_ROWS;
+
+    // More to show if we are holding more than we render, OR if the core holds
+    // more than we have fetched. The second case was unreachable while the
+    // fetch limit and this cap were both hardcoded to 100.
+    const heldRemaining = Math.max(filteredLogs.length - VISIBLE_ROWS, 0);
+    const unfetched = Math.max((State.logsTotal || 0) - logs.length, 0);
+    const hasMore = heldRemaining > 0 || unfetched > 0;
+    const remainingCount = heldRemaining + unfetched;
 
     // Store filtered logs for click handlers
     this._filteredLogs = filteredLogs;
@@ -353,6 +366,14 @@ const LogsView = {
     if (loadMoreBtn) {
       loadMoreBtn.addEventListener('click', () => {
         this._visibleRowCount += 100;
+        // Ask the core for more once we are about to run past what we hold.
+        // Revealing rows we never fetched is what made the cap look like a
+        // rendering limit when it was really a fetch limit.
+        const held = (State.logs || []).length;
+        if (this._visibleRowCount >= held && (State.logsTotal || 0) > held) {
+          this._fetchLimit = Math.max(this._fetchLimit + 1000, this._visibleRowCount + 1000);
+          API.getLogs({ ...State.filters }, { limit: this._fetchLimit });
+        }
         this.renderTable();
       });
     }

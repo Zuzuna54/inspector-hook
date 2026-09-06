@@ -30,10 +30,18 @@ const API = {
 	 * Get logs with optional filtering
 	 * @param {Object} filter - Filter options (search, level, hook, session)
 	 */
-	getLogs(filter = {}) {
+	getLogs(filter = {}, options = {}) {
+		// A real parameter, not a literal.
+		//
+		// It was hardcoded to 100, which produced exactly 100 rows -- so the
+		// view's `hasMore = length > 100` was `100 > 100`, false, and Load More
+		// never rendered on a fresh load. The Logs tab could reach 100 rows
+		// while the Dashboard reported thousands for the same quantity, and the
+		// affordance that would have revealed the rest was the thing the cap
+		// switched off.
 		this.send("get-logs", {
 			filter,
-			pagination: { limit: 100 },
+			pagination: { limit: options.limit ?? 1000 },
 		});
 	},
 
