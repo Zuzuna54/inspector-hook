@@ -127,6 +127,10 @@ export function installGlobals(overrides = {}) {
 		getDiff() {},
 		restoreArchived() {},
 		getVersionContent() {},
+		// Mirrors the real API surface: main.js calls ready() to flush any
+		// message that arrived before the inbound handlers registered.
+		ready() {},
+		on() {},
 		...overrides.API,
 	};
 	globalThis.confirm = overrides.confirm ?? (() => true);

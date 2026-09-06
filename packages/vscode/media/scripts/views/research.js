@@ -211,3 +211,11 @@ const ResearchView = {
 };
 
 if (typeof window !== "undefined") window.ResearchView = ResearchView;
+
+// Register with the router, or the Research tab does nothing at all: router.js
+// warns to a console nobody reads and returns, so an unregistered view is
+// indistinguishable from an empty one. Every other view does this; this file
+// was one line from working.
+if (typeof Router !== "undefined" && Router.register) {
+	Router.register("research", ResearchView);
+}
