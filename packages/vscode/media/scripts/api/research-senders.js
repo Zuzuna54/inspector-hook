@@ -34,6 +34,22 @@ const ResearchApiMixin = {
 	researchStats() {
 		this.send("research-stats", {});
 	},
+
+	/**
+	 * Turn on semantic retrieval.
+	 *
+	 * Explicit rather than automatic: loading the model takes seconds and
+	 * embedding a real corpus takes tens of seconds, which is not something to
+	 * spend on every core start for a view the user may never open.
+	 */
+	researchEnableEmbeddings() {
+		this.send("research-enable-embeddings", {});
+	},
+
+	/** Embed one bounded batch. The caller loops until `embedded` is 0. */
+	researchEmbedPending(limit = 200) {
+		this.send("research-embed-pending", { limit });
+	},
 };
 
 if (typeof window !== "undefined" && window.API) {

@@ -77,8 +77,16 @@ const ResearchView = {
 				) {
 					this.renderResults();
 				}
+				// Backfill loop. Each answered batch asks for the next, so a
+				// 23-second embed never becomes one blocking call and the view
+				// keeps rendering progress in between.
+				if (next.embedding && !p.embedding) API.researchEmbedPending(200);
+				else if (next.embedding && next.stats !== p.stats) {
+					API.researchEmbedPending(200);
+				}
 				if (
 					next.stats !== p.stats ||
+					next.embedding !== p.embedding ||
 					next.scope !== p.scope ||
 					next.kinds !== p.kinds ||
 					next.source !== p.source ||
@@ -223,6 +231,14 @@ const ResearchView = {
 		const projects = Object.keys(v.stats.byProject || {}).length;
 		host.className = "rs-stats";
 		host.innerHTML = `${v.stats.items} items · ${v.stats.terms} terms · ${projects} project${projects === 1 ? "" : "s"}${this._renderEmbeddingState(v.stats)}`;
+
+		const enable = document.getElementById("rs-enable-embed");
+		if (enable) {
+			enable.addEventListener("click", () => {
+				State.update("researchView", { ...State.researchView, embedding: true });
+				API.researchEnableEmbeddings();
+			});
+		}
 	},
 
 	/**
@@ -235,10 +251,17 @@ const ResearchView = {
 	_renderEmbeddingState(stats) {
 		const e = stats.embeddings;
 		if (!e) return "";
+		const v = State.researchView || {};
+
+		if (v.embedding) {
+			return ` · <span class="rs-embed-partial">embedding ${e.embedded}/${stats.items}…</span>`;
+		}
 		if (!e.available) {
-			return e.error
-				? ` · <span class="rs-embed-off" title="${Utils.escapeHtml(e.error)}">lexical only</span>`
-				: ` · <span class="rs-embed-off">lexical only</span>`;
+			// Offered, not performed. Loading the model and embedding a real
+			// corpus is roughly half a minute of CPU, which is the user's call.
+			const why = e.error ? ` title="${Utils.escapeHtml(e.error)}"` : "";
+			return ` · <span class="rs-embed-off"${why}>lexical only</span>
+				<button id="rs-enable-embed" class="rs-link-btn">enable semantic search</button>`;
 		}
 		if (e.embedded < stats.items) {
 			return ` · <span class="rs-embed-partial">semantic ${e.embedded}/${stats.items}</span>`;

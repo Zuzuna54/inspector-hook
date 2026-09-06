@@ -96,6 +96,8 @@ const State = {
 		graphSelected: null, // an expanded node
 		graphNeighbors: null,
 		neighborsLoading: false,
+		// True while the semantic backfill loop is running.
+		embedding: false,
 	},
 
 	contextView: {
@@ -375,6 +377,7 @@ const State = {
 			graphSelected: null,
 			graphNeighbors: null,
 			neighborsLoading: false,
+			embedding: false,
 		};
 		this.contextView = {
 			projects: [],

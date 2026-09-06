@@ -70,6 +70,8 @@ function loadResearch(stateOverrides = {}) {
 			researchGet: (p) => sent.push({ get: p }),
 			researchStats: (p) => sent.push({ stats: p ?? null }),
 			graphStatus: (p) => sent.push({ graphStatus: p ?? null }),
+			researchEnableEmbeddings: () => sent.push({ enableEmbeddings: true }),
+			researchEmbedPending: (limit) => sent.push({ embedPending: limit }),
 			graphSearch: (p) => sent.push({ graphSearch: p }),
 			graphNeighbors: (p) => sent.push({ graphNeighbors: p }),
 			graphGet: (p) => sent.push({ graphGet: p }),
@@ -763,5 +765,214 @@ describe("research: the state slice has one definition", () => {
 			keysOf(literal[1]),
 			"reset() and the initial researchView literal define different keys",
 		);
+	});
+});
+
+// ============================================================================
+// Semantic retrieval: the control surface, and the loop that fills the corpus.
+// ============================================================================
+
+const statsWith = (embeddings, items = 693) => ({
+	items,
+	terms: 7441,
+	byKind: {},
+	byProject: { a: 1 },
+	embeddings,
+});
+
+describe("research: enabling semantic search", () => {
+	it("offers it rather than performing it", () => {
+		// Loading the model and embedding a real corpus is about half a minute
+		// of CPU. Doing that because someone opened a tab would be rude.
+		const { view, els, sent, State } = loadResearch();
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			stats: statsWith({ available: false, embedded: 0 }),
+		});
+
+		assert.match(els.get("rs-stats").innerHTML, /lexical only/);
+		assert.match(els.get("rs-stats").innerHTML, /enable semantic search/);
+		assert.equal(sent.filter((s) => s.enableEmbeddings).length, 0, "not without being asked");
+	});
+
+	it("explains why it is unavailable when the core said", () => {
+		// The sharp binding failure was invisible for exactly this reason.
+		const { view, els, State } = loadResearch();
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			stats: statsWith({ available: false, embedded: 0, error: "Something went wrong installing the \"sharp\" module" }),
+		});
+		assert.match(els.get("rs-stats").innerHTML, /sharp/);
+	});
+
+	it("REGRESSION: the inbound handler starts the loop on a FRESH corpus", () => {
+		// The bug lived in inbound-research.js, so this drives that file rather
+		// than setting `embedding` by hand -- a test that seeds the flag itself
+		// bypasses the exact decision that was wrong.
+		//
+		// The two core methods both return a field called `embedded` meaning
+		// different things: a corpus TOTAL from enableEmbeddings, a BATCH size
+		// from embedPending. Deciding "keep going" from the total meant a corpus
+		// with nothing embedded yet reported 0 and the loop never started, so
+		// semantic search could only be enabled on a corpus already embedded.
+		const handlers = {};
+		installGlobals({
+			API: { on: (types, fn) => types.forEach((t) => (handlers[t] = fn)) },
+		});
+		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
+		eval(readMedia("scripts/state.js"));
+		globalThis.State = globalThis.window.State;
+		globalThis.window.API = globalThis.API;
+		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
+		eval(readMedia("scripts/api/inbound-research.js"));
+
+		// enableEmbeddings on an empty corpus: available, 0 embedded, no batch.
+		handlers["research-embeddings"]({ available: true, embedded: 0, batch: undefined });
+		assert.equal(
+			globalThis.State.researchView.embedding,
+			true,
+			"must keep going: 0 embedded is the reason to start, not to stop",
+		);
+
+		// A batch that embedded nothing is what ends it.
+		handlers["research-embeddings"]({ available: true, embedded: 693, batch: 0 });
+		assert.equal(globalThis.State.researchView.embedding, false, "the loop terminates");
+
+		// And an unavailable model never starts it.
+		handlers["research-embeddings"]({ available: false, embedded: 0, error: "no sharp" });
+		assert.equal(globalThis.State.researchView.embedding, false);
+		assert.equal(globalThis.State.researchView.stats, null, "no stats to fold into yet");
+	});
+
+	it("the view requests a batch once embedding begins", () => {
+		// The two core methods both return a field called `embedded` meaning
+		// different things -- a corpus total from enable, a batch size from
+		// embedPending. Reading the total to decide whether to continue meant a
+		// corpus with nothing embedded yet reported 0 and the loop never ran,
+		// so semantic search could only ever be enabled on a corpus that was
+		// already embedded.
+		const { view, sent, State } = loadResearch();
+		view.init();
+		view.render();
+
+		// Enabling on an empty corpus: available, nothing embedded, no batch yet.
+		State.update("researchView", {
+			...State.researchView,
+			embedding: true,
+			stats: statsWith({ available: true, embedded: 0 }),
+		});
+
+		assert.equal(
+			sent.filter((s) => "embedPending" in s).length,
+			1,
+			"the first batch must be requested even with 0 embedded",
+		);
+	});
+
+	it("keeps requesting batches while they produce work, and stops at zero", () => {
+		const { view, sent, State } = loadResearch();
+		view.init();
+		view.render();
+
+		State.update("researchView", {
+			...State.researchView,
+			embedding: true,
+			stats: statsWith({ available: true, embedded: 0 }),
+		});
+		const afterFirst = sent.filter((s) => "embedPending" in s).length;
+
+		// A batch came back with work: stats changed, still embedding.
+		State.update("researchView", {
+			...State.researchView,
+			embedding: true,
+			stats: statsWith({ available: true, embedded: 200 }),
+		});
+		assert.ok(
+			sent.filter((s) => "embedPending" in s).length > afterFirst,
+			"a productive batch asks for the next",
+		);
+
+		// A batch embedded nothing: the inbound handler clears `embedding`.
+		const before = sent.filter((s) => "embedPending" in s).length;
+		State.update("researchView", {
+			...State.researchView,
+			embedding: false,
+			stats: statsWith({ available: true, embedded: 693 }),
+		});
+		assert.equal(
+			sent.filter((s) => "embedPending" in s).length,
+			before,
+			"the loop must terminate",
+		);
+	});
+
+	it("shows progress while embedding, not a bare 'on'", () => {
+		const { view, els, State } = loadResearch();
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			embedding: true,
+			stats: statsWith({ available: true, embedded: 200 }),
+		});
+		assert.match(els.get("rs-stats").innerHTML, /embedding 200\/693/);
+	});
+
+	it("distinguishes partial coverage from full", () => {
+		// "on" at 3 of 693 embedded is true and useless.
+		const { view, els, State } = loadResearch();
+		view.init();
+		view.render();
+
+		State.update("researchView", {
+			...State.researchView,
+			stats: statsWith({ available: true, embedded: 3 }),
+		});
+		assert.match(els.get("rs-stats").innerHTML, /semantic 3\/693/);
+
+		State.update("researchView", {
+			...State.researchView,
+			stats: statsWith({ available: true, embedded: 693 }),
+		});
+		const full = els.get("rs-stats").innerHTML;
+		assert.match(full, /semantic/);
+		assert.ok(!/693\/693/.test(full), "full coverage does not need a fraction");
+	});
+});
+
+describe("research: a result states which signals ranked it", () => {
+	it("labels hybrid and lexical differently", () => {
+		// A hybrid search that silently degraded to lexical is otherwise
+		// indistinguishable from one that merely ranked differently.
+		const { view, els, State } = loadResearch();
+		view.init();
+		view.render();
+
+		State.update("researchView", {
+			...State.researchView,
+			results: result({ retrieval: "hybrid" }),
+		});
+		assert.match(els.get("rs-results").innerHTML, /hybrid/);
+
+		State.update("researchView", {
+			...State.researchView,
+			results: result({ retrieval: "lexical" }),
+		});
+		assert.match(els.get("rs-results").innerHTML, /lexical/);
+	});
+
+	it("says nothing when the core did not report a mode", () => {
+		// An older core reports no `retrieval`. Guessing "lexical" there would
+		// be a claim about a core that never made it.
+		const { view, els, State } = loadResearch();
+		view.init();
+		view.render();
+		State.update("researchView", { ...State.researchView, results: result() });
+		const html = els.get("rs-results").innerHTML;
+		assert.ok(!/hybrid|lexical/.test(html));
 	});
 });

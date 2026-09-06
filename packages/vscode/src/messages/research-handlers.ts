@@ -109,6 +109,77 @@ export async function handleResearchCommand(
 			return true;
 		}
 
+		case "research-enable-embeddings": {
+			try {
+				const r = await rpc.sendRequest<{
+					available: boolean;
+					embedded: number;
+					error?: string;
+				}>("research.enableEmbeddings", {});
+				// Normalised to one shape. The two core methods both return a
+				// field called `embedded` meaning different things -- a corpus
+				// total here, a batch size there -- and the view's backfill loop
+				// reads it to decide whether to continue. Left unnormalised, a
+				// fresh corpus reported `embedded: 0` from enable and the loop
+				// never started at all.
+				ctx.send({
+					type: "research-embeddings",
+					payload: {
+						available: r.available,
+						embedded: r.embedded,
+						// undefined, not 0: no batch has run yet, which is
+						// different from a batch that embedded nothing.
+						batch: undefined,
+						error: r.error,
+					},
+				});
+			} catch (error) {
+				// A model that will not load is a state to render, not a crash:
+				// search keeps working on BM25 alone.
+				ctx.send({
+					type: "research-embeddings",
+					payload: {
+						available: false,
+						embedded: 0,
+						batch: 0,
+						error: error instanceof Error ? error.message : String(error),
+					},
+				});
+			}
+			return true;
+		}
+
+		case "research-embed-pending": {
+			const limit = (params as { limit?: number })?.limit;
+			try {
+				const r = await rpc.sendRequest<{
+					embedded: number;
+					total: number;
+					available: boolean;
+				}>("research.embedPending", { limit });
+				ctx.send({
+					type: "research-embeddings",
+					payload: {
+						available: r.available,
+						embedded: r.total,
+						// How many THIS call embedded. Zero ends the loop.
+						batch: r.embedded,
+					},
+				});
+			} catch (error) {
+				ctx.send({
+					type: "research-embeddings",
+					payload: {
+						available: false,
+						embedded: 0,
+						batch: 0,
+						error: error instanceof Error ? error.message : String(error),
+					},
+				});
+			}
+			return true;
+		}
+
 		default:
 			return false;
 	}
