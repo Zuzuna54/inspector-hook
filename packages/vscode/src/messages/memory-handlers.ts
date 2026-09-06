@@ -204,6 +204,41 @@ export async function handleMemoryCommand(
 			break;
 		}
 
+		// Tiers that reach a running session. `nextSession` is deliberately not
+		// here: it goes through memory-stage-context, whose hook is already
+		// installed and needs no change.
+		case "context-arm": {
+			const result = await ctx.coreBridge.armContext(
+				params as { tier: "now" | "pinned"; targetSessionId: string; ttlMs?: number },
+			);
+			ctx.send({ type: "context-armed", payload: result });
+			break;
+		}
+
+		case "context-get-armed": {
+			const result = await ctx.coreBridge.getArmedContext(
+				(params as { sessionId?: string })?.sessionId,
+			);
+			ctx.send({ type: "context-armed", payload: result });
+			break;
+		}
+
+		case "context-disarm": {
+			const result = await ctx.coreBridge.disarmContext(
+				params as { tier: "now" | "pinned"; targetSessionId: string },
+			);
+			ctx.send({ type: "context-armed", payload: result });
+			break;
+		}
+
+		case "context-get-targets": {
+			ctx.send({
+				type: "context-targets",
+				payload: await ctx.coreBridge.getContextTargets(),
+			});
+			break;
+		}
+
 		default:
 			return false;
 	}

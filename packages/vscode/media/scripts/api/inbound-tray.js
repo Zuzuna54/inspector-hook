@@ -21,4 +21,27 @@
 			lastRefusal: refused ? payload.reason || "The tray refused that." : null,
 		});
 	});
+
+	// What is armed for a session, and what a pin has cost. A refusal comes back
+	// with `armed:false` and a reason; branching on the flag rather than on
+	// truthiness is the lesson from the staging path, where a refusal rendered
+	// as a success with an empty body.
+	API.on("context-armed", function (payload) {
+		const refused = payload && payload.armed === false;
+		State.update("contextTray", {
+			...State.contextTray,
+			armed: refused ? State.contextTray.armed : payload || null,
+			lastRefusal: refused ? payload.reason || "Arming was refused." : null,
+		});
+	});
+
+	// Candidate sessions. Reported with raw ages rather than a live/dead flag:
+	// there is no heartbeat, so a boolean would be an assertion nothing here can
+	// support.
+	API.on("context-targets", function (payload) {
+		State.update("contextTray", {
+			...State.contextTray,
+			targets: payload?.targets || [],
+		});
+	});
 })();

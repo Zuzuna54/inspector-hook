@@ -44,6 +44,33 @@ const TrayApiMixin = {
 	contextClearTray() {
 		this.send("context-clear-tray", {});
 	},
+
+	// ==========================================================================
+	// Tiers that reach a RUNNING session (P4)
+	//
+	// `nextSession` is not here: it stays on memory-stage-context, whose hook is
+	// already installed. These two go through the UserPromptSubmit injector.
+	// ==========================================================================
+
+	/**
+	 * @param {{tier: "now"|"pinned", targetSessionId: string, ttlMs?: number}} params
+	 */
+	contextArm(params) {
+		this.send("context-arm", params);
+	},
+
+	contextGetArmed(sessionId) {
+		this.send("context-get-armed", sessionId ? { sessionId } : {});
+	},
+
+	contextDisarm(params) {
+		this.send("context-disarm", params);
+	},
+
+	/** Sessions that could receive context. The user picks; nothing guesses. */
+	contextGetTargets() {
+		this.send("context-get-targets", {});
+	},
 };
 
 window.TrayApiMixin = TrayApiMixin;

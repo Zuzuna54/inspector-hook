@@ -119,6 +119,12 @@ const State = {
 		/** The item open in the editor, and its working copy. */
 		editing: null,
 		draft: "",
+		/** Sessions this tray could be sent to, newest activity first. */
+		targets: [],
+		/** The session selected as the target, when one is. */
+		targetSessionId: null,
+		/** What is currently armed for the selected session. */
+		armed: null,
 	},
 
 	// ==========================================================================
@@ -318,6 +324,9 @@ const State = {
 			lastRefusal: null,
 			editing: null,
 			draft: "",
+			targets: [],
+			targetSessionId: null,
+			armed: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

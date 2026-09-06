@@ -17,7 +17,7 @@ const TrayRenderMixin = {
 	 * @param {string} draft
 	 * @returns {string}
 	 */
-	renderTray(tray, preview, refusal, editingId, draft) {
+	renderTray(tray, preview, refusal, editingId, draft, targets, targetSessionId, armed) {
 		const items = (tray && tray.items) || [];
 		return `
       ${refusal ? `<div class="ctx-notice ctx-notice-refused">${Utils.escapeHtml(refusal)}</div>` : ""}
@@ -37,7 +37,7 @@ const TrayRenderMixin = {
 							)
 							.join("")}</div>`
 			}
-      ${items.length ? this.renderTrayActions(preview) : ""}
+      ${items.length ? this.renderTrayActions(preview, targets, targetSessionId, armed) : ""}
     `;
 	},
 
@@ -138,21 +138,124 @@ const TrayRenderMixin = {
     `;
 	},
 
-	/** Stage and clear. */
-	renderTrayActions(preview) {
+	/**
+	 * Where this tray goes, and when.
+	 *
+	 * Three tiers, and they differ in WHEN the text arrives, so they are laid
+	 * out as a choice rather than hidden behind one button. The wording is
+	 * deliberate: "next session" and "next prompt" are the difference between
+	 * waiting for a restart and not, and it is the thing a reasonable person
+	 * would otherwise have to discover by being surprised.
+	 */
+	renderTrayActions(preview, targets, targetSessionId, armed) {
 		const empty = !preview || !preview.bytes;
+		const needsTarget = !targetSessionId;
 		return `
       <div class="tray-actions">
-        <p class="ctx-hint">
-          Staging replaces whatever is currently staged, and it lands on the
-          <strong>next session that starts</strong> — not this one.
-        </p>
-        <button class="btn btn-sm btn-success tray-stage" ${empty ? "disabled" : ""}>
-          Stage for the next session
-        </button>
+        ${this.renderArmed(armed, preview)}
+        <div class="tray-tier">
+          <div class="tray-tier-row">
+            <button class="btn btn-sm btn-success tray-stage" ${empty ? "disabled" : ""}>
+              Next session
+            </button>
+            <span class="ctx-hint">Lands when a new session starts. Used once.</span>
+          </div>
+          <div class="tray-tier-row">
+            <button class="btn btn-sm tray-arm-now" ${empty || needsTarget ? "disabled" : ""}>
+              Next prompt
+            </button>
+            <span class="ctx-hint">
+              Reaches a session that is already running, on its next message. Used once.
+            </span>
+          </div>
+          <div class="tray-tier-row">
+            <button class="btn btn-sm tray-arm-pinned" ${empty || needsTarget ? "disabled" : ""}>
+              Pin
+            </button>
+            <span class="ctx-hint">
+              Repeats on <strong>every</strong> prompt until unpinned. Expires in 24 hours.
+            </span>
+          </div>
+        </div>
+        ${this.renderTargets(targets, targetSessionId)}
         <button class="btn btn-sm btn-danger tray-clear">Clear the tray</button>
       </div>
     `;
+	},
+
+	/**
+	 * Which session receives it.
+	 *
+	 * Ages are shown raw rather than as a live/dead badge: there is no
+	 * heartbeat, a session's status decays on a timer, and a confident "live"
+	 * label would be an assertion nothing can support. "4m ago" lets the reader
+	 * judge, which is what they asked for.
+	 */
+	renderTargets(targets, targetSessionId) {
+		const list = targets || [];
+		if (!list.length) {
+			return `<div class="ctx-hint tray-targets-empty">
+        No sessions retained, so there is nothing running to send to.
+      </div>`;
+		}
+		return `
+      <div class="tray-targets">
+        <label class="ctx-hint" for="tray-target">Send to</label>
+        <select id="tray-target" class="tray-target-select">
+          <option value="">Choose a session…</option>
+          ${list
+						.map(
+							(t) => `<option value="${Utils.escapeHtml(t.sessionId)}" ${
+								t.sessionId === targetSessionId ? "selected" : ""
+							}>${Utils.escapeHtml(t.projectName || t.name || t.sessionId.slice(0, 8))} — ${this.formatAge(t.ageMs)}${
+								t.armed && (t.armed.now || t.armed.pinned) ? " · armed" : ""
+							}</option>`,
+						)
+						.join("")}
+        </select>
+      </div>
+    `;
+	},
+
+	/**
+	 * What is already armed for this session.
+	 *
+	 * A pin repeats on every prompt, so its cost is stated as what it HAS cost,
+	 * not as the payload size — a number that only showed the size would
+	 * describe a recurring charge as a one-off.
+	 */
+	renderArmed(armed, _preview) {
+		if (!armed) return "";
+		const rows = [];
+		if (armed.now) {
+			rows.push(`<div class="tray-armed-row">
+        <span class="tray-armed-tier">next prompt</span>
+        <span>${this.formatBytes(armed.now.bytes || 0)}, used once</span>
+        <button class="btn btn-xs btn-danger tray-disarm" data-tier="now">Cancel</button>
+      </div>`);
+		}
+		if (armed.pinned) {
+			const repeat = armed.pinned.estimatedRepeatBytes || armed.pinned.bytes || 0;
+			rows.push(`<div class="tray-armed-row pinned">
+        <span class="tray-armed-tier">pinned</span>
+        <span>${this.formatBytes(armed.pinned.bytes || 0)} × ${armed.pinned.deliveries ?? 0} prompts
+          = <strong>${this.formatBytes(repeat)}</strong> so far</span>
+        <span class="ctx-hint">expires ${Utils.formatDate(armed.pinned.expiresAt)}</span>
+        <button class="btn btn-xs btn-danger tray-disarm" data-tier="pinned">Unpin</button>
+      </div>`);
+		}
+		return rows.length ? `<div class="tray-armed">${rows.join("")}</div>` : "";
+	},
+
+	/** @param {number|null} ms */
+	formatAge(ms) {
+		if (ms === null || ms === undefined) return "unknown";
+		const mins = Math.floor(ms / 60000);
+		if (mins < 1) return "just now";
+		if (mins < 60) return `${mins}m ago`;
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) return `${hours}h ago`;
+		return `${Math.floor(hours / 24)}d ago`;
 	},
 
 	/** @param {string} kind */

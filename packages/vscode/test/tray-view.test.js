@@ -172,9 +172,15 @@ describe("tray rendering", () => {
 		assert.match(html, /over the 64 KB per-item limit/);
 	});
 
-	it("says the context lands on the NEXT session", () => {
+	it("says WHEN each tier lands, which is the only thing separating them", () => {
+		// The wording moved when the tiers were added: it used to be one line
+		// about the next session, and is now one line per tier. The intent is
+		// unchanged -- a reader must not have to discover the timing by being
+		// surprised by it.
 		const html = view.renderTray({ items: [item()] }, preview(), null, null, "");
-		assert.match(html, /next session that starts/i);
+		assert.match(html, /new session starts/i);
+		assert.match(html, /already running/i);
+		assert.match(html, /every<\/strong> prompt/i);
 	});
 
 	it("escapes item text rather than rendering it", () => {
@@ -232,6 +238,127 @@ describe("staging sends the preview, not a re-render", () => {
 			State: { contextTray: { tray: { items: [] }, preview: preview({ text: "", bytes: 0 }), lastRefusal: null, editing: null, draft: "" } },
 		});
 		view.stage();
+		assert.deepEqual(sent, []);
+	});
+});
+
+describe("the three tiers", () => {
+	const view = loadTray();
+	const targets = [
+		{ sessionId: "sess-1", projectName: "inspector-hook", ageMs: 120000, armed: {} },
+		{ sessionId: "sess-2", projectName: "other", ageMs: 7200000, armed: { pinned: true } },
+	];
+
+	it("offers all three, and says WHEN each arrives", () => {
+		// The tiers differ only in timing, so the timing is the thing that has
+		// to be on screen. "next session" vs "next prompt" is the difference
+		// between needing a restart and not.
+		const html = view.renderTray({ items: [item()] }, preview(), null, null, "", targets, "sess-1", null);
+		assert.match(html, /tray-stage/);
+		assert.match(html, /tray-arm-now/);
+		assert.match(html, /tray-arm-pinned/);
+		assert.match(html, /new session starts/i);
+		assert.match(html, /already running/i);
+	});
+
+	it("says a pin repeats on EVERY prompt, and that it expires", () => {
+		// Pinning deliberately breaks the one-shot guarantee. If the UI does not
+		// say so, the cost is invisible until it is large.
+		const html = view.renderTray({ items: [item()] }, preview(), null, null, "", targets, "sess-1", null);
+		assert.match(html, /every<\/strong> prompt/i);
+		assert.match(html, /24 hours/);
+	});
+
+	it("disables the running-session tiers until a target is chosen", () => {
+		// Without a target, "send to this session" has no session.
+		const noTarget = view.renderTray({ items: [item()] }, preview(), null, null, "", targets, null, null);
+		assert.match(noTarget, /tray-arm-now" disabled/);
+		assert.match(noTarget, /tray-arm-pinned" disabled/);
+		// Next-session needs no target, so it stays available.
+		assert.ok(!/tray-stage" disabled/.test(noTarget));
+	});
+
+	it("shows each target's age rather than a live/dead badge", () => {
+		// There is no heartbeat and status decays on a timer, so a confident
+		// "live" label would be an assertion nothing can support.
+		const html = view.renderTray({ items: [item()] }, preview(), null, null, "", targets, "sess-1", null);
+		assert.match(html, /2m ago/);
+		assert.match(html, /2h ago/);
+		assert.ok(!/\blive\b/i.test(html), "claimed liveness it cannot know");
+	});
+
+	it("says so when there is nothing to send to", () => {
+		const html = view.renderTray({ items: [item()] }, preview(), null, null, "", [], null, null);
+		assert.match(html, /nothing running to send to/i);
+	});
+
+	it("states what a pin has actually cost, not just its size", () => {
+		// Pinned bytes are paid on every prompt. Showing only the payload size
+		// would describe a recurring charge as a one-off.
+		const html = view.renderTray({ items: [item()] }, preview(), null, null, "", targets, "sess-1", {
+			pinned: { bytes: 1024, deliveries: 12, estimatedRepeatBytes: 12288, expiresAt: "2026-09-07T10:00:00.000Z" },
+		});
+		assert.match(html, /12 prompts/);
+		assert.match(html, /12\.0 KB<\/strong> so far/);
+		assert.match(html, /tray-disarm/);
+	});
+
+	it("offers to cancel a one-shot and to unpin a pin", () => {
+		const html = view.renderTray({ items: [item()] }, preview(), null, null, "", targets, "sess-1", {
+			now: { bytes: 100 },
+			pinned: { bytes: 100, deliveries: 1, estimatedRepeatBytes: 100, expiresAt: "" },
+		});
+		assert.match(html, /data-tier="now"/);
+		assert.match(html, /data-tier="pinned"/);
+		assert.match(html, /Unpin/);
+	});
+});
+
+describe("arming sends the tier and target, and nothing else", () => {
+	it("posts the chosen tier for the chosen session", () => {
+		const sent = [];
+		const view = loadTray({
+			API: { contextGetTray() {}, contextGetTargets() {}, contextArm: (p) => sent.push(p) },
+			State: {
+				contextTray: {
+					tray: { items: [item()] }, preview: preview(), lastRefusal: null,
+					editing: null, draft: "", targets: [], targetSessionId: "sess-1", armed: null,
+				},
+			},
+		});
+		view.arm("pinned");
+		assert.deepEqual(sent, [{ tier: "pinned", targetSessionId: "sess-1", label: "Context tray" }]);
+	});
+
+	it("sends no TEXT: the core re-renders from the tray it holds", () => {
+		// One renderer. Passing text from here would be a second path that could
+		// drift from the preview, which is the failure the whole design avoids.
+		const sent = [];
+		const view = loadTray({
+			API: { contextGetTray() {}, contextGetTargets() {}, contextArm: (p) => sent.push(p) },
+			State: {
+				contextTray: {
+					tray: { items: [item()] }, preview: preview(), lastRefusal: null,
+					editing: null, draft: "", targets: [], targetSessionId: "sess-1", armed: null,
+				},
+			},
+		});
+		view.arm("now");
+		assert.equal(sent[0].text, undefined, "text was sent, creating a second render path");
+	});
+
+	it("arms nothing without a target", () => {
+		const sent = [];
+		const view = loadTray({
+			API: { contextGetTray() {}, contextGetTargets() {}, contextArm: (p) => sent.push(p) },
+			State: {
+				contextTray: {
+					tray: { items: [item()] }, preview: preview(), lastRefusal: null,
+					editing: null, draft: "", targets: [], targetSessionId: null, armed: null,
+				},
+			},
+		});
+		view.arm("now");
 		assert.deepEqual(sent, []);
 	});
 });

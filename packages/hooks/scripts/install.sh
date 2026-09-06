@@ -51,6 +51,11 @@ HOOK_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-hook.sh"
 # into the session context -- and it emits nothing at all unless the user has
 # explicitly staged something in the panel, so installing it is inert until used.
 CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-context.sh"
+# The UserPromptSubmit injector: reaches a session that is ALREADY RUNNING,
+# where inspector-context.sh only seeds one at SessionStart. Separate script for
+# the same reason: the observer is silent on every event by contract, and this
+# one must print.
+PROMPT_CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-prompt-context.sh"
 SETTINGS="${HOME}/.claude/settings.json"
 DRY_RUN=0
 UNINSTALL=0
@@ -191,13 +196,17 @@ build_install() {
   done
   # SessionStart only, and last, so it runs after the observer is registered.
   json="$(register_one "$json" "SessionStart" "$CONTEXT_SCRIPT")"
+  # Registered after the observer, like the SessionStart injector. It filters on
+  # session_id from its own payload: a registered hook fires for EVERY session,
+  # so without that filter "send to this session" would mean "send to all".
+  json="$(register_one "$json" "UserPromptSubmit" "$PROMPT_CONTEXT_SCRIPT")"
   printf '%s' "$json"
 }
 
 # Remove only entries whose command is ours, then drop any group or event that
 # is left empty. Everything belonging to another tool survives.
 build_uninstall() {
-  jq --argjson cmds "[\"$HOOK_SCRIPT\", \"$CONTEXT_SCRIPT\"]" '
+  jq --argjson cmds "[\"$HOOK_SCRIPT\", \"$CONTEXT_SCRIPT\", \"$PROMPT_CONTEXT_SCRIPT\"]" '
     if .hooks == null then .
     else
       .hooks |= with_entries(
@@ -228,7 +237,7 @@ report() {
 }
 
 [[ -f "$HOOK_SCRIPT" ]] || fail "hook script not found at $HOOK_SCRIPT"
-chmod +x "$HOOK_SCRIPT"
+chmod +x "$HOOK_SCRIPT" "$CONTEXT_SCRIPT" "$PROMPT_CONTEXT_SCRIPT" 2>/dev/null || true
 ensure_settings
 
 if [[ "$UNINSTALL" == "1" ]]; then

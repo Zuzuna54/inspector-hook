@@ -60,6 +60,38 @@ export function createMemoryBridge(send: SendRequest) {
 			return send("context.clearTray", {});
 		},
 
+		/**
+		 * Freeze the tray for one session.
+		 *
+		 * `now` is one-shot; `pinned` repeats until unpinned or expired, and its
+		 * expiry is mandatory rather than optional.
+		 */
+		async armContext(params: {
+			tier: "now" | "pinned";
+			targetSessionId: string;
+			label?: string;
+			ttlMs?: number;
+		}): Promise<unknown> {
+			return send("context.arm", params);
+		},
+
+		/** What is armed, plus what a pin has cost so far. */
+		async getArmedContext(sessionId?: string): Promise<unknown> {
+			return send("context.getArmed", sessionId ? { sessionId } : {});
+		},
+
+		async disarmContext(params: {
+			tier: "now" | "pinned";
+			targetSessionId: string;
+		}): Promise<unknown> {
+			return send("context.disarm", params);
+		},
+
+		/** Sessions that could receive context, newest activity first. */
+		async getContextTargets(): Promise<unknown> {
+			return send("context.getTargets", {});
+		},
+
 		/** Exactly what arming would write. */
 		async previewContext(): Promise<unknown> {
 			return send("context.preview", {});

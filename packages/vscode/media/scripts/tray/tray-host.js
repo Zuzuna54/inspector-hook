@@ -23,6 +23,9 @@ const TrayView = {
 		this.setupHandlers();
 		this.render();
 		API.contextGetTray();
+		// Candidate sessions, so the target picker is populated before the user
+		// reaches for it rather than after.
+		API.contextGetTargets();
 	},
 
 	cleanup() {
@@ -33,8 +36,11 @@ const TrayView = {
 	render() {
 		const el = document.getElementById("tray-body");
 		if (!el) return;
-		const { tray, preview, lastRefusal, editing, draft } = State.contextTray;
-		el.innerHTML = this.renderTray(tray, preview, lastRefusal, editing, draft);
+		const { tray, preview, lastRefusal, editing, draft, targets, targetSessionId, armed } =
+			State.contextTray;
+		el.innerHTML = this.renderTray(
+			tray, preview, lastRefusal, editing, draft, targets, targetSessionId, armed,
+		);
 	},
 
 	/** The item currently open in the editor, or null. */
@@ -67,6 +73,22 @@ const TrayView = {
 				this.stage();
 				return;
 			}
+			if (e.target.closest(".tray-arm-now")) {
+				this.arm("now");
+				return;
+			}
+			if (e.target.closest(".tray-arm-pinned")) {
+				this.arm("pinned");
+				return;
+			}
+			const disarm = e.target.closest(".tray-disarm");
+			if (disarm) {
+				API.contextDisarm({
+					tier: disarm.dataset.tier,
+					targetSessionId: State.contextTray.targetSessionId,
+				});
+				return;
+			}
 			if (!itemId) return;
 
 			if (e.target.closest(".tray-remove")) {
@@ -96,6 +118,14 @@ const TrayView = {
 		});
 
 		root.addEventListener("change", (e) => {
+			if (e.target.id === "tray-target") {
+				const targetSessionId = e.target.value || null;
+				State.update("contextTray", { ...State.contextTray, targetSessionId });
+				// What is armed is per session, so switching target has to refetch
+				// rather than keep showing the previous session's pins.
+				if (targetSessionId) API.contextGetArmed(targetSessionId);
+				return;
+			}
 			if (!e.target.classList?.contains("tray-include")) return;
 			const itemId = e.target.closest(".tray-item")?.dataset.itemId;
 			if (itemId) API.contextUpdateItem({ itemId, include: e.target.checked });
@@ -143,6 +173,20 @@ const TrayView = {
 	 * Re-rendering here would put a second templating step between preview and
 	 * delivery, which is the one thing this whole path exists to avoid.
 	 */
+	/**
+	 * Arm the tray for a running session.
+	 *
+	 * The core re-renders from the tray it holds rather than taking text from
+	 * here: one renderer, so what is armed cannot differ from what the preview
+	 * showed. `now` is one-shot; `pinned` repeats every prompt until unpinned,
+	 * and its expiry is mandatory rather than a default the caller may omit.
+	 */
+	arm(tier) {
+		const { targetSessionId, preview } = State.contextTray;
+		if (!targetSessionId || !preview?.text) return;
+		API.contextArm({ tier, targetSessionId, label: "Context tray" });
+	},
+
 	stage() {
 		const { preview } = State.contextTray;
 		if (!preview || !preview.text) return;

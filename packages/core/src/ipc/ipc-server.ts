@@ -39,6 +39,14 @@ import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
 import { renderTray } from "../context/render.js";
 import {
+	armContext,
+	disarmContext,
+	isSafeSessionId,
+	listArmed,
+	readAllArmed,
+	type ArmedTier,
+} from "../context/armed-store.js";
+import {
 	addItem,
 	clearTray,
 	readTray,
@@ -1082,6 +1090,114 @@ export class IpcServer {
 			return { ok: true, tray: saved, preview: renderTray(saved) };
 		});
 
+		/**
+		 * Arm the tray for one session.
+		 *
+		 * `now` is one-shot and `pinned` repeats until unpinned or expired.
+		 * Both take the text from the SAME renderer the preview uses, so there
+		 * is no second path that could drift. `nextSession` is deliberately not
+		 * handled here -- it goes through memory.stageContext, whose hook is
+		 * already installed and which needs no change.
+		 */
+		this.methods.set("context.arm", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tier = asStr(rec.tier) as ArmedTier;
+			if (tier !== "now" && tier !== "pinned") {
+				return { armed: false, reason: `Unknown tier "${tier}".` };
+			}
+			const targetSessionId = asStr(rec.targetSessionId) ?? "";
+			if (!isSafeSessionId(targetSessionId)) {
+				return { armed: false, reason: "Choose a session to send this to." };
+			}
+
+			const preview = renderTray(await readTray(this.storagePath));
+			if (!preview.text) {
+				return { armed: false, reason: "The tray is empty, or every item is excluded." };
+			}
+
+			return armContext(this.storagePath, {
+				tier,
+				targetSessionId,
+				text: preview.text,
+				bytes: preview.bytes,
+				label: asStr(rec.label),
+				truncated: preview.truncated,
+				ttlMs: asNum(rec.ttlMs),
+				items: preview.items.map((i) => ({
+					itemId: i.itemId,
+					title: i.title,
+					bytes: i.bytes,
+				})),
+				redactions: preview.redactions,
+			});
+		});
+
+		/**
+		 * What is armed, and what a pin has actually cost.
+		 *
+		 * `deliveries` is counted from the log index rather than written by the
+		 * hook: the hook only reads and deletes, and giving it a write would put
+		 * a second writer on files the core owns. Counting prompts since the pin
+		 * was armed measures the same thing without that.
+		 */
+		this.methods.set("context.getArmed", async (params) => {
+			const sessionId = asStr(asRec(params)?.sessionId);
+			if (sessionId) {
+				const armed = await readAllArmed(this.storagePath, sessionId);
+				return {
+					now: armed.now,
+					pinned: armed.pinned
+						? { ...armed.pinned, ...(await this.pinCost(armed.pinned)) }
+						: null,
+				};
+			}
+			const all = await listArmed(this.storagePath);
+			return { armed: all };
+		});
+
+		this.methods.set("context.disarm", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tier = asStr(rec.tier) as ArmedTier;
+			if (tier !== "now" && tier !== "pinned") {
+				return { cleared: false, reason: `Unknown tier "${tier}".` };
+			}
+			return {
+				cleared: await disarmContext(this.storagePath, tier, asStr(rec.targetSessionId) ?? ""),
+			};
+		});
+
+		/**
+		 * Sessions a person could send context to.
+		 *
+		 * Reports raw ages and the thresholds rather than a live/dead boolean.
+		 * The core does not know which session is live -- there is no heartbeat,
+		 * and a status decays on a timer -- so a boolean would be an assertion
+		 * it cannot support. The user picks, which is what they asked for.
+		 */
+		this.methods.set("context.getTargets", async () => {
+			const { sessions } = await this.sessionManager.getSessions();
+			const now = Date.now();
+			const targets = [];
+			for (const session of sessions) {
+				const meta = (session.metadata ?? {}) as Record<string, unknown>;
+				const last = session.lastActivityTime ?? session.startTime;
+				const armed = await readAllArmed(this.storagePath, session.id);
+				targets.push({
+					sessionId: session.id,
+					name: session.name,
+					projectName: asStr(meta.projectName),
+					gitBranch: asStr(meta.gitBranch),
+					status: session.status,
+					lastActivityTime: last,
+					ageMs: last ? Math.max(now - Date.parse(last), 0) : null,
+					hasTranscript: Boolean(asStr(meta.transcriptPath)),
+					armed: { now: Boolean(armed.now), pinned: Boolean(armed.pinned) },
+				});
+			}
+			targets.sort((a, b) => (a.ageMs ?? Number.MAX_SAFE_INTEGER) - (b.ageMs ?? Number.MAX_SAFE_INTEGER));
+			return { targets, idleAfterMs: 30 * 60 * 1000, completedAfterMs: 2 * 60 * 60 * 1000 };
+		});
+
 		/** Exactly what arming would write. Same renderer, no second path. */
 		this.methods.set("context.preview", async () =>
 			renderTray(await readTray(this.storagePath)),
@@ -1185,6 +1301,34 @@ export class IpcServer {
 			const workspacePath = byMemoryDir.get(project.memoryDir);
 			return workspacePath ? { ...project, workspacePath } : project;
 		});
+	}
+
+	/**
+	 * How many prompts a pin has been delivered into, and what that cost.
+	 *
+	 * Pinned bytes are paid on EVERY prompt. A panel showing only the payload
+	 * size would describe a repeating cost as a one-off, so this counts the
+	 * UserPromptSubmit events for that session since the pin was armed.
+	 */
+	private async pinCost(
+		entry: { targetSessionId: string; armedAt: string; bytes: number },
+	): Promise<{ deliveries: number; estimatedRepeatBytes: number }> {
+		let deliveries = 0;
+		try {
+			const { logs } = await this.logManager.getLogs({
+				filter: { sessionId: entry.targetSessionId },
+				pagination: { limit: Number.MAX_SAFE_INTEGER, offset: 0 },
+			});
+			const since = Date.parse(entry.armedAt);
+			for (const log of logs) {
+				if (log.hook !== "UserPromptSubmit") continue;
+				const at = Date.parse(String(log.timestamp ?? ""));
+				if (!Number.isNaN(at) && at >= since) deliveries++;
+			}
+		} catch {
+			// A cost we cannot measure is reported as zero rather than guessed.
+		}
+		return { deliveries, estimatedRepeatBytes: entry.bytes * deliveries };
 	}
 
 	private async digestFor(session: Session) {

@@ -114,6 +114,22 @@ export {
 	writeTray,
 } from "./context/tray-store.js";
 export { includedCount, renderTray } from "./context/render.js";
+export {
+	armContext,
+	disarmContext,
+	estimatedRepeatBytes,
+	isSafeSessionId,
+	listArmed,
+	readAllArmed,
+	readArmed,
+	resolveTtl,
+	armedPath,
+	DEFAULT_NOW_TTL_MS,
+	DEFAULT_PIN_TTL_MS,
+	MAX_PIN_TTL_MS,
+	type ArmedContext,
+	type ArmedTier,
+} from "./context/armed-store.js";
 
 export {
 	collectDigestInput,
