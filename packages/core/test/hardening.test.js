@@ -230,6 +230,43 @@ describe("secret redaction", () => {
 		assert.doesNotMatch(value, /super-secret-value-here/);
 	});
 
+	it("reports WHICH patterns matched when detail is asked for", () => {
+		// Added for injection-time redaction, where "3 secrets removed" is only
+		// actionable if it says which kinds -- a user has to be able to
+		// recognise a false positive in their own text.
+		//
+		// This test exists because the option shipped with no consumer and no
+		// test, which is precisely the inert-code pattern the rest of this
+		// suite hunts. Its consumer lands with the injection tray; until then
+		// this is what keeps it honest.
+		const text = [
+			"ANTHROPIC_API_KEY=sk-ant-aaaaaaaaaaaaaaaaaaaaaaaa",
+			"token: ghp_bbbbbbbbbbbbbbbbbbbbbbbb",
+			"another ghp_cccccccccccccccccccccccc",
+		].join("\n");
+
+		const plain = redactString(text);
+		assert.equal(plain.matches, undefined, "detail must be opt-in");
+
+		const detailed = redactString(text, { detail: true });
+		assert.equal(detailed.redacted, plain.redacted, "detail must not change what is redacted");
+		assert.equal(detailed.value, plain.value, "detail must not change the output text");
+
+		const byName = Object.fromEntries(detailed.matches.map((m) => [m.name, m.count]));
+		assert.equal(byName["github-token"], 2, "both tokens counted");
+		assert.ok(byName["anthropic-key"] || byName["assigned-secret"], "the key was seen");
+
+		// Sorted most-frequent first, so a summary can be truncated meaningfully.
+		const counts = detailed.matches.map((m) => m.count);
+		assert.deepEqual(counts, [...counts].sort((a, b) => b - a));
+	});
+
+	it("reports nothing to report, rather than omitting the field", () => {
+		const clean = redactString("nothing secret here", { detail: true });
+		assert.equal(clean.redacted, 0);
+		assert.deepEqual(clean.matches, []);
+	});
+
 	it("redacts credentials embedded in a URL but keeps the scheme", () => {
 		const { value } = redactString("clone https://user:hunter2@github.com/x/y");
 		assert.match(value, /https:\/\/\[redacted\]@github\.com/);

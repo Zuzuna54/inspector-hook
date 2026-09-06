@@ -50,20 +50,25 @@
     "configuration": {
       "title": "Inspector Hook",
       "properties": {
-        "inspectorHook.httpPort": {
-          "type": "number",
-          "default": 52376,
-          "description": "HTTP port for hook log ingestion"
-        },
         "inspectorHook.autoStart": {
           "type": "boolean",
           "default": true,
           "description": "Automatically start the core process"
         },
+        "inspectorHook.httpPort": {
+          "type": "number",
+          "default": 52376,
+          "description": "HTTP port for hook log ingestion"
+        },
         "inspectorHook.logRetentionDays": {
           "type": "number",
           "default": 7,
           "description": "Number of days to retain logs"
+        },
+        "inspectorHook.writeSessionMemory": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Write a digest of each finished session into Claude Code's own auto memory (`~/.claude/projects/<project>/memory/`), where future sessions load it automatically.\n\n**Off by default.** These files live outside your workspace and change what every future Claude session in that project is told, so switching it on is your decision, not the extension's. Digests are facts only \u2014 files changed, tools used, duration \u2014 with no model call and no paraphrasing of intent.\n\nInspector Hook never overwrites a memory file it did not author."
         }
       }
     }

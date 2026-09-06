@@ -35,7 +35,27 @@ import {
 	writeMemoryFile,
 	type MemoryType,
 } from "../memory/native-memory.js";
+import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
+import { renderTray } from "../context/render.js";
+import {
+	armContext,
+	disarmContext,
+	isSafeSessionId,
+	listArmed,
+	readAllArmed,
+	type ArmedTier,
+} from "../context/armed-store.js";
+import {
+	addItem,
+	clearTray,
+	readTray,
+	removeItem,
+	reorderItems,
+	resetItem,
+	updateItem,
+	writeTray,
+} from "../context/tray-store.js";
 import { buildSessionDigest } from "../memory/session-digest.js";
 import {
 	clearStagedContext,
@@ -810,11 +830,23 @@ export class IpcServer {
 		// ---------------------------------------------------------------------
 
 		/** Every project on the machine that has memory — the cross-project rollup. */
-		this.methods.set("memory.getProjects", async (params) =>
-			listMemoryProjects({
+		this.methods.set("memory.getProjects", async (params) => {
+			const projects = await listMemoryProjects({
 				includeEmpty: asBool(asRec(params)?.includeEmpty) ?? false,
-			}),
-		);
+			});
+			// Resolve each project's real workspace path from the sessions we
+			// hold. `workspacePath` has been declared, copied through and
+			// rendered against since it was introduced, and populated by no
+			// caller -- so the view's branch for it was permanently dead and
+			// every project was labelled by the slug's tail instead.
+			//
+			// This resolves it EXACTLY rather than guessing: a session's
+			// transcript path maps to a memory dir by the same function the rest
+			// of this file uses, so a match is the same directory, not a
+			// reconstruction of one. The slug cannot be reversed -- it flattens
+			// both "/" and "_" to "-" -- which is why nothing had populated it.
+			return this.withWorkspacePaths(projects);
+		});
 
 		/**
 		 * One project's memory. Addressed either by directory, or by session so
@@ -981,6 +1013,196 @@ export class IpcServer {
 			return { staged: true, ...staged };
 		});
 
+		// ---------------------------------------------------------------------
+		// The context tray (Milestone 3, P3).
+		//
+		// A DRAFT. No hook reads it. `context.preview` renders it to the exact
+		// text arming will write, and staging goes through the existing
+		// memory.stageContext with that text -- so the tray needs no hook change
+		// and no reinstall, and the "preview is the delivery" guarantee holds by
+		// construction rather than by two code paths agreeing.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("context.getTray", async () => {
+			const tray = await readTray(this.storagePath);
+			return { tray, preview: renderTray(tray) };
+		});
+
+		this.methods.set("context.addItem", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: (asStr(rec.kind) as ContextItemKind) ?? "free_text",
+				title: asStr(rec.title) ?? "Untitled",
+				text: asStr(rec.text) ?? "",
+				source: asRec(rec.source) as Record<string, string> | undefined,
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return { ok: true, tray: saved, item: result.item, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.updateItem", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tray = await readTray(this.storagePath);
+			const result = updateItem(tray, asStr(rec.itemId) ?? "", {
+				text: asStr(rec.text),
+				title: asStr(rec.title),
+				include: asBool(rec.include),
+			});
+			if (result.reason) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.resetItem", async (params) => {
+			const tray = await readTray(this.storagePath);
+			const result = resetItem(tray, asStr(asRec(params)?.itemId) ?? "");
+			if (result.reason) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.removeItem", async (params) => {
+			const tray = removeItem(
+				await readTray(this.storagePath),
+				asStr(asRec(params)?.itemId) ?? "",
+			);
+			const saved = await writeTray(this.storagePath, tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.reorderItems", async (params) => {
+			const ids = asRec(params)?.itemIds;
+			const tray = reorderItems(
+				await readTray(this.storagePath),
+				Array.isArray(ids) ? ids.filter((i): i is string => typeof i === "string") : [],
+			);
+			const saved = await writeTray(this.storagePath, tray);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		this.methods.set("context.clearTray", async () => {
+			const saved = await writeTray(
+				this.storagePath,
+				clearTray(await readTray(this.storagePath)),
+			);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
+		});
+
+		/**
+		 * Arm the tray for one session.
+		 *
+		 * `now` is one-shot and `pinned` repeats until unpinned or expired.
+		 * Both take the text from the SAME renderer the preview uses, so there
+		 * is no second path that could drift. `nextSession` is deliberately not
+		 * handled here -- it goes through memory.stageContext, whose hook is
+		 * already installed and which needs no change.
+		 */
+		this.methods.set("context.arm", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tier = asStr(rec.tier) as ArmedTier;
+			if (tier !== "now" && tier !== "pinned") {
+				return { armed: false, reason: `Unknown tier "${tier}".` };
+			}
+			const targetSessionId = asStr(rec.targetSessionId) ?? "";
+			if (!isSafeSessionId(targetSessionId)) {
+				return { armed: false, reason: "Choose a session to send this to." };
+			}
+
+			const preview = renderTray(await readTray(this.storagePath));
+			if (!preview.text) {
+				return { armed: false, reason: "The tray is empty, or every item is excluded." };
+			}
+
+			return armContext(this.storagePath, {
+				tier,
+				targetSessionId,
+				text: preview.text,
+				bytes: preview.bytes,
+				label: asStr(rec.label),
+				truncated: preview.truncated,
+				ttlMs: asNum(rec.ttlMs),
+				items: preview.items.map((i) => ({
+					itemId: i.itemId,
+					title: i.title,
+					bytes: i.bytes,
+				})),
+				redactions: preview.redactions,
+			});
+		});
+
+		/**
+		 * What is armed, and what a pin has actually cost.
+		 *
+		 * `deliveries` is counted from the log index rather than written by the
+		 * hook: the hook only reads and deletes, and giving it a write would put
+		 * a second writer on files the core owns. Counting prompts since the pin
+		 * was armed measures the same thing without that.
+		 */
+		this.methods.set("context.getArmed", async (params) => {
+			const sessionId = asStr(asRec(params)?.sessionId);
+			if (sessionId) {
+				const armed = await readAllArmed(this.storagePath, sessionId);
+				return {
+					now: armed.now,
+					pinned: armed.pinned
+						? { ...armed.pinned, ...(await this.pinCost(armed.pinned)) }
+						: null,
+				};
+			}
+			const all = await listArmed(this.storagePath);
+			return { armed: all };
+		});
+
+		this.methods.set("context.disarm", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tier = asStr(rec.tier) as ArmedTier;
+			if (tier !== "now" && tier !== "pinned") {
+				return { cleared: false, reason: `Unknown tier "${tier}".` };
+			}
+			return {
+				cleared: await disarmContext(this.storagePath, tier, asStr(rec.targetSessionId) ?? ""),
+			};
+		});
+
+		/**
+		 * Sessions a person could send context to.
+		 *
+		 * Reports raw ages and the thresholds rather than a live/dead boolean.
+		 * The core does not know which session is live -- there is no heartbeat,
+		 * and a status decays on a timer -- so a boolean would be an assertion
+		 * it cannot support. The user picks, which is what they asked for.
+		 */
+		this.methods.set("context.getTargets", async () => {
+			const { sessions } = await this.sessionManager.getSessions();
+			const now = Date.now();
+			const targets = [];
+			for (const session of sessions) {
+				const meta = (session.metadata ?? {}) as Record<string, unknown>;
+				const last = session.lastActivityTime ?? session.startTime;
+				const armed = await readAllArmed(this.storagePath, session.id);
+				targets.push({
+					sessionId: session.id,
+					name: session.name,
+					projectName: asStr(meta.projectName),
+					gitBranch: asStr(meta.gitBranch),
+					status: session.status,
+					lastActivityTime: last,
+					ageMs: last ? Math.max(now - Date.parse(last), 0) : null,
+					hasTranscript: Boolean(asStr(meta.transcriptPath)),
+					armed: { now: Boolean(armed.now), pinned: Boolean(armed.pinned) },
+				});
+			}
+			targets.sort((a, b) => (a.ageMs ?? Number.MAX_SAFE_INTEGER) - (b.ageMs ?? Number.MAX_SAFE_INTEGER));
+			return { targets, idleAfterMs: 30 * 60 * 1000, completedAfterMs: 2 * 60 * 60 * 1000 };
+		});
+
+		/** Exactly what arming would write. Same renderer, no second path. */
+		this.methods.set("context.preview", async () =>
+			renderTray(await readTray(this.storagePath)),
+		);
+
 		/** What is staged, or null. Expiry is applied on read. */
 		this.methods.set("memory.getStagedContext", async () =>
 			readStagedContext(this.storagePath),
@@ -1044,6 +1266,71 @@ export class IpcServer {
 	 * the same session produced different digests depending on which path
 	 * reached it.
 	 */
+	/**
+	 * Attach each project's workspace path, where a held session reveals it.
+	 *
+	 * Built by mapping every session's transcript path through the same
+	 * `resolveMemoryDir` the memory methods use, so a hit is an identity rather
+	 * than an inference. A project with no retained session keeps
+	 * `workspacePath` undefined, which is the honest answer: the slug flattens
+	 * both "/" and "_" to "-", so it cannot be reversed into a path. That is
+	 * why nothing had ever populated this field.
+	 */
+	private async withWorkspacePaths<T extends { memoryDir: string }>(
+		projects: T[],
+	): Promise<T[]> {
+		const byMemoryDir = new Map<string, string>();
+		try {
+			const { sessions } = await this.sessionManager.getSessions();
+			for (const session of sessions) {
+				const meta = (session.metadata ?? {}) as Record<string, unknown>;
+				const cwd = asStr(meta.workingDirectory);
+				if (!cwd) continue;
+				const dir = resolveMemoryDir(meta.transcriptPath);
+				// Newest first from getSessions, so the first hit is the most
+				// recent session that used this directory.
+				if (dir && !byMemoryDir.has(dir)) byMemoryDir.set(dir, cwd);
+			}
+		} catch {
+			// A listing failure must not take out the memory rollup: the label
+			// falls back to the slug, which is what it did before.
+			return projects;
+		}
+
+		return projects.map((project) => {
+			const workspacePath = byMemoryDir.get(project.memoryDir);
+			return workspacePath ? { ...project, workspacePath } : project;
+		});
+	}
+
+	/**
+	 * How many prompts a pin has been delivered into, and what that cost.
+	 *
+	 * Pinned bytes are paid on EVERY prompt. A panel showing only the payload
+	 * size would describe a repeating cost as a one-off, so this counts the
+	 * UserPromptSubmit events for that session since the pin was armed.
+	 */
+	private async pinCost(
+		entry: { targetSessionId: string; armedAt: string; bytes: number },
+	): Promise<{ deliveries: number; estimatedRepeatBytes: number }> {
+		let deliveries = 0;
+		try {
+			const { logs } = await this.logManager.getLogs({
+				filter: { sessionId: entry.targetSessionId },
+				pagination: { limit: Number.MAX_SAFE_INTEGER, offset: 0 },
+			});
+			const since = Date.parse(entry.armedAt);
+			for (const log of logs) {
+				if (log.hook !== "UserPromptSubmit") continue;
+				const at = Date.parse(String(log.timestamp ?? ""));
+				if (!Number.isNaN(at) && at >= since) deliveries++;
+			}
+		} catch {
+			// A cost we cannot measure is reported as zero rather than guessed.
+		}
+		return { deliveries, estimatedRepeatBytes: entry.bytes * deliveries };
+	}
+
 	private async digestFor(session: Session) {
 		return buildSessionDigest(
 			await collectDigestInput({

@@ -165,4 +165,13 @@ export interface CoreStatus {
 	httpPort: number;
 	stats: Stats;
 	version: string;
+	/**
+	 * Whether session digests are being written into native auto memory.
+	 *
+	 * Reported so a UI can distinguish "no digests exist because the feature is
+	 * off" from "no digests exist because it is broken". Those look identical
+	 * from outside, and for most of this feature's life the second was true
+	 * while the first was assumed.
+	 */
+	writeSessionMemory: boolean;
 }

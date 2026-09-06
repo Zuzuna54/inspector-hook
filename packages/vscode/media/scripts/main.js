@@ -419,7 +419,12 @@ function init() {
   setupClearButton();
 
   // Set up header stats updates
+  // Handlers are all registered by now (main.js loads last), so release
+  // anything that arrived before they were in place.
+  API.ready();
+
   setupHeaderStats();
+  setupConnectionIndicator();
 
   // Navigate to default view
   Router.navigate('dashboard');
@@ -498,6 +503,31 @@ function setupClearButton() {
 /**
  * Set up header stats updates
  */
+/**
+ * Reflect the core's liveness in the header.
+ *
+ * The markup shipped with class "connected" and the literal text "Connected",
+ * and nothing anywhere read either element -- so the panel asserted a healthy
+ * core rather than reporting one, and kept saying "Connected" after the core
+ * had exited. `.status-indicator.disconnected` was already styled, with no code
+ * path that could ever add it.
+ */
+function setupConnectionIndicator() {
+	const render = () => {
+		const dot = document.getElementById("status-indicator");
+		const text = document.getElementById("status-text");
+		if (!dot || !text) return;
+		const ok = State.connected;
+		dot.classList.toggle("connected", ok);
+		dot.classList.toggle("disconnected", !ok);
+		text.textContent = ok ? "Connected" : "Core not running";
+		text.title = ok ? "" : State.connectionReason || "";
+	};
+	State.subscribe("connected", render);
+	State.subscribe("connectionReason", render);
+	render();
+}
+
 function setupHeaderStats() {
   // Subscribe to stats updates
   State.subscribe('stats', updateHeaderStats);

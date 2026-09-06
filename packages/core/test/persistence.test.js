@@ -9,8 +9,9 @@
 
 import { strict as assert } from "node:assert";
 import { existsSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, readdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 
 import { PersistenceStore } from "../dist/index.js";
@@ -296,12 +297,51 @@ describe("PersistenceStore", () => {
 	});
 
 	it("SECURITY: a traversing category is contained too", async () => {
-		const { store, basePath } = await newStore();
+		// This test USED TO PASS AGAINST THE UNFIXED CODE. Proven by running it
+		// in a worktree at the commit before the traversal fix: the id test
+		// failed correctly and this one passed. It checked
+		// `basePath/../evil` while an unsanitised `../../evil` category writes
+		// to `basePath/../../evil` — one level short, so it asserted the absence
+		// of something that was never going to be there either way.
+		//
+		// A security test that passes against the vulnerability it names is
+		// worse than no test: it certifies the bug. Now it asserts the property
+		// (nothing outside the store at all) rather than guessing one path.
+		// The store gets a PRIVATE parent directory, so "outside the store" means
+		// a directory only this test writes to.
+		//
+		// It used to snapshot resolve(basePath, "..") -- which is the shared
+		// os.tmpdir(). `node --test` runs files in parallel, every suite makes
+		// its temp store there, and any sibling appearing mid-test was counted
+		// as an escape. So this failed at random depending on scheduling, while
+		// passing in isolation.
+		//
+		// A SECURITY test that fails for unrelated reasons is how a real
+		// regression eventually gets waved through as "the flaky one". This test
+		// has now been wrong twice: first it asserted one guessed path and
+		// passed against the unfixed code, and then it watched a directory it
+		// did not own.
+		const outside = await mkdtemp(join(tmpdir(), "inspector-hook-contain-"));
+		tempDirs.push(outside);
+		const basePath = join(outside, "store");
+		const store = new PersistenceStore({ basePath });
+		await store.initialize();
+
+		const before = new Set(await readdir(outside));
 		await store.saveJSON("../../evil", "id", { x: 1 });
-		assert.equal(
-			existsSync(join(basePath, "..", "evil")),
-			false,
-			"the category is untrusted for the same reason the id is",
+		await store.saveJSON("../evil2", "id", { x: 1 });
+		const after = new Set(await readdir(outside));
+
+		assert.deepEqual(
+			[...after].filter((e) => !before.has(e)),
+			[],
+			"a traversing category must create nothing outside the store",
+		);
+		// And positively: it landed inside, with the traversal neutralised.
+		const inside = await readdir(basePath);
+		assert.ok(
+			inside.some((d) => d.includes("evil")),
+			`the category should be contained inside the store, got ${inside}`,
 		);
 	});
 
@@ -321,9 +361,33 @@ describe("PersistenceStore", () => {
 	});
 
 	it("a log filename cannot escape the log directory", async () => {
-		const { store, basePath } = await newStore();
+		// Asserts the PROPERTY (nothing new outside the store), not a fixed
+		// path. The earlier version checked `<tmp>/escaped.jsonl` — a shared
+		// name in the system temp directory — so a leftover from any other run
+		// broke it. One did: running this very suite against the pre-fix code in
+		// a worktree wrote that file for real, which proved the vulnerability
+		// and then failed this test in the main tree for an unrelated reason.
+		//
+		// A test that can be broken by another run's debris is not testing what
+		// it claims to. That fix was half of it: watching resolve(basePath, "..")
+		// is watching the shared os.tmpdir(), where every parallel test file
+		// creates its own store -- so a sibling appearing mid-test read as an
+		// escape. A PRIVATE parent is the property this test actually needs.
+		const outside = await mkdtemp(join(tmpdir(), "inspector-hook-contain-"));
+		tempDirs.push(outside);
+		const basePath = join(outside, "store");
+		const store = new PersistenceStore({ basePath });
+		await store.initialize();
+
+		const before = new Set(await readdir(outside));
 		await store.appendLog("../../escaped", { n: 1 });
-		assert.equal(existsSync(join(basePath, "..", "escaped.jsonl")), false);
+		const after = new Set(await readdir(outside));
+
+		assert.deepEqual(
+			[...after].filter((e) => !before.has(e)),
+			[],
+			"a traversing log name must create nothing outside the store",
+		);
 	});
 });
 

@@ -1,4 +1,5 @@
 {
+  "_README": "REFERENCE SAMPLE ONLY -- do not copy over ~/.claude/settings.json. Doing so REPLACES your settings and destroys every hook you have. Paths below hardcode /Users/gio and will not exist on your machine. Use packages/hooks/scripts/install.sh, which merges per event.",
   "alwaysThinkingEnabled": true,
   "hooks": {
     "UserPromptSubmit": [

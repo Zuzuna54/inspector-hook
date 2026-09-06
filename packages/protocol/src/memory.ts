@@ -88,6 +88,22 @@ export interface MemoryProject {
 	/** Index size, so a caller can warn before the load limit bites. */
 	indexLines: number;
 	indexBytes: number;
+	/**
+	 * MEMORY.md's text, truncated to the slice Claude actually loads.
+	 *
+	 * The index decides what loads, and it was the one artefact the view could
+	 * never show: the text was read to compute `indexLines`/`indexBytes` and
+	 * then thrown away, so the renderer written to display it had no possible
+	 * source and sat dead, with tests, for as long as it existed.
+	 *
+	 * Bounded by INDEX_LOAD_BYTES because that is the meaningful slice -- past
+	 * it the tail is not read by Claude either, so returning more would not
+	 * describe what loads. `indexBytes` still reports the FULL size, so the
+	 * view can say the file is larger than what it is showing.
+	 */
+	indexText?: string;
+	/** True when indexText was cut at the load budget. */
+	indexTruncated?: boolean;
 }
 
 /** Why a write was refused. */

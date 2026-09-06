@@ -39,13 +39,14 @@ const LIMIT = 600;
  * notices — which is the whole point. Each entry is scheduled for a split.
  */
 const OVER_LIMIT = {
-	// The `handleMessage` switch is 43% of this file and is pure dispatch.
-	// Down from 726 after mergeActivity moved to shared/activity-merge.js.
-	"media/scripts/api.js": { lines: 701, why: "handleMessage switch; split next" },
-	"src/core-bridge.ts": { lines: 720, why: "one method per IPC call; split by domain" },
-	// Raised from 669 to take the memory-digest envelope unwrap, which is the
-	// fix for two shipped bugs. Cheaper than shipping the bugs; still a debt.
-	"src/panel.ts": { lines: 676, why: "message switch; split by domain" },
+	// 720 -> 645: memory and tray calls moved to src/bridge/memory-bridge.ts.
+	// Still one method per IPC call, so it still grows with every feature; the
+	// remaining domains (changes, history, sessions) split the same way.
+	// 645 -> 653: the writeSessionMemory option and its spawn-env forwarding.
+	// Raised deliberately rather than quietly: M3's switch had to live in the
+	// spawn environment, which is core-bridge's own job and not one of the
+	// per-IPC-method domains queued for extraction. The split is still owed.
+	"src/core-bridge.ts": { lines: 653, why: "one method per IPC call; more domains to split out" },
 };
 
 const ROOTS = ["media", "src"];

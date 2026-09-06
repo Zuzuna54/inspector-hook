@@ -1,0 +1,171 @@
+/* The context tray: the multi-item staging surface. */
+
+.tray-budget {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+}
+
+.tray-budget-size {
+  font-family: var(--font-family-mono);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+}
+
+.tray-budget.over .tray-budget-size { color: var(--warning); }
+
+.tray-budget-warn {
+  color: var(--warning);
+}
+
+.tray-redacted {
+  margin-left: auto;
+  color: var(--fg-muted);
+}
+
+.tray-items { padding: var(--spacing-sm); }
+
+.tray-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-sm);
+  background: var(--bg-secondary);
+}
+
+.tray-item.excluded { opacity: 0.55; }
+.tray-item.editing { border-color: var(--accent); }
+
+.tray-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+}
+
+.tray-item-title {
+  font-weight: var(--font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-item-kind,
+.tray-item-edited,
+.tray-item-bytes {
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.tray-item-kind {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.tray-item-edited { color: var(--warning); }
+.tray-item-bytes { margin-left: auto; font-family: var(--font-family-mono); }
+
+.tray-item-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm) var(--spacing-sm);
+}
+
+.tray-editor { padding: 0 var(--spacing-sm) var(--spacing-sm); }
+
+.tray-editor-body {
+  width: 100%;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  resize: vertical;
+}
+
+.tray-editor-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}
+
+.tray-editor-foot .btn { margin-left: auto; }
+
+.tray-actions {
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.tray-actions .ctx-hint { flex: 1 1 100%; margin: 0 0 var(--spacing-xs); }
+
+/* Tier choice, target picker and what is armed (P4). */
+
+.tray-tier { display: flex; flex-direction: column; gap: var(--spacing-xs); width: 100%; }
+
+.tray-tier-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.tray-tier-row .btn { min-width: 120px; }
+
+.tray-targets {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  margin-top: var(--spacing-sm);
+}
+
+.tray-target-select {
+  flex: 1;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: var(--font-size-xs);
+}
+
+.tray-armed {
+  width: 100%;
+  margin-bottom: var(--spacing-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+
+.tray-armed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-xs);
+}
+
+.tray-armed-row + .tray-armed-row { border-top: 1px solid var(--border); }
+
+/* A pin is the one that repeats. It gets the warning colour so it cannot be
+   mistaken for a one-shot at a glance. */
+.tray-armed-row.pinned .tray-armed-tier { color: var(--warning); }
+
+.tray-armed-tier {
+  font-weight: var(--font-weight-medium);
+  min-width: 80px;
+}
+
+.tray-armed-row .btn { margin-left: auto; }

@@ -79,8 +79,8 @@ Each component has one clear responsibility:
 | File Tracker | Monitor file changes |
 | Version History | Maintain file versions |
 | Archive Manager | Store kept changes |
-| Rules Engine | Evaluate automation rules |
-| Staging Manager | Manage pending applies |
+| ~~Rules Engine~~ | **Not implemented.** Specified in Milestone 5, never built; `automation.ts` declares the types and nothing consumes them |
+| ~~Staging Manager~~ | **Not implemented.** Same as above — `StagedChange` and `ApplyResult` are declared and unreferenced |
 
 ### 3. Event-Driven Architecture
 
@@ -207,11 +207,22 @@ All communication uses predefined protocols:
 Input:  HTTP POST /log (JSON payload)
 Output: 200 OK / 4xx Error
 
-Endpoints:
-  POST /log          - Receive log entry
-  POST /log - Notify file modification
-  GET  /health       - Health check
+Endpoints (verified against http-server.ts):
+  POST /log          - Ingest a hook event
+  POST /api/log      - Alias for the above
+  GET  /api/health   - Health check
+  GET  /api/stats    - Counters
+  GET  /api/logs     - Recent log entries
+  GET  /api/sessions - Sessions
+  GET  /api/changes  - Pending file changes
+  GET  /api/debug    - Combined dump, for diagnosis
 ```
+
+> This block previously listed `POST /log` twice with two different purposes
+> (the second said "Notify file modification", which was never a separate
+> endpoint), and `GET /health` where the route is `GET /api/health`. File
+> modifications arrive through the same ingest endpoint as every other hook
+> event.
 
 #### 2. IPC Server
 
@@ -502,9 +513,9 @@ inspector-hook.vsix
 | Resource | Limit | Rationale |
 |----------|-------|-----------|
 | Logs in memory | 10,000 | Reasonable for single session |
-| Sessions | 100 | More than typical usage |
-| File changes | 1,000 | Reasonable for project |
-| Version history | 100 per file | Balance history vs memory |
+| Sessions in memory | **200** | `session-manager.ts` `DEFAULT_MAX_SESSIONS_IN_MEMORY`. The documented 100 was never the value |
+| ~~File changes~~ | ~~1,000~~ | **No such cap exists.** Pending changes are bounded by resolution and by retention, not by a count |
+| Version history | **50** per file | Balance history vs memory. `file-tracker.ts:103` — the documented 100 was never the default |
 
 ### Future Scalability
 

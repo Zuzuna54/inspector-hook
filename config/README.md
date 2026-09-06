@@ -21,43 +21,68 @@ config/
 
 ## Installation
 
-### 1. Copy Settings
+> **Do not copy `claude-settings.json` over `~/.claude/settings.json`.**
+>
+> An earlier version of this page told you to. That command **replaces** the
+> file, destroying every hook you already have — on the machine this was
+> written on, 30 registered events and 52 commands, including hooks belonging
+> to entirely unrelated tools. It is the same full-replace behaviour
+> `packages/hooks/scripts/install.sh` was rewritten to stop doing.
+>
+> It was also broken on its own terms: `claude-settings.json` hardcodes
+> `/Users/gio/...` in 28 places — a different machine's home directory — and
+> the `sed` that repaired those paths came *after* the copy, so following the
+> steps in order left you with no settings of your own and a set of hook paths
+> that do not exist.
+>
+> `claude-settings.json` is kept as a **reference sample** of the shape a
+> settings file takes. It is not something to install.
 
-Copy the settings file to your Claude Code configuration directory:
+### 1. Install the Inspector Hook hooks
+
+Use the installer. It merges per event, is idempotent, and leaves every other
+tool's hooks alone:
 
 ```bash
-cp config/claude-settings.json ~/.claude/settings.json
+./packages/hooks/scripts/install.sh
 ```
 
-### 2. Copy Hooks
-
-Copy the hooks directory:
+Undo it the same way:
 
 ```bash
+./packages/hooks/scripts/install.sh --uninstall
+```
+
+### 2. Copy the optional hook collection
+
+These are standalone scripts; copying them registers nothing on its own.
+
+```bash
+mkdir -p ~/.claude/hooks
 cp -r config/claude-hooks/* ~/.claude/hooks/
 chmod +x ~/.claude/hooks/**/*.sh ~/.claude/hooks/**/*.py
+```
+
+To register any of them, add the entry by hand or with `jq`, merging into the
+event you want rather than assigning to `.hooks`:
+
+```bash
+# Back it up first, always.
+cp ~/.claude/settings.json ~/.claude/settings.json.bak
 ```
 
 ### 3. Copy Agents (Optional)
 
 ```bash
+mkdir -p ~/.claude/agents
 cp -r config/claude-agents/* ~/.claude/agents/
 ```
 
 ### 4. Copy Skills (Optional)
 
 ```bash
+mkdir -p ~/.claude/skills
 cp -r config/claude-skills/* ~/.claude/skills/
-```
-
-### 5. Update Paths
-
-The hooks in `claude-settings.json` reference absolute paths like `/Users/gio/.claude/hooks/...`.
-You'll need to update these paths to match your system:
-
-```bash
-# Replace with your username
-sed -i '' 's|/Users/gio|/Users/YOUR_USERNAME|g' ~/.claude/settings.json
 ```
 
 ## Key Hooks for Inspector Hook

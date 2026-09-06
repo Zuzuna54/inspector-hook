@@ -314,7 +314,6 @@ It also writes the port to `/tmp/inspector-hook.port` for hook scripts to discov
 
 ```bash
 INSPECTOR_HOOK_HTTP_PORT=52376        # HTTP server port (0 = auto-assign)
-INSPECTOR_HOOK_WS_PORT=52377          # WebSocket port (future use)
 INSPECTOR_HOOK_MAX_LOGS=10000         # Maximum logs in memory
 INSPECTOR_HOOK_RETENTION_DAYS=7       # Log retention period
 INSPECTOR_HOOK_WORKSPACE=/path        # Working directory
@@ -373,8 +372,11 @@ Inspector Hook uses **JSON-RPC 2.0** for communication between the VS Code exten
 
 **Sessions**:
 - `sessions.getAll` - Get all sessions
-- `sessions.get` - Get single session by ID
-- `sessions.getLogs` - Get logs for a session
+- `sessions.getById` - Get single session by ID
+- `sessions.getActivity` - Ordered activity feed for a session
+- `sessions.getStats` - Per-session counts
+- `sessions.getSummaries` - Sessions collapsed by retention
+- `sessions.terminate` - End a session
 - `sessions.delete` - Delete a session
 
 **File Changes**:
@@ -474,7 +476,7 @@ Configure in VS Code settings (`settings.json`):
 
 ### Port Already in Use
 
-If port 52376 is in use, the core will fail to start. Solutions:
+If port 52376 is in use, the core **scans upward for the next free port** and writes the one it bound to the port file, so hooks still find it. It does not fail to start. If you want a specific port:
 
 1. Change the port in VS Code settings
 2. Kill the process using the port: `lsof -i :52376 | awk 'NR>1 {print $2}' | xargs kill`
@@ -482,9 +484,12 @@ If port 52376 is in use, the core will fail to start. Solutions:
 
 ### Hooks Not Working
 
-1. Verify hooks are installed: `ls ~/.claude/*.sh`
+1. Verify hooks are installed: `jq '.hooks | keys' ~/.claude/settings.json`
+   (the installer registers commands in `settings.json`; it copies no scripts into `~/.claude/`)
 2. Check Claude Code settings: `cat ~/.claude/settings.json`
-3. Verify hook permissions: `chmod +x ~/.claude/*.sh`
+3. Verify hook permissions: `ls -l packages/hooks/claude/*.sh`
+   (the hooks run from the repo; the installer registers their absolute paths
+   rather than copying them into `~/.claude/`)
 4. Check port file exists: `cat /tmp/inspector-hook.port`
 
 ### Extension Not Starting
@@ -498,7 +503,15 @@ If port 52376 is in use, the core will fail to start. Solutions:
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Make your changes
-4. Run tests and linting: `pnpm test && pnpm lint`
+4. Run the checks: `pnpm build && pnpm typecheck && pnpm test`
+
+   > **There is no linter.** `pnpm lint` exists in the root `package.json` as
+   > `pnpm -r lint`, no package defines a `lint` script, and no linter is
+   > configured — so running it fails with `ERR_PNPM_RECURSIVE_RUN_NO_SCRIPT`.
+   > This step used to say `pnpm test && pnpm lint`, which fails for every
+   > contributor at the second command. `typecheck` is the check that actually
+   > runs, and `bash -n` over the shipped shell scripts is worth adding by hand:
+   > a syntax break in a hook fails silently at runtime, and has shipped twice.
 5. Commit with conventional commits: `git commit -m "feat: add new feature"`
 6. Push and create a pull request
 

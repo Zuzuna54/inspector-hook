@@ -347,6 +347,7 @@ export class InspectorCore {
 			httpPort: this.httpServer.getPort(),
 			stats: this.getStats(),
 			version: VERSION,
+			writeSessionMemory: this.config.writeSessionMemory === true,
 		};
 	}
 

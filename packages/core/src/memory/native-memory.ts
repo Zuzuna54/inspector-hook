@@ -373,6 +373,15 @@ export async function readMemoryProject(
 		}
 	}
 
+	// The index text, bounded to what Claude actually loads. Reported alongside
+	// the FULL byte count, so a view can say the file is larger than the slice
+	// it is showing rather than implying the slice is the whole thing.
+	const fullBytes = Buffer.byteLength(indexText, "utf-8");
+	const indexTruncated = fullBytes > INDEX_LOAD_BYTES;
+	const shownIndex = indexTruncated
+		? indexText.slice(0, INDEX_LOAD_BYTES)
+		: indexText;
+
 	return {
 		slug,
 		memoryDir,
@@ -381,7 +390,8 @@ export async function readMemoryProject(
 		hasIndex,
 		totalSize: files.reduce((sum, f) => sum + f.size, 0),
 		indexLines: indexText ? indexText.split("\n").length : 0,
-		indexBytes: Buffer.byteLength(indexText, "utf-8"),
+		indexBytes: fullBytes,
+		...(hasIndex ? { indexText: shownIndex, indexTruncated } : {}),
 	};
 }
 

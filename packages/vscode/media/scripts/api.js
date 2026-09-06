@@ -30,10 +30,18 @@ const API = {
 	 * Get logs with optional filtering
 	 * @param {Object} filter - Filter options (search, level, hook, session)
 	 */
-	getLogs(filter = {}) {
+	getLogs(filter = {}, options = {}) {
+		// A real parameter, not a literal.
+		//
+		// It was hardcoded to 100, which produced exactly 100 rows -- so the
+		// view's `hasMore = length > 100` was `100 > 100`, false, and Load More
+		// never rendered on a fresh load. The Logs tab could reach 100 rows
+		// while the Dashboard reported thousands for the same quantity, and the
+		// affordance that would have revealed the rest was the thing the cap
+		// switched off.
 		this.send("get-logs", {
 			filter,
-			pagination: { limit: 100 },
+			pagination: { limit: options.limit ?? 1000 },
 		});
 	},
 
@@ -174,79 +182,6 @@ const API = {
 	},
 
 	// ==========================================================================
-	// Version History API
-	// ==========================================================================
-
-	/**
-	 * Get all tracked files with version history
-	 */
-	getTrackedFiles() {
-		this.send("get-tracked-files", {});
-	},
-
-	/**
-	 * Get version history for a file
-	 * @param {string} filePath - File path
-	 */
-	getVersionHistory(filePath) {
-		this.send("get-version-history", { filePath });
-	},
-
-	/**
-	 * Restore a specific version
-	 * @param {string} filePath - File path
-	 * @param {number} versionNumber - Version number to restore
-	 */
-	restoreVersion(filePath, versionNumber) {
-		this.send("restore-version", { filePath, versionNumber });
-	},
-
-	/**
-	 * Compare two versions
-	 * @param {string} filePath - File path
-	 * @param {number} v1 - First version number
-	 * @param {number} v2 - Second version number
-	 */
-	compareVersions(filePath, v1, v2) {
-		this.send("compare-versions", { filePath, v1, v2 });
-	},
-
-	/**
-	 * Compare a version to current disk content
-	 * @param {string} filePath - File path
-	 * @param {number} versionNumber - Version to compare from
-	 */
-	compareVersionToDisk(filePath, versionNumber) {
-		this.send("compare-version-to-disk", { filePath, versionNumber });
-	},
-
-	/**
-	 * Delete a specific version
-	 * @param {string} filePath - File path
-	 * @param {number} versionNumber - Version number to delete
-	 */
-	deleteVersion(filePath, versionNumber) {
-		this.send("delete-version", { filePath, versionNumber });
-	},
-
-	/**
-	 * Get the stored content of one version.
-	 *
-	 * history.js has always called this; it did not exist, so opening a version
-	 * in the viewer threw "API.getVersionContent is not a function" and no
-	 * request was ever sent. The core exposes history.getVersionContent; the
-	 * extension-side case and CoreBridge method are still needed for a response
-	 * to come back, so until those land this leaves the viewer showing its
-	 * loading state instead of throwing.
-	 *
-	 * @param {string} filePath - File path
-	 * @param {number} versionNumber - Version number
-	 */
-	getVersionContent(filePath, versionNumber) {
-		this.send("get-version-content", { filePath, versionNumber });
-	},
-
-	// ==========================================================================
 	// Archived Changes API
 	// ==========================================================================
 
@@ -258,76 +193,26 @@ const API = {
 	},
 
 	/**
+	 * Get the diff for an ARCHIVED change.
+	 *
+	 * Separate from getDiff because the tracker keeps kept/reverted changes in
+	 * a different map: `fileChanges.getDiff` reads `this.changes` and returns
+	 * null for anything archived, by construction. Every archived diff had
+	 * therefore always come back empty -- 155 of 155 on this machine -- and
+	 * rendered as "+0 / -0" rather than as an error.
+	 *
+	 * @param {string} changeId - Change ID
+	 */
+	getArchivedDiff(changeId) {
+		this.send("get-archived-diff", { changeId });
+	},
+
+	/**
 	 * Restore an archived change
 	 * @param {string} changeId - Change ID
 	 */
 	restoreArchived(changeId) {
 		this.send("restore-archived", { changeId });
-	},
-
-	// ==========================================================================
-	// Memory API (M3 - native auto memory)
-	// ==========================================================================
-
-	/** Every project's memory. `includeEmpty` keeps projects with no files. */
-	memoryGetProjects(params = {}) {
-		this.send("memory-get-projects", params);
-	},
-
-	/** Reference an existing file from MEMORY.md without rewriting the file. */
-	memoryAddToIndex(params) {
-		this.send("memory-add-to-index", params);
-	},
-
-	/** Drop a file's index line, leaving the file in place. */
-	memoryRemoveFromIndex(params) {
-		this.send("memory-remove-from-index", params);
-	},
-
-	/**
-	 * Create or update a memory entry.
-	 *
-	 * `userInitiated` is what allows editing a note the tool did not author, and
-	 * is set only from an explicit save in the curation UI.
-	 */
-	memoryWrite(params) {
-		this.send("memory-write", params);
-	},
-
-	/** Delete a memory entry. `force` is required for anything we did not author. */
-	memoryDelete(params) {
-		this.send("memory-delete", params);
-	},
-
-	/**
-	 * Stage context for the next session that starts.
-	 *
-	 * The backend returns exactly the text the hook will emit, which is what
-	 * lets the preview and the delivery be the same artefact rather than two
-	 * renderings of one intent.
-	 */
-	memoryStageContext(params) {
-		this.send("memory-stage-context", params);
-	},
-
-	/** What is staged right now, if anything. Expiry is applied on read. */
-	memoryGetStaged() {
-		this.send("memory-get-staged", {});
-	},
-
-	/** Discard whatever is staged. */
-	memoryClearStaged() {
-		this.send("memory-clear-staged", {});
-	},
-
-	/**
-	 * Preview a session's digest WITHOUT writing it.
-	 *
-	 * No write flag is sent: v1 previews only, and the surest way to keep that
-	 * true is for the client to be unable to ask for a write.
-	 */
-	memoryBuildDigest(sessionId) {
-		this.send("memory-build-digest", { sessionId });
 	},
 
 	// ==========================================================================
@@ -366,331 +251,69 @@ const API = {
 	// ==========================================================================
 
 	/**
+	 * Inbound handlers, keyed by message type.
+	 *
+	 * A registry rather than a switch, and rather than a mixin merge: message
+	 * types are data, so `Object.assign` would let two modules silently claim
+	 * `"memory-staged"` with whichever loaded last winning. `on` throws on a
+	 * duplicate instead, which turns that into a load-time error rather than a
+	 * message quietly going to the wrong place.
+	 */
+	_inbound: {},
+
+	/**
+	 * Messages that arrived before their handler registered.
+	 *
+	 * In practice nothing arrives early -- panel.ts only sends `init` after
+	 * `webview-ready`, which main.js posts last. But "in practice" is exactly
+	 * how the digest envelope bug survived, so an early message is queued and
+	 * flushed rather than dropped on the floor.
+	 */
+	_deferred: [],
+	_ready: false,
+
+	/**
+	 * Register a handler for one or more message types.
+	 * @param {string|string[]} types
+	 * @param {Function} handler called with API as `this`
+	 */
+	on(types, handler) {
+		for (const type of Array.isArray(types) ? types : [types]) {
+			if (this._inbound[type]) {
+				throw new Error(`Duplicate inbound handler for "${type}"`);
+			}
+			this._inbound[type] = handler;
+		}
+	},
+
+	/** Flush anything that arrived before the handlers were in place. */
+	ready() {
+		this._ready = true;
+		const queued = this._deferred;
+		this._deferred = [];
+		for (const { type, payload } of queued) this._dispatch(type, payload);
+	},
+
+	/**
 	 * Handle incoming messages from the extension
 	 * @param {MessageEvent} event - Message event
 	 */
 	handleMessage(event) {
 		const { type, payload } = event.data || {};
-
-		if (!type) {
+		if (!type) return;
+		if (!this._ready && !this._inbound[type]) {
+			this._deferred.push({ type, payload });
 			return;
 		}
+		this._dispatch(type, payload);
+	},
 
-		switch (type) {
-			case "ping":
-				// Respond to ping from extension
-				this.send("pong", {
-					received: payload?.timestamp,
-					responded: Date.now(),
-				});
-				break;
-
-			case "init":
-				// Initial data load
-				State.batchUpdate({
-					connected: true,
-					stats: payload.stats || State.stats,
-					logs: payload.logs || [],
-					sessions: payload.sessions || [],
-					fileChanges: payload.fileChanges || [],
-				});
-				if (payload.config) {
-					State.update("config", { ...State.config, ...payload.config });
-				}
-				// Update tab badges with initial counts
-				this._updateTabBadge("logs", (payload.logs || []).length);
-				this._updateTabBadge("changes", (payload.fileChanges || []).length);
-				break;
-
-			case "stats":
-				State.update("stats", payload);
-				break;
-
-			case "log": {
-				// Single new log entry
-				const logs = [payload, ...State.logs].slice(0, State.config.maxLogs);
-				State.update("logs", logs);
-				// Update tab badge
-				this._updateTabBadge("logs", logs.length);
-				break;
-			}
-
-			case "logs":
-				// Bulk logs response
-				State.update("logs", payload.logs || []);
-				this._updateTabBadge("logs", (payload.logs || []).length);
-				break;
-
-			case "sessions":
-				State.update("sessions", payload.sessions || []);
-				break;
-
-			case "session": {
-				// Single session update
-				const sessions = [...State.sessions];
-				const sessionIdx = sessions.findIndex((s) => s.id === payload.id);
-				if (sessionIdx >= 0) {
-					sessions[sessionIdx] = payload;
-				} else {
-					sessions.unshift(payload);
-				}
-				State.update("sessions", sessions);
-				break;
-			}
-
-			case "session-logs":
-				// Session logs response
-				State.update("sessionView", {
-					...State.sessionView,
-					sessionLogs: payload?.logs || [],
-				});
-				break;
-
-			case "session-activity": {
-				// Session activity feed response. The payload also carries the
-				// session itself, so the poller does not need a separate
-				// get-session round trip - that call returned the full session
-				// (tool inputs and results included, megabytes on a long run)
-				// for data already present here.
-				const incomingActivity = payload?.activity || [];
-
-				// Merge by id rather than replace. An incremental response carries
-				// only what changed, and deliberately re-sends the boundary items,
-				// so replacing would drop everything older on the first delta. An
-				// id already present is an UPDATE - a tool call completing is the
-				// common case - so the incoming version wins.
-				const isDelta = typeof payload?.since === "string" && payload.since !== "";
-				const merged = isDelta
-					? mergeActivity(State.sessionView.sessionActivity, incomingActivity)
-					: incomingActivity;
-
-				// Prefer the slim summary; fall back to the full session while the
-				// core still sends one. The summary deliberately omits
-				// toolExecutions (it dominated the payload), so MERGE rather than
-				// replace - overwriting would strip the array the Tools tab renders.
-				const incoming = payload?.sessionSummary || payload?.session;
-				if (incoming?.id) {
-					const sessions = [...State.sessions];
-					const idx = sessions.findIndex((s) => s.id === incoming.id);
-					if (idx >= 0) {
-						sessions[idx] = { ...sessions[idx], ...incoming };
-					} else {
-						sessions.unshift(incoming);
-					}
-					State.update("sessions", sessions);
-				}
-				State.update("sessionView", {
-					...State.sessionView,
-					sessionActivity: merged,
-					// Passed back as `since` next poll. Absent means the server had
-					// nothing newer, so the existing cursor stands.
-					activitySince:
-						typeof payload?.nextSince === "string"
-							? payload.nextSince
-							: State.sessionView.activitySince,
-					activityHasMore: payload?.hasMore === true,
-					// The feed window is capped server-side. Without these the UI
-					// would imply the session simply started at the oldest item it
-					// received.
-					activityTruncated: payload?.truncated === true,
-					// `availableLogs` is what the core RETAINS for this session, not a
-					// lifetime total - reads are served from memory. Renders as
-					// "of N available" for that reason. `totalLogs` is the older name.
-					activityAvailableLogs:
-						typeof payload?.availableLogs === "number"
-							? payload.availableLogs
-							: typeof payload?.totalLogs === "number"
-								? payload.totalLogs
-								: null,
-				});
-				break;
-			}
-
-			case "fileChanges":
-			case "file-changes":
-				State.update("fileChanges", payload.changes || []);
-				this._updateTabBadge("changes", (payload.changes || []).length);
-				break;
-
-			case "fileChange": {
-				// Single file change update
-				const changes = [...State.fileChanges];
-				const changeIdx = changes.findIndex((c) => c.id === payload.id);
-
-				if (payload.eventType === "kept" || payload.eventType === "reverted") {
-					// Remove from pending
-					if (changeIdx >= 0) {
-						changes.splice(changeIdx, 1);
-					}
-				} else if (changeIdx >= 0) {
-					// Update existing
-					changes[changeIdx] = payload;
-				} else {
-					// Add new
-					changes.unshift(payload);
-				}
-				State.update("fileChanges", changes);
-				this._updateTabBadge("changes", changes.length);
-				break;
-			}
-
-			case "diff-result":
-				// Route to whichever view asked for it. This used to go only to
-				// FileChangesView, so the Archived view's "View" button requested a
-				// diff that was delivered to a view which never displayed it - and
-				// Archived listened on a State key ("currentDiff") that nothing ever
-				// sets, so its preview could not appear by either route.
-				if (
-					State.currentView === "archived" &&
-					window.ArchivedView?.handleDiffResult
-				) {
-					window.ArchivedView.handleDiffResult(payload);
-				} else if (window.FileChangesView?.handleDiffResult) {
-					window.FileChangesView.handleDiffResult(payload);
-				}
-				break;
-
-			case "diff-error":
-				// Routed like diff-result: to the view that asked.
-				if (
-					State.currentView === "archived" &&
-					window.ArchivedView?.handleDiffError
-				) {
-					window.ArchivedView.handleDiffError(payload);
-				} else if (window.FileChangesView?.handleDiffError) {
-					window.FileChangesView.handleDiffError(payload);
-				}
-				break;
-
-			case "tracked-files":
-				// Store tracked files list in state
-				State.update("trackedFiles", payload.files || []);
-				// Notify history view
-				if (window.HistoryView?.handleTrackedFiles) {
-					window.HistoryView.handleTrackedFiles(payload);
-				}
-				break;
-
-			case "version-history":
-				// Handle null payload or missing fields
-				if (payload && payload.filePath) {
-					State.update("versionHistory", {
-						...State.versionHistory,
-						[payload.filePath]: payload.versions || [],
-					});
-					// Also notify history view
-					if (window.HistoryView?.handleVersionHistory) {
-						window.HistoryView.handleVersionHistory(payload);
-					}
-				}
-				break;
-
-			case "version-comparison":
-				// Version comparison result - handled by history view
-				if (window.HistoryView?.handleVersionComparison) {
-					window.HistoryView.handleVersionComparison(payload);
-				}
-				break;
-
-			// A deleted session produces no push event from the core - unlike a
-			// kept or reverted change, which arrives as "fileChange" - so without
-			// this the sidebar keeps showing the session until the 30s list poll.
-			case "delete-session-result":
-				if (payload?.success !== false) this.getSessions();
-				break;
-
-			// Same gap for versions: the core emits version:created and
-			// version:restored but nothing for a delete, so History would keep
-			// listing a version that is gone.
-			case "delete-version-result":
-				if (payload?.success !== false) this.getTrackedFiles();
-				break;
-
-			// One case for stage/get/clear: each ends with "here is what is staged,
-			// or nothing", so the view re-renders from whatever came back.
-			//
-			// A REFUSAL also comes back here, as `{staged:false, reason}`. That
-			// object is truthy, so assigning it straight to `staged` drew the
-			// "Staged for the next session" box over an empty body and an
-			// invalid expiry -- a failure rendered as a success, with the reason
-			// discarded. Branch on the explicit flag, and keep the reason.
-			case "memory-staged": {
-				const refused = payload && payload.staged === false;
-				State.update("contextView", {
-					...State.contextView,
-					staged: refused ? null : payload || null,
-					stageRefusal: refused ? payload.reason || "Staging was refused." : null,
-				});
-				break;
-			}
-
-			case "memory-digest":
-				State.update("contextView", {
-					...State.contextView,
-					digest: payload || null,
-				});
-				break;
-
-			case "memory-projects":
-				State.update("contextView", {
-					...State.contextView,
-					projects: payload?.projects || payload || [],
-				});
-				break;
-
-			// One shape for every curation result. The backend answers a refusal
-			// with a human-readable `reason`, and the view renders it verbatim -
-			// paraphrasing would lose the detail that makes it actionable.
-			case "memory-result": {
-				State.update("contextView", {
-					...State.contextView,
-					lastResult: payload || null,
-				});
-				// Re-read rather than patching local state: the index, the file and
-				// its orphan status can all have changed together.
-				this.memoryGetProjects({ includeEmpty: true });
-				break;
-			}
-
-			case "archived":
-				State.update("archivedChanges", payload.changes || []);
-				break;
-
-			// A restore mutates the archive and the file's version history, but
-			// neither result had a handler at all, so the UI kept showing the
-			// change as still archived until the panel was reopened.
-			case "restore-archived-result":
-				if (payload?.success !== false) {
-					this.getArchivedChanges();
-					this.getTrackedFiles();
-				}
-				break;
-
-			case "restore-result":
-				if (payload?.success !== false) {
-					this.getTrackedFiles();
-					this.getArchivedChanges();
-				}
-				break;
-
-			// Raw content for one stored version. history.js has always called
-			// API.getVersionContent, which did not exist - so opening a version in
-			// the viewer threw "is not a function" and the request was never sent.
-			case "version-content":
-				if (window.HistoryView?.handleVersionContent) {
-					window.HistoryView.handleVersionContent(payload);
-				}
-				break;
-
-			case "error":
-				// Handle error messages from extension
-				// Could show a toast/notification here
-				break;
-
-			default:
-				// Unknown message type - silently ignore
-				break;
-		}
+	/** @param {string} type @param {*} payload */
+	_dispatch(type, payload) {
+		const handler = this._inbound[type];
+		// An unknown type is ignored, as it always was: the extension may send
+		// something a newer webview knows about, or vice versa.
+		if (handler) handler.call(this, payload);
 	},
 };
 
@@ -698,4 +321,13 @@ const API = {
 window.addEventListener("message", (event) => API.handleMessage(event));
 
 // Make globally available
+// Senders split into ./api/, composed after the literal so a missing module
+// is a load-time absence rather than a silently undefined method.
+Object.assign(
+	API,
+	window.MemoryApiMixin,
+	window.HistoryApiMixin,
+	window.TrayApiMixin,
+);
+
 window.API = API;

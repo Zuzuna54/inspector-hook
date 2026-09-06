@@ -8,12 +8,23 @@ const State = {
 	// Connection State
 	// ==========================================================================
 	connected: false,
+	/** Why the core is unreachable, when it is. */
+	connectionReason: null,
 	port: null,
 
 	// ==========================================================================
 	// Data
 	// ==========================================================================
 	logs: [],
+	/**
+	 * How many logs the CORE holds, which is not how many are in `logs`.
+	 *
+	 * `logs.getAll` has always returned `{ logs, total }` and `total` was read
+	 * nowhere, while the request hardcoded a limit of 100. So the Logs tab
+	 * reported "100" and the Dashboard reported the real figure for the same
+	 * quantity, on adjacent tabs, with the smaller number unqualified.
+	 */
+	logsTotal: 0,
 	sessions: [],
 	fileChanges: [],
 	archivedChanges: [],
@@ -85,6 +96,35 @@ const State = {
 		// previously stored as though it were a successful stage, which drew a
 		// success box over an empty body and threw the reason away.
 		stageRefusal: null,
+	},
+
+	// ==========================================================================
+	// Context Tray State (M3 - the multi-item staging tray)
+	//
+	// Its own top-level slice rather than a field on contextView: subscriptions
+	// are per top-level key, so folding it in would re-run the memory view's
+	// five render branches on every keystroke in a tray editor.
+	// ==========================================================================
+	contextTray: {
+		/** The tray as the core holds it: { version, items, updatedAt }. */
+		tray: null,
+		/**
+		 * The rendered preview, computed BY THE CORE from the tray it just
+		 * wrote. Never recomputed here: two places deciding "what would be
+		 * injected" is how a preview starts disagreeing with the delivery.
+		 */
+		preview: null,
+		/** Why the last operation was refused, in the core's own words. */
+		lastRefusal: null,
+		/** The item open in the editor, and its working copy. */
+		editing: null,
+		draft: "",
+		/** Sessions this tray could be sent to, newest activity first. */
+		targets: [],
+		/** The session selected as the target, when one is. */
+		targetSessionId: null,
+		/** What is currently armed for the selected session. */
+		armed: null,
 	},
 
 	// ==========================================================================
@@ -202,8 +242,10 @@ const State = {
 	getSnapshot() {
 		return {
 			connected: this.connected,
+			connectionReason: this.connectionReason,
 			port: this.port,
 			logs: this.logs,
+			logsTotal: this.logsTotal,
 			sessions: this.sessions,
 			fileChanges: this.fileChanges,
 			archivedChanges: this.archivedChanges,
@@ -216,6 +258,7 @@ const State = {
 			searchQuery: this.searchQuery,
 			filters: { ...this.filters },
 			stats: { ...this.stats },
+			contextTray: this.contextTray,
 			config: { ...this.config },
 		};
 	},
@@ -225,8 +268,10 @@ const State = {
 	 */
 	reset() {
 		this.connected = false;
+		this.connectionReason = null;
 		this.port = null;
 		this.logs = [];
+		this.logsTotal = 0;
 		this.sessions = [];
 		this.fileChanges = [];
 		this.archivedChanges = [];
@@ -272,6 +317,16 @@ const State = {
 			staged: null,
 			digest: null,
 			stageRefusal: null,
+		};
+		this.contextTray = {
+			tray: null,
+			preview: null,
+			lastRefusal: null,
+			editing: null,
+			draft: "",
+			targets: [],
+			targetSessionId: null,
+			armed: null,
 		};
 		this.fileChangesView = {
 			expandedSessions: [],

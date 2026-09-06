@@ -14,7 +14,7 @@ export * from "./file-change.js";
 export * from "./history.js";
 export * from "./automation.js";
 export * from "./query.js";
-export * from "./hooks.js";
 export * from "./ipc.js";
 export * from "./memory.js";
+export * from "./context.js";
 export * from "./research.js";

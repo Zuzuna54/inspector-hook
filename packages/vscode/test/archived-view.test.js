@@ -8,8 +8,31 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
+/**
+ * panel.ts plus the handler modules it delegates to.
+ *
+ * The diff cases moved to src/messages/ when panel.ts was split. Reading only
+ * panel.ts would silently stop checking anything -- the same vacuous-guard
+ * shape these tests exist to catch.
+ */
+function panelSources() {
+	const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+	const files = [join(srcDir, "panel.ts")];
+	for (const entry of readdirSync(join(srcDir, "messages"), { withFileTypes: true })) {
+		if (entry.isFile() && entry.name.endsWith(".ts")) {
+			files.push(join(srcDir, "messages", entry.name));
+		}
+	}
+	return files.map((f) => readFileSync(f, "utf8")).join("\n");
+}
+
+
+import { apiSource } from "./api-sources.js";
 import { installGlobals, readMedia } from "./harness.js";
 
 /** Load the Archived view with a recording API stub. */
@@ -123,7 +146,10 @@ describe("archived file-level restore", () => {
 });
 
 describe("api message routing", () => {
-	const api = readMedia("scripts/api.js");
+	// The whole API layer, discovered from disk. api.js has been split three
+	// times and each time a test reading only "scripts/api.js" stopped checking
+	// anything without failing.
+	const api = apiSource();
 
 	it("routes a diff to the archived view when it is active", () => {
 		assert.match(api, /State\.currentView === "archived"/);
@@ -133,7 +159,10 @@ describe("api message routing", () => {
 		// panel.ts sent these; api.js listened for neither, so nothing refreshed
 		// and a restored change kept showing as archived until the panel reopened.
 		for (const type of ["restore-archived-result", "restore-result"]) {
-			assert.ok(api.includes(`case "${type}"`), `missing case ${type}`);
+			assert.ok(
+				api.includes(`case "${type}"`) || api.includes(`"${type}"`),
+				`no inbound handler registered for ${type}`,
+			);
 		}
 	});
 
@@ -141,6 +170,58 @@ describe("api message routing", () => {
 		// API.getVersionContent did not exist; opening a version threw
 		// "is not a function".
 		assert.match(api, /getVersionContent\(filePath, versionNumber\)/);
-		assert.ok(api.includes('case "version-content"'));
+		assert.ok(api.includes('"version-content"'), "no handler for version-content");
+	});
+});
+
+describe("archived diffs reach the archive, not the pending map", () => {
+	// 155 of 155 archived diffs returned nothing, silently, for the life of the
+	// view. Two independent causes, both fixed here:
+	//
+	//  1. The view asked `get-diff`, which routes to fileChanges.getDiff and
+	//     reads `this.changes`. Archived changes live in `this.archived`, so
+	//     the lookup was null by construction. The correct method existed on
+	//     both sides and nothing dispatched to it.
+	//  2. panel.ts spread that null: `{ ...diff, changeId }` yields a truthy
+	//     `{ changeId }`, so the error branch could never fire and a missing
+	//     change rendered as a well-formed diff with no hunks -- which is
+	//     indistinguishable from a file that genuinely did not change.
+	//
+	// The second is why the first survived: the failure had no symptom.
+
+	it("the view requests the archived diff", () => {
+		const src = readMedia("scripts/views/archived.js");
+		assert.match(src, /API\.getArchivedDiff\(changeId\)/, "still asking the pending map");
+		assert.ok(
+			!/API\.getDiff\(changeId\)/.test(src),
+			"still calls the pending lookup, which returns null for every archived change",
+		);
+	});
+
+	it("api.js can express the request", () => {
+		const src = apiSource();
+		assert.match(src, /getArchivedDiff\(changeId\)/);
+		assert.match(src, /send\("get-archived-diff"/);
+	});
+
+	it("panel.ts dispatches it to the archive lookup", () => {
+		const src = panelSources();
+		assert.match(src, /case "get-archived-diff"/, "no handler for the command");
+		assert.match(
+			src,
+			/coreBridge\.getArchivedDiff\(changeId\)/,
+			"the case exists but does not call the archive lookup",
+		);
+	});
+
+	it("a null lookup is reported as an error, not as an empty diff", () => {
+		const src = panelSources()
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/^\s*\/\/.*$/gm, "");
+		assert.match(
+			src,
+			/if \(!diff\) \{[\s\S]*?type: "diff-error"/,
+			"a null diff can still be spread into a truthy, empty-looking result",
+		);
 	});
 });
