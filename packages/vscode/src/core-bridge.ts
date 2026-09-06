@@ -37,6 +37,8 @@ export interface CoreBridgeOptions {
 	 */
 	workspaceRoot?: string;
 	httpPort: number;
+	/** Write a session digest into native auto memory when a session ends. */
+	writeSessionMemory?: boolean;
 	extensionPath?: string;
 }
 
@@ -100,6 +102,13 @@ export class CoreBridge extends EventEmitter {
 				env: {
 					...process.env,
 					INSPECTOR_HOOK_HTTP_PORT: String(this.options.httpPort),
+					// Forwarded EXPLICITLY, not inherited. The core reads this from
+					// its environment, and the only other way to set it was to launch
+					// VS Code itself from a shell with the variable exported — so the
+					// feature had no reachable switch at all from inside the editor.
+					...(this.options.writeSessionMemory
+						? { INSPECTOR_HOOK_SESSION_MEMORY: "1" }
+						: {}),
 					// Omitted when there is no workspace folder, rather than sent
 					// as a placeholder the core would treat as a real root.
 					...(this.options.workspaceRoot

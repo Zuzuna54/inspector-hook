@@ -21,6 +21,9 @@ export async function activate(
 	const config = vscode.workspace.getConfiguration("inspectorHook");
 	const autoStart = config.get<boolean>("autoStart", true);
 	const httpPort = config.get<number>("httpPort", 52376);
+	// Off by default: these digests are written into the user's own memory
+	// files, which shape what future Claude sessions are told.
+	const writeSessionMemory = config.get<boolean>("writeSessionMemory", false);
 
 	// Initialize core bridge
 	coreBridge = new CoreBridge({
@@ -31,6 +34,7 @@ export async function activate(
 		// core apply its own default instead of resolving paths against "/".
 		workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
 		httpPort,
+		writeSessionMemory,
 		extensionPath: context.extensionUri.fsPath,
 	});
 

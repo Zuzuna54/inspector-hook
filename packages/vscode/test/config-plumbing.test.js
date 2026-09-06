@@ -78,3 +78,49 @@ describe("REGRESSION B5: config plumbing", () => {
 		);
 	});
 });
+
+describe("REGRESSION: session memory has a reachable switch", () => {
+	// M3's write path is gated on INSPECTOR_HOOK_SESSION_MEMORY, which the core
+	// reads from its environment. CoreBridge forwarded only `...process.env`,
+	// and no VS Code setting existed — so the ONLY way to enable the feature was
+	// to launch VS Code itself from a shell with the variable exported. The
+	// feature was unreachable from inside the editor by construction, which is
+	// the same class as B5: a setting that exists and reaches nothing.
+
+	it("the extension declares the setting", () => {
+		const manifest = JSON.parse(
+			readFileSync(join(SRC, "..", "package.json"), "utf-8"),
+		);
+		const props = manifest.contributes.configuration.properties;
+		const setting = props["inspectorHook.writeSessionMemory"];
+		assert.ok(setting, "a user must be able to find this in Settings");
+		assert.equal(setting.default, false, "off by default — it writes to the user's own memory");
+	});
+
+	it("the extension reads it and passes it to CoreBridge", () => {
+		const ext = code("extension.ts");
+		assert.match(ext, /config\.get<boolean>\("writeSessionMemory"/);
+		assert.match(ext, /writeSessionMemory,/, "and forwards it into the options");
+	});
+
+	it("CoreBridge forwards it to the spawned core EXPLICITLY", () => {
+		// Inheriting it via ...process.env is what made it unreachable.
+		const bridge = code("core-bridge.ts");
+		assert.match(
+			bridge,
+			/INSPECTOR_HOOK_SESSION_MEMORY:\s*"1"/,
+			"the env var must be set from the option, not inherited",
+		);
+	});
+
+	it("the flag is reported in core status, so a UI can show it", () => {
+		// "No digests exist" and "digests are broken" look identical from
+		// outside. For most of this feature's life the second was true while the
+		// first was assumed.
+		const core = readFileSync(
+			join(SRC, "..", "..", "core", "src", "core.ts"),
+			"utf-8",
+		);
+		assert.match(core, /writeSessionMemory: this\.config\.writeSessionMemory/);
+	});
+});
