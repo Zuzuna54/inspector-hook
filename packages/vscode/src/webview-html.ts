@@ -93,6 +93,7 @@ export function buildWebviewHtml(
 		["styles", "views", "archived", "accordion.css"],
 		["styles", "views", "archived", "preview.css"],
 		["styles", "views", "context.css"],
+		["styles", "views", "research.css"],
 		["styles", "views", "tray.css"],
 	];
 
@@ -106,6 +107,7 @@ export function buildWebviewHtml(
 		["scripts", "api", "memory-senders.js"],
 		["scripts", "api", "history-senders.js"],
 		["scripts", "api", "tray-senders.js"],
+		["scripts", "api", "transcript-senders.js"],
 		["scripts", "api.js"],
 		// Inbound handlers register onto API, so they load after it. Each
 		// claims its message types via API.on, which throws on a duplicate.
@@ -114,7 +116,10 @@ export function buildWebviewHtml(
 		["scripts", "api", "inbound-changes.js"],
 		["scripts", "api", "inbound-history.js"],
 		["scripts", "api", "inbound-context.js"],
+		["scripts", "api", "research-senders.js"],
+		["scripts", "api", "inbound-research.js"],
 		["scripts", "api", "inbound-tray.js"],
+		["scripts", "api", "inbound-transcript.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
 		["scripts", "shared", "diff-render.js"],
@@ -126,6 +131,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "sessions", "activity-feed.js"],
 		["scripts", "views", "sessions", "tool-detail.js"],
 		["scripts", "views", "sessions", "session-detail.js"],
+		["scripts", "views", "sessions", "transcript-render.js"],
 		["scripts", "views", "sessions.js"],
 		// File-changes modules load before file-changes.js.
 		["scripts", "views", "file-changes", "fc-session-list.js"],
@@ -149,6 +155,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "context", "handlers.js"],
 		["scripts", "views", "context", "curation.js"],
 		["scripts", "views", "context.js"],
+		["scripts", "views", "research.js"],
 		// The tray: renderers before the controller that composes them.
 		["scripts", "tray", "tray-render.js"],
 		["scripts", "tray", "tray-host.js"],
@@ -218,6 +225,9 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         <div class="nav-group-label" id="nav-group-knowledge">Knowledge</div>
         <button class="tab" data-view="context" role="tab" aria-selected="false" tabindex="-1">
           Context
+        </button>
+        <button class="tab" data-view="research" role="tab" aria-selected="false" tabindex="-1">
+          Search
         </button>
         <button class="tab" data-view="tray" role="tab" aria-selected="false" tabindex="-1">
           Tray
@@ -324,6 +334,15 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
             <div class="sv-tabs" id="sv-tabs"></div>
             <div class="sv-content" id="sv-detail-content"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Research View: search the indexed research history (M4).
+           The shell is static for the same reason the context chrome is: a view
+           whose init never runs must still show something, not a blank pane. -->
+      <div id="view-research" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
+        <div id="research-view" class="rs-root">
+          <div class="rs-empty">Loading research history…</div>
         </div>
       </div>
 

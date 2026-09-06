@@ -98,6 +98,14 @@ export interface ResearchSearchResult {
 	searched: number;
 	/** Terms actually used, after stop-word removal — empty means no query. */
 	terms: string[];
+	/**
+	 * Terms the corpus associated with the query and added at reduced weight.
+	 *
+	 * Reported so a hit matching none of the typed words can be explained.
+	 * These are learned from the indexed documents, not from a pretrained
+	 * model — see `semantic.ts` for what that does and does not claim.
+	 */
+	expandedWith?: string[];
 }
 
 /** Index size and composition, for the UI and for capacity questions. */

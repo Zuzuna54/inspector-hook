@@ -196,9 +196,25 @@ export class Bm25Index {
 	 */
 	search(
 		query: string,
-		options?: { limit?: number; filter?: (docId: string) => boolean },
+		options?: {
+			limit?: number;
+			filter?: (docId: string) => boolean;
+			/**
+			 * Weighted terms from the semantic expander, replacing the query's own
+			 * tokenisation. Terms the user typed carry weight 1; expansions carry
+			 * less, so a guess about intent can never outrank the words asked for.
+			 */
+			weighted?: { term: string; weight: number; typed: boolean }[];
+		},
 	): { hits: { docId: string; score: number; matched: string[] }[]; total: number; terms: string[] } {
-		const terms = [...new Set(tokenize(query))];
+		const weighted =
+			options?.weighted ??
+			[...new Set(tokenize(query))].map((term) => ({
+				term,
+				weight: 1,
+				typed: true,
+			}));
+		const terms = weighted.map((w) => w.term);
 		if (terms.length === 0) return { hits: [], total: 0, terms: [] };
 
 		const total = this.lengths.size;
@@ -206,7 +222,7 @@ export class Bm25Index {
 		const scores = new Map<string, number>();
 		const matched = new Map<string, string[]>();
 
-		for (const term of terms) {
+		for (const { term, weight, typed } of weighted) {
 			const posting = this.postings.get(term);
 			if (!posting) continue;
 
@@ -221,8 +237,12 @@ export class Bm25Index {
 				const length = this.lengths.get(docId) ?? 0;
 				const norm = avgdl === 0 ? 1 : 1 - B + (B * length) / avgdl;
 				const contribution =
-					(idf * (frequency * (K1 + 1))) / (frequency + K1 * norm);
+					(weight * idf * (frequency * (K1 + 1))) / (frequency + K1 * norm);
 				scores.set(docId, (scores.get(docId) ?? 0) + contribution);
+				// Only typed terms are reported as matches. An expansion explains
+				// why a document ranked, not what the user asked for, and showing
+				// it as a match would misdescribe the hit.
+				if (!typed) continue;
 				const list = matched.get(docId);
 				if (list) list.push(term);
 				else matched.set(docId, [term]);
@@ -240,7 +260,11 @@ export class Bm25Index {
 			.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId));
 
 		const limit = options?.limit ?? 20;
-		return { hits: ranked.slice(0, limit), total: ranked.length, terms };
+		return {
+			hits: ranked.slice(0, limit),
+			total: ranked.length,
+			terms: weighted.filter((w) => w.typed).map((w) => w.term),
+		};
 	}
 
 	/** Serialise for persistence, with document ids interned. */

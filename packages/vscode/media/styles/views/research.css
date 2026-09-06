@@ -1,0 +1,258 @@
+/**
+ * Research view: search your own work history.
+ *
+ * The two things this view must never hide are given the most weight: the
+ * SCOPE a result came from, and the KIND of each hit. A count without its
+ * scope is ambiguous — twelve matches across one project means something
+ * different from twelve across eleven — and the kind is what tells you whether
+ * you are looking at something you concluded or something you merely read.
+ *
+ * Everything else stays quiet. Only tokens defined in variables.css are used,
+ * so the view follows the editor theme rather than fixing its own colours.
+ */
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+
+.rs-root {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+.rs-header {
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg-secondary);
+	flex-shrink: 0;
+}
+
+.rs-results {
+	flex: 1;
+	overflow-y: auto;
+	padding: 8px 16px 24px;
+}
+
+/* ==========================================================================
+   Search bar
+   ========================================================================== */
+
+.rs-searchbar {
+	display: flex;
+	gap: 8px;
+}
+
+.rs-input {
+	flex: 1;
+	padding: 6px 10px;
+	background: var(--bg-primary);
+	color: var(--fg-primary);
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	font-size: 13px;
+}
+
+.rs-input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+/* ==========================================================================
+   Scope and kind filters
+
+   The scope buttons are deliberately prominent: which corpus was searched is
+   part of the answer, not a setting to forget about.
+   ========================================================================== */
+
+.rs-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	align-items: center;
+	margin-top: 10px;
+}
+
+.rs-scope {
+	display: flex;
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	overflow: hidden;
+}
+
+.rs-scope-btn {
+	padding: 3px 10px;
+	background: var(--bg-primary);
+	color: var(--fg-secondary);
+	border: none;
+	cursor: pointer;
+	font-size: 11px;
+}
+
+.rs-scope-btn.active {
+	background: var(--accent);
+	color: var(--bg-primary);
+}
+
+.rs-scope-btn:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.rs-kinds {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.rs-kind {
+	padding: 2px 8px;
+	background: var(--bg-tertiary);
+	color: var(--fg-secondary);
+	border: 1px solid transparent;
+	border-radius: 10px;
+	cursor: pointer;
+	font-size: 11px;
+}
+
+.rs-kind.active {
+	border-color: var(--accent);
+	color: var(--fg-primary);
+}
+
+/* A kind the corpus holds none of is shown, not hidden: "no searches recorded"
+   is information, and a filter that silently disappears is confusing. */
+.rs-kind:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.rs-count {
+	opacity: 0.65;
+}
+
+.rs-stats {
+	margin-top: 8px;
+	font-size: 11px;
+	color: var(--fg-secondary);
+}
+
+/* ==========================================================================
+   Results
+   ========================================================================== */
+
+.rs-summary {
+	padding: 8px 0;
+	font-size: 12px;
+	color: var(--fg-primary);
+	border-bottom: 1px solid var(--border);
+	margin-bottom: 8px;
+}
+
+.rs-dim {
+	color: var(--fg-secondary);
+	margin-left: 8px;
+}
+
+.rs-hit {
+	padding: 8px 10px;
+	border: 1px solid transparent;
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+.rs-hit:hover {
+	background: var(--bg-hover);
+}
+
+.rs-hit.open {
+	background: var(--bg-secondary);
+	border-color: var(--border);
+}
+
+.rs-hit-head {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+}
+
+.rs-hit-title {
+	flex: 1;
+	color: var(--fg-primary);
+	font-size: 13px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.rs-hit-meta {
+	color: var(--fg-secondary);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.rs-kind-tag {
+	padding: 1px 6px;
+	border-radius: 8px;
+	font-size: 10px;
+	background: var(--bg-tertiary);
+	color: var(--fg-secondary);
+	white-space: nowrap;
+}
+
+/* Conclusions and reports are what you came for; reads and prompts are
+   context. Only the first two get colour. */
+.rs-kind-conclusion {
+	background: var(--color-success-bg);
+	color: var(--color-success);
+}
+
+.rs-kind-subagent_report {
+	background: var(--color-info-bg);
+	color: var(--color-info);
+}
+
+.rs-hit-body {
+	margin: 8px 0 0;
+	padding: 8px;
+	background: var(--bg-primary);
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	font-size: 12px;
+	white-space: pre-wrap;
+	word-break: break-word;
+	max-height: 320px;
+	overflow-y: auto;
+}
+
+.rs-hit-url {
+	display: block;
+	margin-top: 4px;
+	color: var(--accent);
+	font-size: 11px;
+	word-break: break-all;
+}
+
+/* ==========================================================================
+   Empty and error states
+
+   A failed search renders as a failure with its reason. This project has
+   shipped a permanent loading state three times, every time because a failure
+   path sent nothing back.
+   ========================================================================== */
+
+.rs-empty {
+	padding: 32px 16px;
+	text-align: center;
+	color: var(--fg-secondary);
+	font-size: 12px;
+}
+
+.rs-error {
+	padding: 12px;
+	background: var(--color-error-bg);
+	color: var(--color-error);
+	border-radius: 3px;
+	font-size: 12px;
+}

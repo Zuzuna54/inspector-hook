@@ -25,6 +25,8 @@ import type {
 } from "@inspector-hook/protocol";
 import type { PersistenceStore } from "../persistence/store.js";
 import { Bm25Index } from "./bm25.js";
+import { SemanticExpander } from "./semantic.js";
+import { resolveProject } from "../managers/project-resolver.js";
 import { extractResearchItem } from "./extract.js";
 
 /** Where the snapshot lives inside the store. */
@@ -78,6 +80,11 @@ export class ResearchIndex {
 	private readonly maxItems: number;
 	private readonly workspaceRoot?: string;
 	private dirty = false;
+	/**
+	 * Built lazily on first semantic search and dropped whenever the index
+	 * changes, so associations can never describe a corpus that has moved on.
+	 */
+	private expander?: SemanticExpander;
 
 	constructor(options: ResearchIndexOptions = {}) {
 		this.persistence = options.persistence;
@@ -94,14 +101,23 @@ export class ResearchIndex {
 	 */
 	private defaultProjectKey(): string | undefined {
 		if (!this.workspaceRoot) return undefined;
+
+		// Resolve the workspace the same way the ingest path does, so the key
+		// matches exactly what enrichment assigns to new items.
+		//
+		// This used to scan the corpus for an item whose projectName was the
+		// last path segment of the workspace — a heuristic that returned nothing
+		// on the real store, because most items predate enrichment and carry no
+		// projectName at all. The result was a permanently disabled "this
+		// project" filter, with no error to explain it.
+		const project = resolveProject(this.workspaceRoot);
+		const key = project?.gitRemote ?? project?.root;
+		if (!key) return undefined;
+
+		// Only offer it if the corpus actually holds items under that key;
+		// a filter that always returns nothing is worse than no filter.
 		for (const item of this.items.values()) {
-			if (item.projectKey && item.projectName) {
-				// cwd is captured on every event; an item whose own cwd is this
-				// workspace names the key for it.
-				if (this.workspaceRoot.endsWith(`/${item.projectName}`)) {
-					return item.projectKey;
-				}
-			}
+			if (item.projectKey === key) return key;
 		}
 		return undefined;
 	}
@@ -132,6 +148,7 @@ export class ResearchIndex {
 		this.index.add(item.id, `${item.title}\n${item.title}\n${item.text}`);
 		this.items.set(item.id, { ...item, text: snippet(item.text) });
 		this.dirty = true;
+		this.expander = undefined;
 		this.trim();
 		return item;
 	}
@@ -162,6 +179,11 @@ export class ResearchIndex {
 			projectKey?: string;
 			kinds?: ResearchKind[];
 			since?: string;
+			/**
+			 * Opt IN to corpus-derived query expansion. Defaults OFF — measured
+			 * as no better than lexical on this corpus. See semantic.ts.
+			 */
+			semantic?: boolean;
 		},
 	): ResearchSearchResult {
 		const kinds = options?.kinds?.length ? new Set(options.kinds) : undefined;
@@ -186,9 +208,22 @@ export class ResearchIndex {
 			? [...this.items.keys()].filter(scoped).length
 			: this.items.size;
 
+		// Query expansion is OPT-IN and defaults off, because it was measured
+		// against the live corpus and made retrieval worse: better on 0 of 3
+		// known-answer queries, worse on 1. See semantic.ts for the numbers.
+		// Left reachable so a real embedding model can be evaluated behind the
+		// same interface without re-plumbing anything.
+		const useSemantic = options?.semantic === true;
+		let weighted: { term: string; weight: number; typed: boolean }[] | undefined;
+		if (useSemantic) {
+			this.expander ??= new SemanticExpander(this.index);
+			weighted = this.expander.expand(query);
+		}
+
 		const result = this.index.search(query, {
 			limit: options?.limit ?? 20,
 			filter: scoped,
+			weighted,
 		});
 
 		const hits: ResearchHit[] = [];
@@ -204,6 +239,9 @@ export class ResearchIndex {
 			total: result.total,
 			searched,
 			terms: result.terms,
+			// The terms the corpus added. Surfaced so a hit that matched none of
+			// the typed words can be explained rather than looking arbitrary.
+			expandedWith: weighted?.filter((w) => !w.typed).map((w) => w.term) ?? [],
 			scope: options?.projectKey !== undefined ? "project" : "all",
 			projectKey: options?.projectKey,
 		};
