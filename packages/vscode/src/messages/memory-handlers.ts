@@ -239,6 +239,26 @@ export async function handleMemoryCommand(
 			break;
 		}
 
+		case "transcript-get": {
+			ctx.send({
+				type: "transcript-page",
+				payload: await ctx.coreBridge.getTranscript(
+					params as { sessionId?: string; offset?: number; limit?: number },
+				),
+			});
+			break;
+		}
+
+		case "transcript-stats": {
+			ctx.send({
+				type: "transcript-stats",
+				payload: await ctx.coreBridge.getTranscriptStats(
+					params as { sessionId?: string },
+				),
+			});
+			break;
+		}
+
 		default:
 			return false;
 	}

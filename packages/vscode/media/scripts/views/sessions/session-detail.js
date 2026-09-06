@@ -85,6 +85,9 @@ const SessionDetailMixin = {
         Tools
         <span class="sv-tab-badge">${toolCount}</span>
       </button>
+      <button class="sv-tab ${activeTab === "transcript" ? "active" : ""}" data-tab="transcript">
+        Transcript
+      </button>
       <button class="sv-tab ${activeTab === "logs" ? "active" : ""}" data-tab="logs">
         Logs
       </button>
@@ -123,6 +126,38 @@ const SessionDetailMixin = {
 	/**
 	 * Render the current tab content
 	 */
+	/**
+	 * The session's actual content, from Claude Code's own transcript.
+	 *
+	 * Everything else in this view is built from hook events, which are
+	 * metadata. This is the only place the panel can show what was said, and
+	 * the only place it can say how full the context got -- a session on this
+	 * machine peaked at 987k tokens and nothing could report it.
+	 *
+	 * Fetched on first view rather than on session select: reading a 48 MB
+	 * transcript to populate a tab nobody opened would be the wrong default.
+	 */
+	renderTranscriptTab(contentEl, session) {
+		const view = State.transcriptView;
+		if (view.sessionId !== session.id) {
+			State.update("transcriptView", {
+				...view,
+				sessionId: session.id,
+				entries: [],
+				total: 0,
+				hasMore: false,
+				stats: null,
+				reason: null,
+			});
+			API.transcriptGet({ sessionId: session.id, limit: 100 });
+			contentEl.innerHTML = `<div class="empty-state">
+        <div class="empty-state-title">Reading the transcript…</div>
+      </div>`;
+			return;
+		}
+		contentEl.innerHTML = this.renderTranscript(view);
+	},
+
 	renderTabContent() {
 		const contentEl = document.getElementById("sv-detail-content");
 		if (!contentEl) return;
@@ -142,6 +177,9 @@ const SessionDetailMixin = {
 				break;
 			case "tools":
 				this.renderToolsTab(contentEl, session);
+				break;
+			case "transcript":
+				this.renderTranscriptTab(contentEl, session);
 				break;
 			case "logs":
 				this.renderLogsTab(contentEl, session);

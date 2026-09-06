@@ -28,6 +28,7 @@ export const SESSIONS_LOAD_ORDER = [
 	"scripts/views/sessions/activity-feed.js",
 	"scripts/views/sessions/tool-detail.js",
 	"scripts/views/sessions/session-detail.js",
+	"scripts/views/sessions/transcript-render.js",
 	"scripts/views/sessions.js",
 ];
 

@@ -22,6 +22,14 @@ import { installGlobals, readMedia } from "./harness.js";
 /** Every type the pre-split switch handled. */
 const EXPECTED_TYPES = [
 	"archived",
+	// Another session is building the Research view; its handlers ship in the
+	// tree already. Recorded rather than exempted, so the inventory keeps
+	// describing what actually registers.
+	"research-item",
+	"research-results",
+	"research-stats",
+	"transcript-page",
+	"transcript-stats",
 	"context-armed",
 	"context-targets",
 	"context-tray",

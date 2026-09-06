@@ -114,6 +114,18 @@ const ToolDetailMixin = {
 		// items re-bound several hundred listeners on each 2s tick and on every
 		// expand click - and any node replaced in place silently lost its own.
 		contentEl.addEventListener("click", (e) => {
+			// More transcript. Paged by entry offset rather than by line, because
+			// one line can produce several entries and the two would drift.
+			if (e.target.closest(".sv-transcript-more")) {
+				const view = State.transcriptView;
+				API.transcriptGet({
+					sessionId: view.sessionId,
+					offset: 0,
+					limit: (view.entries.length || 100) + 200,
+				});
+				return;
+			}
+
 			const copyBtn = e.target.closest(".sv-copy-btn");
 			if (copyBtn) {
 				e.stopPropagation();

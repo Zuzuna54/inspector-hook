@@ -32,9 +32,11 @@ const htmlSource = readFileSync(join(packageRoot, "src", "webview-html.ts"), "ut
  *
  * Empty is the healthy state. An entry here is a promise to add the file.
  */
-const PENDING = {
-	// e.g. "scripts/tray/tray-host.js": "tray lands in P3",
-};
+// Empty. The Research view's stylesheet lived here for the few minutes between
+// its manifest entry landing and the file being written — which is exactly what
+// this exemption is for, and it failed the moment the work landed, which is the
+// point of checking both directions.
+const PENDING = {};
 
 /**
  * Files that ship but are deliberately not loaded.

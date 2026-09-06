@@ -51,6 +51,15 @@ const EXPECTED_METHODS = [
 	"renderToolDetails",
 	"renderToolItem",
 	"renderToolsTab",
+	// The transcript tab: the session's actual content, from Claude Code's own
+	// transcript rather than from hook metadata.
+	"renderContextUsage",
+	"renderTranscript",
+	"renderTranscriptEntry",
+	"renderTranscriptStats",
+	"renderTranscriptTab",
+	"formatTokens",
+	"formatBytes",
 	"renderTruncationNotice",
 	"renderTurn",
 	"safeArray",

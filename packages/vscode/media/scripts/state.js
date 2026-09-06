@@ -69,6 +69,24 @@ const State = {
 	// ==========================================================================
 	// Context View State (M3 - native auto memory)
 	// ==========================================================================
+	// ==========================================================================
+	// Research View State (M4 - research history search)
+	//
+	// `scope` is a UI choice, not a filter default: the core searches every
+	// project unless given a projectKey, because "where did I solve this
+	// before" is only answerable across projects.
+	// ==========================================================================
+	researchView: {
+		query: "",
+		scope: "all",        // "all" | "project"
+		kinds: [],           // empty = every kind
+		results: null,       // the last ResearchSearchResult, or null
+		selected: null,      // an expanded item
+		stats: null,         // corpus size and composition
+		searching: false,
+		error: null,
+	},
+
 	contextView: {
 		projects: [],
 		selectedProject: null,   // memoryDir, which is the stable key
@@ -125,6 +143,24 @@ const State = {
 		targetSessionId: null,
 		/** What is currently armed for the selected session. */
 		armed: null,
+	},
+
+	// ==========================================================================
+	// Transcript View State (M3 P5 - the session's actual content)
+	//
+	// Separate from sessionView: that slice holds hook-derived activity, which
+	// is metadata. This holds what was actually said, read from Claude Code's
+	// own transcript, and the two answer different questions.
+	// ==========================================================================
+	transcriptView: {
+		sessionId: null,
+		/** Whole-file statistics, including how full the context got. */
+		stats: null,
+		entries: [],
+		total: 0,
+		hasMore: false,
+		/** Why there is nothing, when there is nothing. */
+		reason: null,
 	},
 
 	// ==========================================================================
@@ -259,6 +295,7 @@ const State = {
 			filters: { ...this.filters },
 			stats: { ...this.stats },
 			contextTray: this.contextTray,
+			transcriptView: this.transcriptView,
 			config: { ...this.config },
 		};
 	},
@@ -304,6 +341,16 @@ const State = {
 			activitySince: null,
 			activityHasMore: false,
 		};
+		this.researchView = {
+			query: "",
+			scope: "all",
+			kinds: [],
+			results: null,
+			selected: null,
+			stats: null,
+			searching: false,
+			error: null,
+		};
 		this.contextView = {
 			projects: [],
 			selectedProject: null,
@@ -317,6 +364,14 @@ const State = {
 			staged: null,
 			digest: null,
 			stageRefusal: null,
+		};
+		this.transcriptView = {
+			sessionId: null,
+			stats: null,
+			entries: [],
+			total: 0,
+			hasMore: false,
+			reason: null,
 		};
 		this.contextTray = {
 			tray: null,

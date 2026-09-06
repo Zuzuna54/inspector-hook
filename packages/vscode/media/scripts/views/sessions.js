@@ -43,6 +43,16 @@ const SessionsView = {
 	 * Initialize the sessions view
 	 */
 	init() {
+		// The transcript arrives asynchronously and lands in its own slice, so
+		// without this the tab would sit on "Reading the transcript…" until the
+		// next unrelated render -- the same shape as every other "the work
+		// happened and no view showed it" failure here.
+		this._unsubscribers.push(
+			State.subscribe("transcriptView", () => {
+				if (State.sessionView.activeTab === "transcript") this.renderTabContent();
+			}),
+		);
+
 		this.setupSearch();
 		this.render();
 
@@ -187,6 +197,7 @@ Object.assign(
 	window.ActivityFeedMixin,
 	window.ToolDetailMixin,
 	window.SessionDetailMixin,
+	window.TranscriptRenderMixin,
 );
 
 // Register view with router

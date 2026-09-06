@@ -38,6 +38,7 @@ import {
 import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
 import { renderTray } from "../context/render.js";
+import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
 	disarmContext,
@@ -1198,6 +1199,48 @@ export class IpcServer {
 			return { targets, idleAfterMs: 30 * 60 * 1000, completedAfterMs: 2 * 60 * 60 * 1000 };
 		});
 
+		// ---------------------------------------------------------------------
+		// The session transcript (Milestone 3, P5).
+		//
+		// The core captures hook EVENTS, which are metadata. The transcript is
+		// the session's actual content, and nothing here had ever opened one --
+		// which is why a digest reads as a fact list. Streamed, because the
+		// largest on this machine is 48 MB with a 326 KB line in it.
+		// ---------------------------------------------------------------------
+
+		/** A page of the transcript, plus statistics for the whole file. */
+		this.methods.set("transcript.get", async (params) => {
+			const rec = asRec(params) ?? {};
+			const path = await this.transcriptPathFor(rec);
+			if (!path) {
+				return {
+					entries: [],
+					total: 0,
+					hasMore: false,
+					reason:
+						"This session has no transcript path recorded, so there is nothing to read.",
+				};
+			}
+			return readTranscript(path, {
+				offset: asNum(rec.offset),
+				limit: asNum(rec.limit),
+				includeAll: asBool(rec.includeAll),
+			});
+		});
+
+		/**
+		 * Statistics only: how full the context got, and what the file holds.
+		 *
+		 * Separate from `get` because it is the cheap question -- "how much of
+		 * the window did this session use" -- and answering it should not carry
+		 * a page of content back across the wire.
+		 */
+		this.methods.set("transcript.stats", async (params) => {
+			const path = await this.transcriptPathFor(asRec(params) ?? {});
+			if (!path) return { reason: "No transcript path for this session." };
+			return transcriptStats(path);
+		});
+
 		/** Exactly what arming would write. Same renderer, no second path. */
 		this.methods.set("context.preview", async () =>
 			renderTray(await readTray(this.storagePath)),
@@ -1329,6 +1372,29 @@ export class IpcServer {
 			// A cost we cannot measure is reported as zero rather than guessed.
 		}
 		return { deliveries, estimatedRepeatBytes: entry.bytes * deliveries };
+	}
+
+	/**
+	 * Where a session's transcript lives.
+	 *
+	 * An explicit path wins, so a caller can read a transcript for a session the
+	 * store no longer holds -- 27 of 33 memory files cite an origin session and
+	 * none of those sessions still exist, so "the session is gone" is the normal
+	 * case rather than the exception.
+	 */
+	private async transcriptPathFor(
+		rec: Record<string, unknown>,
+	): Promise<string | null> {
+		const explicit = asStr(rec.transcriptPath);
+		if (explicit) return explicit;
+		const sessionId = asStr(rec.sessionId);
+		if (!sessionId) return null;
+		const session = await this.sessionManager.getSession(sessionId);
+		if (!session) return null;
+		return (
+			asStr((session.metadata as Record<string, unknown> | undefined)?.transcriptPath) ??
+			null
+		);
 	}
 
 	private async digestFor(session: Session) {

@@ -328,6 +328,7 @@ Object.assign(
 	window.MemoryApiMixin,
 	window.HistoryApiMixin,
 	window.TrayApiMixin,
+	window.TranscriptApiMixin,
 );
 
 window.API = API;

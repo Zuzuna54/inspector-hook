@@ -114,6 +114,18 @@ export {
 	writeTray,
 } from "./context/tray-store.js";
 export { includedCount, renderTray } from "./context/render.js";
+// Export the transcript reader (Milestone 3, P5)
+export {
+	readTranscript,
+	transcriptStats,
+	MAX_LINE_BYTES,
+	MAX_TRANSCRIPT_BYTES,
+	type TranscriptEntry,
+	type TranscriptKind,
+	type TranscriptPage,
+	type TranscriptStats,
+	type TranscriptUsage,
+} from "./transcript/transcript-reader.js";
 export {
 	armContext,
 	disarmContext,
@@ -158,6 +170,12 @@ export {
 	SNIPPET_LENGTH,
 	type ResearchIndexOptions,
 } from "./research/research-index.js";
+export {
+	EXPANSIONS_PER_TERM,
+	EXPANSION_WEIGHT,
+	SemanticExpander,
+	type Association,
+} from "./research/semantic.js";
 
 export {
 	clearProjectCache,
