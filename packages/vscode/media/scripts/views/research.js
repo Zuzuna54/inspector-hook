@@ -2,7 +2,7 @@
  * Research view (M4) — search your own work history.
  *
  * The core has indexed research since M4 landed and nothing could reach it:
- * 569 items, three registered IPC methods, zero references in the webview. This
+ * 599 items, three registered IPC methods, zero references in the webview. This
  * is the client half.
  *
  * ## Two things this view refuses to do
@@ -15,6 +15,20 @@
  * a failed search with the reason — this project has shipped a permanent
  * loading state three times (the archived diff-error gap, the version-content
  * chain, the digest envelope), every time because a failure path sent nothing.
+ *
+ * The first version of this file claimed both of those and shipped the second
+ * one broken. It never subscribed to `researchView`, and `State.update` only
+ * notifies subscribers — so results arrived, landed in state, and nothing
+ * re-rendered. Every search spun forever. The claim in a comment is not the
+ * behaviour; the subscription in `init` is.
+ *
+ * ## Why rendering is split into regions
+ *
+ * Re-rendering the whole view on every state change destroys the search input
+ * and the caret inside it, and state changes while a search is in flight. So
+ * the shell is written once and each region updates on the slice it depends
+ * on: results on results, filters on stats/scope/kinds. The input survives
+ * because nothing rewrites it.
  */
 
 const ResearchView = {
@@ -29,9 +43,42 @@ const ResearchView = {
 		["file_read", "Files"],
 	],
 
-	/** Called by the router when this view becomes visible. */
+	_unsubscribers: [],
+
+	/**
+	 * Called by the router when this view becomes visible.
+	 *
+	 * The subscription is the load-bearing line. Without it the view renders
+	 * once, at a moment when there are no results, and never again.
+	 */
 	init() {
+		this._unsubscribers.push(
+			State.subscribe("researchView", (next, prev) => {
+				const p = prev || {};
+				if (
+					next.results !== p.results ||
+					next.searching !== p.searching ||
+					next.error !== p.error ||
+					next.selected !== p.selected
+				) {
+					this.renderResults();
+				}
+				if (
+					next.stats !== p.stats ||
+					next.scope !== p.scope ||
+					next.kinds !== p.kinds
+				) {
+					this.renderFilters();
+					this.renderStats();
+				}
+			}),
+		);
 		if (!State.researchView.stats) API.researchStats();
+	},
+
+	cleanup() {
+		this._unsubscribers.forEach((unsub) => unsub());
+		this._unsubscribers = [];
 	},
 
 	isVisible() {
@@ -39,27 +86,34 @@ const ResearchView = {
 	},
 
 	render() {
-		const v = State.researchView || {};
 		const container = document.getElementById("research-view");
 		if (!container) return;
 
+		// The shell is written once. Regions fill themselves, so a re-render of
+		// results cannot take the search input down with it.
 		container.innerHTML = `
 			<div class="rs-header">
 				<div class="rs-searchbar">
 					<input id="rs-query" class="rs-input" type="search"
 						placeholder="Search what you looked up, asked, delegated and concluded…"
-						value="${Utils.escapeHtml(v.query || "")}" />
+						value="${Utils.escapeHtml((State.researchView || {}).query || "")}" />
 					<button id="rs-go" class="btn btn-primary">Search</button>
 				</div>
-				${this._renderScope(v)}
-				${this._renderStats(v)}
+				<div id="rs-filters"></div>
+				<div id="rs-stats"></div>
 			</div>
-			<div class="rs-results">${this._renderResults(v)}</div>
+			<div id="rs-results" class="rs-results"></div>
 		`;
-		this._bind();
+		this._bindSearch();
+		this.renderFilters();
+		this.renderStats();
+		this.renderResults();
 	},
 
-	_renderScope(v) {
+	renderFilters() {
+		const host = document.getElementById("rs-filters");
+		if (!host) return;
+		const v = State.researchView || {};
 		const project = v.stats && v.stats.defaultProjectKey;
 		const kinds = this.KINDS.map(([key, label]) => {
 			const on = (v.kinds || []).includes(key);
@@ -68,54 +122,72 @@ const ResearchView = {
 				${n === 0 ? "disabled" : ""}>${label}${n ? ` <span class="rs-count">${n}</span>` : ""}</button>`;
 		}).join("");
 
-		return `
-			<div class="rs-filters">
-				<div class="rs-scope">
-					<button class="rs-scope-btn${v.scope === "all" ? " active" : ""}" data-scope="all">All projects</button>
-					<button class="rs-scope-btn${v.scope === "project" ? " active" : ""}" data-scope="project"
-						${project ? "" : "disabled title='This core has no default project'"}>This project</button>
-				</div>
-				<div class="rs-kinds">${kinds}</div>
-			</div>`;
+		host.className = "rs-filters";
+		host.innerHTML = `
+			<div class="rs-scope">
+				<button class="rs-scope-btn${v.scope === "all" ? " active" : ""}" data-scope="all">All projects</button>
+				<button class="rs-scope-btn${v.scope === "project" ? " active" : ""}" data-scope="project"
+					${project ? "" : "disabled title='This core has no default project'"}>This project</button>
+			</div>
+			<div class="rs-kinds">${kinds}</div>`;
+		this._bindFilters();
 	},
 
-	_renderStats(v) {
-		if (!v.stats) return "";
+	renderStats() {
+		const host = document.getElementById("rs-stats");
+		if (!host) return;
+		const v = State.researchView || {};
+		if (!v.stats) {
+			host.innerHTML = "";
+			return;
+		}
 		const projects = Object.keys(v.stats.byProject || {}).length;
-		return `<div class="rs-stats">${v.stats.items} items · ${v.stats.terms} terms · ${projects} project${projects === 1 ? "" : "s"}</div>`;
+		host.className = "rs-stats";
+		host.innerHTML = `${v.stats.items} items · ${v.stats.terms} terms · ${projects} project${projects === 1 ? "" : "s"}`;
 	},
 
-	_renderResults(v) {
-		if (v.searching) return `<div class="rs-empty">Searching…</div>`;
+	renderResults() {
+		const host = document.getElementById("rs-results");
+		if (!host) return;
+		const v = State.researchView || {};
+
+		if (v.searching) {
+			host.innerHTML = `<div class="rs-empty">Searching…</div>`;
+			return;
+		}
 		if (v.error) {
 			// The backend's own words, not a paraphrase.
-			return `<div class="rs-error"><strong>Search failed.</strong> ${Utils.escapeHtml(v.error)}</div>`;
+			host.innerHTML = `<div class="rs-error"><strong>Search failed.</strong> ${Utils.escapeHtml(v.error)}</div>`;
+			return;
 		}
 		if (!v.results) {
-			return `<div class="rs-empty">Search your research history — web lookups, subagent reports, prompts, conclusions and the files you read.</div>`;
+			host.innerHTML = `<div class="rs-empty">Search your research history — web lookups, subagent reports, prompts, conclusions and the files you read.</div>`;
+			return;
 		}
 
 		const r = v.results;
 		if (!r.hits || r.hits.length === 0) {
-			return `<div class="rs-empty">No matches for <code>${Utils.escapeHtml(v.query)}</code> in ${this._scopeLabel(r)}.</div>`;
+			host.innerHTML = `<div class="rs-empty">No matches for <code>${Utils.escapeHtml(v.query || "")}</code> in ${this._scopeLabel(r)}.</div>`;
+			return;
 		}
 
 		// The count ALWAYS carries its scope. See the header comment.
 		const header = `<div class="rs-summary">
 			${r.total} match${r.total === 1 ? "" : "es"} in ${this._scopeLabel(r)}
 			${r.searched ? `<span class="rs-dim">of ${r.searched} indexed</span>` : ""}
-			${r.expandedWith && r.expandedWith.length
-				? `<span class="rs-dim" title="terms the corpus associated with your query">+ ${r.expandedWith.map(Utils.escapeHtml).join(", ")}</span>`
-				: ""}
+			${
+				r.expandedWith && r.expandedWith.length
+					? `<span class="rs-dim" title="terms the corpus associated with your query">+ ${r.expandedWith.map(Utils.escapeHtml).join(", ")}</span>`
+					: ""
+			}
 		</div>`;
 
-		return header + r.hits.map((h) => this._renderHit(h, v)).join("");
+		host.innerHTML = header + r.hits.map((h) => this._renderHit(h, v)).join("");
+		this._bindHits();
 	},
 
 	_scopeLabel(r) {
-		return r.scope === "project"
-			? `this project`
-			: `all projects`;
+		return r.scope === "project" ? `this project` : `all projects`;
 	},
 
 	_renderHit(hit, v) {
@@ -137,46 +209,49 @@ const ResearchView = {
 			</div>`;
 	},
 
-	_bind() {
+	/** Run the current query. Exposed on the object so tests can drive it. */
+	search() {
+		const input = document.getElementById("rs-query");
+		const query = input ? input.value : "";
+		State.update("researchView", {
+			...State.researchView,
+			query,
+			searching: Boolean(query.trim()),
+			error: null,
+		});
+		if (!query.trim()) return;
+		const v = State.researchView;
+		API.researchSearch({
+			query,
+			// Scope is only sent when the user asked for it. Omitting the key
+			// is what makes the search cross-project.
+			...(v.scope === "project" && v.stats && v.stats.defaultProjectKey
+				? { projectKey: v.stats.defaultProjectKey }
+				: {}),
+			...(v.kinds && v.kinds.length ? { kinds: v.kinds } : {}),
+			limit: 30,
+		});
+	},
+
+	_bindSearch() {
 		const input = document.getElementById("rs-query");
 		const go = document.getElementById("rs-go");
-
-		const run = () => {
-			const query = input ? input.value : "";
-			State.update("researchView", {
-				...State.researchView,
-				query,
-				searching: Boolean(query.trim()),
-				error: null,
-			});
-			if (!query.trim()) return;
-			const v = State.researchView;
-			API.researchSearch({
-				query,
-				// Scope is only sent when the user asked for it. Omitting the key
-				// is what makes the search cross-project.
-				...(v.scope === "project" && v.stats && v.stats.defaultProjectKey
-					? { projectKey: v.stats.defaultProjectKey }
-					: {}),
-				...(v.kinds && v.kinds.length ? { kinds: v.kinds } : {}),
-				limit: 30,
-			});
-		};
-
-		if (go) go.addEventListener("click", run);
+		if (go) go.addEventListener("click", () => this.search());
 		if (input) {
 			input.addEventListener("keydown", (e) => {
-				if (e.key === "Enter") run();
+				if (e.key === "Enter") this.search();
 			});
 		}
+	},
 
+	_bindFilters() {
 		for (const btn of document.querySelectorAll(".rs-scope-btn")) {
 			btn.addEventListener("click", () => {
 				State.update("researchView", {
 					...State.researchView,
 					scope: btn.dataset.scope,
 				});
-				if (State.researchView.query.trim()) run();
+				if ((State.researchView.query || "").trim()) this.search();
 			});
 		}
 
@@ -188,10 +263,12 @@ const ResearchView = {
 					? current.filter((k) => k !== kind)
 					: [...current, kind];
 				State.update("researchView", { ...State.researchView, kinds: next });
-				if (State.researchView.query.trim()) run();
+				if ((State.researchView.query || "").trim()) this.search();
 			});
 		}
+	},
 
+	_bindHits() {
 		for (const hit of document.querySelectorAll(".rs-hit")) {
 			hit.addEventListener("click", () => {
 				const id = hit.dataset.id;
