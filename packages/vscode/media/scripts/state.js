@@ -78,6 +78,10 @@ const State = {
 	// ==========================================================================
 	researchView: {
 		query: "",
+		// Which corpus is showing: "history" (the research index) or "graph"
+		// (graphify's code/docs graph). Two corpora, never blended into one
+		// ranked list -- a symbol and a web lookup have no comparable score.
+		source: "history",
 		scope: "all",        // "all" | "project"
 		kinds: [],           // empty = every kind
 		results: null,       // the last ResearchSearchResult, or null
@@ -85,6 +89,13 @@ const State = {
 		stats: null,         // corpus size and composition
 		searching: false,
 		error: null,
+		// Graph slices, kept separate so switching source does not discard the
+		// other corpus's results.
+		graphStatus: null,   // size, and whether the graph still matches HEAD
+		graphResults: null,
+		graphSelected: null, // an expanded node
+		graphNeighbors: null,
+		neighborsLoading: false,
 	},
 
 	contextView: {
@@ -351,6 +362,7 @@ const State = {
 		};
 		this.researchView = {
 			query: "",
+			source: "history",
 			scope: "all",
 			kinds: [],
 			results: null,
@@ -358,6 +370,11 @@ const State = {
 			stats: null,
 			searching: false,
 			error: null,
+			graphStatus: null,
+			graphResults: null,
+			graphSelected: null,
+			graphNeighbors: null,
+			neighborsLoading: false,
 		};
 		this.contextView = {
 			projects: [],

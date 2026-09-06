@@ -46,6 +46,20 @@ const ResearchView = {
 	_unsubscribers: [],
 
 	/**
+	 * Sources this view can search.
+	 *
+	 * The plan's division of labour, made visible: "graphify owns the code/docs
+	 * graph; the hybrid index owns session/research history. They compose."
+	 * They are one search box and two corpora, never blended into one ranked
+	 * list -- a symbol and a web lookup have no comparable score, and pretending
+	 * otherwise would produce an ordering that means nothing.
+	 */
+	SOURCES: [
+		["history", "History"],
+		["graph", "Code graph"],
+	],
+
+	/**
 	 * Called by the router when this view becomes visible.
 	 *
 	 * The subscription is the load-bearing line. Without it the view renders
@@ -66,14 +80,29 @@ const ResearchView = {
 				if (
 					next.stats !== p.stats ||
 					next.scope !== p.scope ||
-					next.kinds !== p.kinds
+					next.kinds !== p.kinds ||
+					next.source !== p.source ||
+					next.graphStatus !== p.graphStatus
 				) {
 					this.renderFilters();
 					this.renderStats();
 				}
+				if (
+					next.graphResults !== p.graphResults ||
+					next.graphSelected !== p.graphSelected ||
+					next.graphNeighbors !== p.graphNeighbors ||
+					next.neighborsLoading !== p.neighborsLoading ||
+					next.source !== p.source
+				) {
+					this.renderResults();
+				}
 			}),
 		);
 		if (!State.researchView.stats) API.researchStats();
+		// Asked for unconditionally: whether a graph exists is the first thing
+		// the Code graph tab has to be able to say, and "no graph yet" is a
+		// normal answer with a specific remedy rather than an error.
+		if (!State.researchView.graphStatus) API.graphStatus({});
 	},
 
 	cleanup() {
@@ -93,6 +122,7 @@ const ResearchView = {
 		// results cannot take the search input down with it.
 		container.innerHTML = `
 			<div class="rs-header">
+				<div class="rs-sources">${this._renderSources()}</div>
 				<div class="rs-searchbar">
 					<input id="rs-query" class="rs-input" type="search"
 						placeholder="Search what you looked up, asked, delegated and concluded…"
@@ -101,19 +131,64 @@ const ResearchView = {
 				</div>
 				<div id="rs-filters"></div>
 				<div id="rs-stats"></div>
+				<div id="rs-graph-status"></div>
 			</div>
 			<div id="rs-results" class="rs-results"></div>
 		`;
 		this._bindSearch();
+		this._bindSources();
 		this.renderFilters();
 		this.renderStats();
 		this.renderResults();
+	},
+
+	_renderSources() {
+		const current = (State.researchView || {}).source || "history";
+		return this.SOURCES.map(
+			([key, label]) =>
+				`<button class="rs-source${current === key ? " active" : ""}" data-source="${key}">${label}</button>`,
+		).join("");
+	},
+
+	_bindSources() {
+		for (const btn of document.querySelectorAll(".rs-source")) {
+			btn.addEventListener("click", () => {
+				const source = btn.dataset.source;
+				if (source === State.researchView.source) return;
+				for (const other of document.querySelectorAll(".rs-source")) {
+					other.classList.toggle("active", other.dataset.source === source);
+				}
+				// The other source's results are kept, not cleared: switching back
+				// should not silently discard a search the user already ran.
+				State.update("researchView", {
+					...State.researchView,
+					source,
+					error: null,
+				});
+				if ((State.researchView.query || "").trim()) this.search();
+			});
+		}
+	},
+
+	/** True when the graph tab is showing. */
+	isGraph() {
+		return (State.researchView || {}).source === "graph";
 	},
 
 	renderFilters() {
 		const host = document.getElementById("rs-filters");
 		if (!host) return;
 		const v = State.researchView || {};
+
+		// Project scope and research kinds mean nothing to a code graph, and
+		// leaving them on screen would imply they filter it.
+		if (this.isGraph()) {
+			host.innerHTML = "";
+			this.renderGraphStatus();
+			return;
+		}
+		const graphHost = document.getElementById("rs-graph-status");
+		if (graphHost) graphHost.innerHTML = "";
 		const project = v.stats && v.stats.defaultProjectKey;
 		const kinds = this.KINDS.map(([key, label]) => {
 			const on = (v.kinds || []).includes(key);
@@ -137,6 +212,10 @@ const ResearchView = {
 		const host = document.getElementById("rs-stats");
 		if (!host) return;
 		const v = State.researchView || {};
+		if (this.isGraph()) {
+			host.innerHTML = "";
+			return;
+		}
 		if (!v.stats) {
 			host.innerHTML = "";
 			return;
@@ -149,6 +228,7 @@ const ResearchView = {
 	renderResults() {
 		const host = document.getElementById("rs-results");
 		if (!host) return;
+		if (this.isGraph()) return this.renderGraphResults();
 		const v = State.researchView || {};
 
 		if (v.searching) {
@@ -192,7 +272,10 @@ const ResearchView = {
 
 	_renderHit(hit, v) {
 		const item = hit.item || {};
-		const kind = (this.KINDS.find(([k]) => k === item.kind) || [null, item.kind])[1];
+		const kind = (this.KINDS.find(([k]) => k === item.kind) || [
+			null,
+			item.kind,
+		])[1];
 		const open = v.selected && v.selected.id === item.id;
 		const when = item.timestamp ? item.timestamp.slice(0, 10) : "";
 		const project = item.projectName || "";
@@ -221,6 +304,10 @@ const ResearchView = {
 		});
 		if (!query.trim()) return;
 		const v = State.researchView;
+		if (this.isGraph()) {
+			API.graphSearch({ query, limit: 30 });
+			return;
+		}
 		API.researchSearch({
 			query,
 			// Scope is only sent when the user asked for it. Omitting the key
@@ -275,17 +362,30 @@ const ResearchView = {
 				const sel = State.researchView.selected;
 				// Toggle: clicking the open hit closes it.
 				if (sel && sel.id === id) {
-					State.update("researchView", { ...State.researchView, selected: null });
+					State.update("researchView", {
+						...State.researchView,
+						selected: null,
+					});
 					return;
 				}
 				const found = (State.researchView.results?.hits || [])
 					.map((h) => h.item)
 					.find((i) => i && i.id === id);
-				State.update("researchView", { ...State.researchView, selected: found || null });
+				State.update("researchView", {
+					...State.researchView,
+					selected: found || null,
+				});
 			});
 		}
 	},
 };
+
+// The graph renderer lives in research/graph-render.js so this file stays
+// under the size guard. Composed rather than merged into the literal so a
+// missing module is a load-time absence, not a silently undefined method.
+if (typeof window !== "undefined" && window.GraphRenderMixin) {
+	Object.assign(ResearchView, window.GraphRenderMixin);
+}
 
 if (typeof window !== "undefined") window.ResearchView = ResearchView;
 

@@ -52,7 +52,15 @@ function element(id) {
 function loadResearch(stateOverrides = {}) {
 	const sent = [];
 	const els = new Map();
-	for (const id of ["research-view", "rs-query", "rs-go", "rs-filters", "rs-stats", "rs-results"]) {
+	for (const id of [
+		"research-view",
+		"rs-query",
+		"rs-go",
+		"rs-filters",
+		"rs-stats",
+		"rs-graph-status",
+		"rs-results",
+	]) {
 		els.set(id, element(id));
 	}
 
@@ -61,6 +69,10 @@ function loadResearch(stateOverrides = {}) {
 			researchSearch: (p) => sent.push({ search: p }),
 			researchGet: (p) => sent.push({ get: p }),
 			researchStats: (p) => sent.push({ stats: p ?? null }),
+			graphStatus: (p) => sent.push({ graphStatus: p ?? null }),
+			graphSearch: (p) => sent.push({ graphSearch: p }),
+			graphNeighbors: (p) => sent.push({ graphNeighbors: p }),
+			graphGet: (p) => sent.push({ graphGet: p }),
 		},
 		document: {
 			getElementById: (id) => els.get(id) ?? null,
@@ -76,6 +88,7 @@ function loadResearch(stateOverrides = {}) {
 	globalThis.State = globalThis.window.State;
 	globalThis.State.researchView = {
 		query: "",
+		source: "history",
 		scope: "all",
 		kinds: [],
 		results: null,
@@ -83,9 +96,17 @@ function loadResearch(stateOverrides = {}) {
 		stats: null,
 		searching: false,
 		error: null,
+		graphStatus: null,
+		graphResults: null,
+		graphSelected: null,
+		graphNeighbors: null,
+		neighborsLoading: false,
 		...stateOverrides,
 	};
 
+	// Load order matches the manifest: the mixin before the view that composes it.
+	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
+	eval(readMedia("scripts/views/research/graph-render.js"));
 	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 	eval(readMedia("scripts/views/research.js"));
 	const view = globalThis.window.ResearchView;
@@ -124,7 +145,11 @@ describe("research: the subscription", () => {
 		view.render();
 
 		State.update("researchView", { ...State.researchView, searching: true });
-		assert.match(els.get("rs-results").innerHTML, /Searching/, "spinner while in flight");
+		assert.match(
+			els.get("rs-results").innerHTML,
+			/Searching/,
+			"spinner while in flight",
+		);
 
 		State.update("researchView", {
 			...State.researchView,
@@ -164,12 +189,21 @@ describe("research: the subscription", () => {
 
 		State.update("researchView", {
 			...State.researchView,
-			stats: { items: 599, terms: 7441, byKind: { file_read: 107 }, byProject: { a: 1, b: 2 } },
+			stats: {
+				items: 599,
+				terms: 7441,
+				byKind: { file_read: 107 },
+				byProject: { a: 1, b: 2 },
+			},
 		});
 
 		assert.match(els.get("rs-stats").innerHTML, /599 items/);
 		assert.match(els.get("rs-stats").innerHTML, /2 projects/);
-		assert.match(els.get("rs-filters").innerHTML, /107/, "kind counts come from stats");
+		assert.match(
+			els.get("rs-filters").innerHTML,
+			/107/,
+			"kind counts come from stats",
+		);
 	});
 
 	it("cleanup unsubscribes, so a hidden view stops rendering", () => {
@@ -190,7 +224,9 @@ describe("research: the subscription", () => {
 		cold.view.init();
 		assert.equal(cold.sent.filter((s) => "stats" in s).length, 1);
 
-		const warm = loadResearch({ stats: { items: 1, terms: 1, byKind: {}, byProject: {} } });
+		const warm = loadResearch({
+			stats: { items: 1, terms: 1, byKind: {}, byProject: {} },
+		});
 		warm.view.init();
 		assert.equal(warm.sent.filter((s) => "stats" in s).length, 0);
 	});
@@ -202,7 +238,10 @@ describe("research: a count never leaves its scope implicit", () => {
 		view.init();
 		view.render();
 
-		State.update("researchView", { ...State.researchView, results: result({ scope: "all" }) });
+		State.update("researchView", {
+			...State.researchView,
+			results: result({ scope: "all" }),
+		});
 		assert.match(els.get("rs-results").innerHTML, /all projects/);
 
 		State.update("researchView", {
@@ -233,21 +272,37 @@ describe("research: what the search sends", () => {
 		// empty string or a null would scope it to nothing.
 		const { view, sent, els } = loadResearch({
 			scope: "all",
-			stats: { items: 1, terms: 1, byKind: {}, byProject: {}, defaultProjectKey: "acme/widget" },
+			stats: {
+				items: 1,
+				terms: 1,
+				byKind: {},
+				byProject: {},
+				defaultProjectKey: "acme/widget",
+			},
 		});
 		view.render();
 		els.get("rs-query").value = "path traversal";
 		view.search();
 
 		const params = sent.find((s) => s.search).search;
-		assert.equal("projectKey" in params, false, "no key at all, not an empty one");
+		assert.equal(
+			"projectKey" in params,
+			false,
+			"no key at all, not an empty one",
+		);
 		assert.equal(params.query, "path traversal");
 	});
 
 	it("sends the default project key when scoped", () => {
 		const { view, sent, els } = loadResearch({
 			scope: "project",
-			stats: { items: 1, terms: 1, byKind: {}, byProject: {}, defaultProjectKey: "acme/widget" },
+			stats: {
+				items: 1,
+				terms: 1,
+				byKind: {},
+				byProject: {},
+				defaultProjectKey: "acme/widget",
+			},
 		});
 		view.render();
 		els.get("rs-query").value = "path traversal";
@@ -275,16 +330,29 @@ describe("research: what the search sends", () => {
 		view.render();
 		els.get("rs-query").value = "   ";
 		view.search();
-		assert.equal(sent.filter((s) => s.search).length, 0, "no request for whitespace");
-		assert.equal(State.researchView.searching, false, "and no spinner left behind");
+		assert.equal(
+			sent.filter((s) => s.search).length,
+			0,
+			"no request for whitespace",
+		);
+		assert.equal(
+			State.researchView.searching,
+			false,
+			"and no spinner left behind",
+		);
 	});
 
 	it("passes kind filters through", () => {
-		const { view, sent, els } = loadResearch({ kinds: ["web_search", "conclusion"] });
+		const { view, sent, els } = loadResearch({
+			kinds: ["web_search", "conclusion"],
+		});
 		view.render();
 		els.get("rs-query").value = "q";
 		view.search();
-		assert.deepEqual(sent.find((s) => s.search).search.kinds, ["web_search", "conclusion"]);
+		assert.deepEqual(sent.find((s) => s.search).search.kinds, [
+			"web_search",
+			"conclusion",
+		]);
 	});
 });
 
@@ -296,10 +364,23 @@ describe("research: rendering", () => {
 		State.update("researchView", {
 			...State.researchView,
 			results: result({
-				hits: [{ score: 1, item: { id: "x", kind: "user_prompt", title: "<img onerror=1>", text: "t" } }],
+				hits: [
+					{
+						score: 1,
+						item: {
+							id: "x",
+							kind: "user_prompt",
+							title: "<img onerror=1>",
+							text: "t",
+						},
+					},
+				],
 			}),
 		});
-		assert.ok(!els.get("rs-results").innerHTML.includes("<img"), "title is escaped");
+		assert.ok(
+			!els.get("rs-results").innerHTML.includes("<img"),
+			"title is escaped",
+		);
 	});
 
 	it("shows the body only for the selected hit", () => {
@@ -322,5 +403,365 @@ describe("research: rendering", () => {
 		globalThis.document.getElementById = () => null;
 		assert.doesNotThrow(() => view.render());
 		assert.doesNotThrow(() => view.renderResults());
+	});
+});
+
+// ============================================================================
+// The graphify half: a second corpus behind the same search box.
+// ============================================================================
+
+/** A graph search result as the core returns it. */
+const graphResult = (over = {}) => ({
+	hits: [
+		{
+			score: 11.2,
+			degree: 15,
+			matched: ["tracker"],
+			node: {
+				id: "packages_core_src_managers_file_tracker_ts",
+				label: "file-tracker.ts",
+				fileType: "code",
+				sourceFile: "packages/core/src/managers/file-tracker.ts",
+				sourceLocation: "L1",
+				community: 4,
+			},
+		},
+	],
+	total: 203,
+	terms: ["file", "tracker"],
+	searched: 3933,
+	...over,
+});
+
+const status = (over = {}) => ({
+	available: true,
+	path: "/repo/graphify-out/graph.json",
+	nodes: 3933,
+	edges: 4685,
+	communities: 333,
+	byFileType: { code: 1779, document: 2115, rationale: 39 },
+	byRelation: { contains: 3306 },
+	builtAtCommit: "a".repeat(40),
+	builtAt: "2026-09-07T00:52:00.000Z",
+	stale: false,
+	headCommit: "a".repeat(40),
+	...over,
+});
+
+describe("research: two corpora, one search box", () => {
+	it("asks for graph status on init, so the tab can say whether a graph exists", () => {
+		const { view, sent } = loadResearch();
+		view.init();
+		assert.equal(sent.filter((s) => "graphStatus" in s).length, 1);
+	});
+
+	it("routes the query to the graph when the graph source is selected", () => {
+		const { view, sent, els } = loadResearch({ source: "graph" });
+		view.render();
+		els.get("rs-query").value = "file tracker";
+		view.search();
+
+		assert.equal(
+			sent.filter((s) => s.search).length,
+			0,
+			"not the history index",
+		);
+		assert.equal(
+			sent.find((s) => s.graphSearch).graphSearch.query,
+			"file tracker",
+		);
+	});
+
+	it("routes to history when history is selected", () => {
+		const { view, sent, els } = loadResearch({ source: "history" });
+		view.render();
+		els.get("rs-query").value = "file tracker";
+		view.search();
+		assert.equal(sent.filter((s) => s.graphSearch).length, 0);
+		assert.ok(sent.find((s) => s.search));
+	});
+
+	it("renders graph hits with their file, position and degree", () => {
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphResults: graphResult(),
+		});
+
+		const html = els.get("rs-results").innerHTML;
+		assert.match(html, /file-tracker\.ts/);
+		assert.match(html, /packages\/core\/src\/managers/);
+		assert.match(html, /15/, "degree is shown");
+		assert.match(html, /203 nodes match/);
+		assert.match(html, /3933 in the graph/, "the count carries its universe");
+	});
+
+	it("switching source does not discard the other corpus's results", () => {
+		// Two searches, two answers. Flipping a tab is not a reason to throw one
+		// away and make the user run it again.
+		const { view, els, State } = loadResearch({ source: "history" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			results: result(),
+			graphResults: graphResult(),
+		});
+
+		State.update("researchView", { ...State.researchView, source: "graph" });
+		assert.match(els.get("rs-results").innerHTML, /file-tracker\.ts/);
+
+		State.update("researchView", { ...State.researchView, source: "history" });
+		assert.match(els.get("rs-results").innerHTML, /a\.ts|the indexed text/);
+	});
+
+	it("hides project scope and research kinds on the graph tab", () => {
+		// They filter the history index and mean nothing to a code graph;
+		// leaving them on screen would imply they apply.
+		const { view, els, State } = loadResearch({
+			source: "history",
+			stats: { items: 5, terms: 9, byKind: { file_read: 3 }, byProject: {} },
+		});
+		view.init();
+		view.render();
+		assert.match(els.get("rs-filters").innerHTML, /All projects/);
+
+		State.update("researchView", { ...State.researchView, source: "graph" });
+		assert.equal(
+			els.get("rs-filters").innerHTML,
+			"",
+			"scope and kinds are gone",
+		);
+		assert.equal(
+			els.get("rs-stats").innerHTML,
+			"",
+			"so is the history corpus size",
+		);
+	});
+});
+
+describe("research: the graph's freshness is three-valued", () => {
+	it("REGRESSION: unknown age is not drawn as current", () => {
+		// A graph of unknown age returning symbols that no longer exist, labelled
+		// "current", is precisely the confident-wrong-answer failure this project
+		// treats as its priority bug class.
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+
+		State.update("researchView", {
+			...State.researchView,
+			graphStatus: status({ stale: null }),
+		});
+		const unknown = els.get("rs-graph-status").innerHTML;
+		assert.match(unknown, /age unknown/);
+		assert.ok(!/current/.test(unknown), "must not claim current");
+
+		State.update("researchView", {
+			...State.researchView,
+			graphStatus: status({ stale: false }),
+		});
+		assert.match(els.get("rs-graph-status").innerHTML, /current/);
+
+		State.update("researchView", {
+			...State.researchView,
+			graphStatus: status({ stale: true, headCommit: "b".repeat(40) }),
+		});
+		assert.match(els.get("rs-graph-status").innerHTML, /out of date/);
+	});
+
+	it("shows size once a graph is loaded", () => {
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphStatus: status(),
+		});
+		const html = els.get("rs-graph-status").innerHTML;
+		assert.match(html, /3933 nodes/);
+		assert.match(html, /4685 edges/);
+	});
+
+	it("treats a missing graph as a normal state with a remedy", () => {
+		// Never built is the common case, not an error, and the fix is one
+		// command that needs no API key.
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphStatus: { available: false, nodes: 0, edges: 0, stale: null },
+		});
+		const html = els.get("rs-graph-status").innerHTML;
+		assert.match(html, /No code graph/);
+		assert.match(html, /graphify update/, "tells the user how to build one");
+	});
+
+	it("surfaces the reason when a graph exists but could not be read", () => {
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphStatus: {
+				available: false,
+				nodes: 0,
+				edges: 0,
+				stale: null,
+				error: "cannot parse graph: bad json",
+			},
+		});
+		assert.match(els.get("rs-graph-status").innerHTML, /cannot parse graph/);
+	});
+});
+
+describe("research: neighbours", () => {
+	const neighbors = {
+		id: "packages_core_src_managers_file_tracker_ts",
+		node: graphResult().hits[0].node,
+		neighbors: [
+			{
+				node: { id: "core", label: "core.ts", sourceFile: "src/core.ts" },
+				relation: "imports_from",
+				direction: "in",
+				weight: 1,
+				depth: 1,
+			},
+			{
+				node: {
+					id: "ft",
+					label: "FileTracker",
+					sourceFile: "src/managers/file-tracker.ts",
+				},
+				relation: "contains",
+				direction: "out",
+				weight: 1,
+				depth: 1,
+			},
+		],
+	};
+
+	it("groups by direction, which the graph file itself throws away", () => {
+		// graphify writes `directed: false`, but "what calls this" and "what this
+		// calls" are different questions.
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphResults: graphResult(),
+			graphSelected: graphResult().hits[0].node,
+			graphNeighbors: neighbors,
+		});
+
+		const html = els.get("rs-results").innerHTML;
+		assert.match(html, /This node →/);
+		assert.match(html, /→ This node/);
+		assert.match(html, /imports_from/);
+		assert.match(html, /FileTracker/);
+	});
+
+	it("shows a loading state while they arrive, then replaces it", () => {
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphResults: graphResult(),
+			graphSelected: graphResult().hits[0].node,
+			neighborsLoading: true,
+		});
+		assert.match(els.get("rs-results").innerHTML, /Loading connections/);
+
+		State.update("researchView", {
+			...State.researchView,
+			neighborsLoading: false,
+			graphNeighbors: neighbors,
+		});
+		const html = els.get("rs-results").innerHTML;
+		assert.ok(!html.includes("Loading connections"), "the spinner must clear");
+		assert.match(html, /core\.ts/);
+	});
+
+	it("says so when a node connects to nothing, rather than rendering blank", () => {
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphResults: graphResult(),
+			graphSelected: graphResult().hits[0].node,
+			graphNeighbors: { id: "x", neighbors: [] },
+		});
+		assert.match(els.get("rs-results").innerHTML, /Nothing connects/);
+	});
+
+	it("a failed neighbour lookup renders as a failure", () => {
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphResults: graphResult(),
+			neighborsLoading: false,
+			error: "core is not running",
+		});
+		const html = els.get("rs-results").innerHTML;
+		assert.ok(!html.includes("Loading"), "no spinner left behind");
+		assert.match(html, /core is not running/);
+	});
+
+	it("escapes node labels, which come from arbitrary source files", () => {
+		const { view, els, State } = loadResearch({ source: "graph" });
+		view.init();
+		view.render();
+		State.update("researchView", {
+			...State.researchView,
+			graphResults: graphResult({
+				hits: [
+					{
+						score: 1,
+						degree: 0,
+						matched: [],
+						node: {
+							id: "x",
+							label: "<img onerror=1>",
+							fileType: "code",
+							sourceFile: "<script>",
+							sourceLocation: "",
+						},
+					},
+				],
+			}),
+		});
+		const html = els.get("rs-results").innerHTML;
+		assert.ok(!html.includes("<img"), "label escaped");
+		assert.ok(!html.includes("<script>"), "path escaped");
+	});
+});
+
+describe("research: the state slice has one definition", () => {
+	it("REGRESSION: reset() and the literal must not drift apart", () => {
+		// state.js declares researchView twice -- once as the initial literal and
+		// once inside reset(). Adding a key to one and not the other means a
+		// reset silently drops it, and the view then reads undefined for a field
+		// it was written to rely on. Nothing pinned these together before the
+		// graph slices were added, which is exactly when it would have happened.
+		const source = readMedia("scripts/state.js");
+		const keysOf = (block) =>
+			[...block.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]).sort();
+
+		const literal = source.match(/\n\tresearchView: \{([\s\S]*?)\n\t\},/);
+		const reset = source.match(/this\.researchView = \{([\s\S]*?)\n\t\t\};/);
+		assert.ok(literal && reset, "both definitions must be findable");
+
+		assert.deepEqual(
+			keysOf(reset[1]),
+			keysOf(literal[1]),
+			"reset() and the initial researchView literal define different keys",
+		);
 	});
 });

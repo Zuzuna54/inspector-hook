@@ -176,6 +176,26 @@ export {
 	SNIPPET_LENGTH,
 	type ResearchIndexOptions,
 } from "./research/research-index.js";
+// Export the graphify code/docs graph (Milestone 4). Separate from the
+// research index by design: graphify owns code and docs, the research index
+// owns session history. See research/graphify.ts.
+export {
+	GRAPH_DIR,
+	GRAPH_FILE,
+	GraphifyGraph,
+	GraphifyReader,
+	MAX_GRAPH_BYTES,
+	buildGraph,
+	findGraphPath,
+	headCommit,
+	identifierText,
+	type GraphifyEdge,
+	type GraphifyNeighbor,
+	type GraphifyNode,
+	type GraphifySearchHit,
+	type GraphifySearchResult,
+	type GraphifyStats,
+} from "./research/graphify.js";
 export {
 	EXPANSIONS_PER_TERM,
 	EXPANSION_WEIGHT,

@@ -28,6 +28,12 @@ const EXPECTED_TYPES = [
 	"research-item",
 	"research-results",
 	"research-stats",
+	// Graphify's code/docs graph (M4). A separate corpus from the research
+	// index above, so separate message types rather than an overloaded one.
+	"graph-status",
+	"graph-results",
+	"graph-neighbors",
+	"graph-node",
 	"transcript-page",
 	"transcript-stats",
 	"context-armed",

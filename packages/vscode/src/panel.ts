@@ -14,6 +14,7 @@ import type { CoreBridge } from "./core-bridge.js";
 import { handleDiffCommand } from "./messages/diff-handlers.js";
 import { handleMemoryCommand } from "./messages/memory-handlers.js";
 import { handleResearchCommand } from "./messages/research-handlers.js";
+import { handleGraphifyCommand } from "./messages/graphify-handlers.js";
 import { buildWebviewHtml } from "./webview-html.js";
 
 export class InspectorPanel {
@@ -173,6 +174,7 @@ export class InspectorPanel {
 		if (await handleMemoryCommand(message.command, message.params, ctx)) return;
 		if (await handleDiffCommand(message.command, message.params, ctx)) return;
 		if (await handleResearchCommand(message.command, message.params, ctx)) return;
+		if (await handleGraphifyCommand(message.command, message.params, ctx)) return;
 
 		switch (message.command) {
 			case "webview-ready": {

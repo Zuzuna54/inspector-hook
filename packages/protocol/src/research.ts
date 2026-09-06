@@ -127,3 +127,80 @@ export interface ResearchIndexStats {
 	oldest?: string;
 	newest?: string;
 }
+
+// ============================================================================
+// Graphify: the code and docs graph (Milestone 4)
+//
+// A separate corpus from the research history above, deliberately. The plan's
+// division of labour: "graphify owns the code/docs graph; the hybrid index owns
+// session/research history. They compose." A ResearchItem is something that
+// happened; a GraphNode is something that exists in the code.
+// ============================================================================
+
+/** A node in graphify's graph: a symbol, a file, a heading, a rationale. */
+export interface GraphNode {
+	id: string;
+	label: string;
+	/** "code" | "document" | "rationale" observed; not closed, graphify may add. */
+	fileType: string;
+	sourceFile: string;
+	/** Verbatim from graphify, usually "L12" or "L12-L40". */
+	sourceLocation: string;
+	community: number | null;
+}
+
+export interface GraphHit {
+	node: GraphNode;
+	score: number;
+	matched: string[];
+	/** Edges touching this node — a cheap proxy for how central it is. */
+	degree: number;
+}
+
+export interface GraphSearchResult {
+	hits: GraphHit[];
+	total: number;
+	terms: string[];
+	/** Nodes in the graph, so a hit count is never shown without its universe. */
+	searched: number;
+}
+
+export interface GraphNeighbor {
+	node: GraphNode;
+	relation: string;
+	/**
+	 * "out" when the queried node is the edge's source.
+	 *
+	 * Preserved because `calls` backwards is a different question from `calls`
+	 * forwards, and graphify's file declares the graph undirected.
+	 */
+	direction: "in" | "out";
+	weight: number;
+	depth: number;
+}
+
+export interface GraphNeighborsResult {
+	id: string | null;
+	node?: GraphNode | null;
+	neighbors: GraphNeighbor[];
+}
+
+export interface GraphStatus {
+	available: boolean;
+	path: string | null;
+	nodes: number;
+	edges: number;
+	communities: number;
+	byFileType: Record<string, number>;
+	byRelation: Record<string, number>;
+	builtAtCommit: string | null;
+	builtAt: string | null;
+	/**
+	 * `null` means unknown — no recorded commit, or HEAD unreadable — which is
+	 * deliberately not the same as `false`. A graph of unknown age must not be
+	 * presented as current.
+	 */
+	stale: boolean | null;
+	headCommit: string | null;
+	error?: string;
+}

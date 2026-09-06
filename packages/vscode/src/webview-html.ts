@@ -119,6 +119,8 @@ export function buildWebviewHtml(
 		["scripts", "api", "inbound-context.js"],
 		["scripts", "api", "research-senders.js"],
 		["scripts", "api", "inbound-research.js"],
+		["scripts", "api", "graphify-senders.js"],
+		["scripts", "api", "inbound-graphify.js"],
 		["scripts", "api", "inbound-tray.js"],
 		["scripts", "api", "inbound-transcript.js"],
 		// Shared helpers, before every view that uses them.
@@ -156,6 +158,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "context", "handlers.js"],
 		["scripts", "views", "context", "curation.js"],
 		["scripts", "views", "context.js"],
+		["scripts", "views", "research", "graph-render.js"],
 		["scripts", "views", "research.js"],
 		// The tray: renderers before the controller that composes them.
 		["scripts", "tray", "tray-render.js"],

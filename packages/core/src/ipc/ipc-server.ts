@@ -716,6 +716,60 @@ export class IpcServer {
 			this.core.getResearchIndex().stats(),
 		);
 
+		// ---------------------------------------------------------------------
+		// Graphify: the code and docs graph (M4)
+		//
+		// The plan's division: graphify owns the code/docs graph, the research
+		// index owns session history. These read graphify's own artifact --
+		// the same graph.json its MCP server opens -- rather than spawning a
+		// Python process per question.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("graphify.status", async (params) =>
+			this.core.getGraphify(asStr(asRec(params)?.root)).status(),
+		);
+
+		this.methods.set("graphify.search", async (params) => {
+			const rec = asRec(params) ?? {};
+			const query = asStr(rec.query);
+			if (!query) return { hits: [], total: 0, terms: [], searched: 0 };
+			return this.core.getGraphify(asStr(rec.root)).search(query, {
+				limit: asNum(rec.limit),
+				fileType: asStr(rec.fileType),
+			});
+		});
+
+		/** One node by id, for opening a search hit. */
+		this.methods.set("graphify.get", async (params) => {
+			const rec = asRec(params) ?? {};
+			const id = asStr(rec.id);
+			return id ? this.core.getGraphify(asStr(rec.root)).node(id) : null;
+		});
+
+		/**
+		 * What a node connects to. This is the question the research index
+		 * cannot answer at all: "what calls this, and what breaks if I change
+		 * it" is a graph query, not a text one.
+		 */
+		this.methods.set("graphify.neighbors", async (params) => {
+			const rec = asRec(params) ?? {};
+			const id = asStr(rec.id);
+			if (!id) return { id: null, neighbors: [] };
+			const relations = Array.isArray(rec.relations)
+				? (rec.relations.filter((r) => typeof r === "string") as string[])
+				: undefined;
+			const reader = this.core.getGraphify(asStr(rec.root));
+			return {
+				id,
+				node: reader.node(id),
+				neighbors: reader.neighbors(id, {
+					depth: asNum(rec.depth),
+					relations,
+					limit: asNum(rec.limit),
+				}),
+			};
+		});
+
 		// File change operations
 		this.methods.set("fileChanges.getPending", async (params) =>
 			this.fileTracker.getPendingChanges(params as any),
