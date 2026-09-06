@@ -68,22 +68,52 @@ export function renderTray(tray: ContextTray): InjectionPreview {
 			byName.set(name, (byName.get(name) ?? 0) + count);
 		}
 
-		// Budget what is left, not what one item wants.
-		const remaining = MAX_CONTEXT_BYTES - used;
-		let text = scrubbed.value;
-		let cut = false;
-		if (byteLength(text) > remaining) {
-			text = truncateToBytes(text, Math.max(remaining, 0));
-			cut = true;
+		// Budget what is LEFT, not what one item wants. The heading costs bytes
+		// too, so it is charged before the body rather than after -- otherwise
+		// the last item's heading pushes the total past the cap it just fitted
+		// under.
+		// Charged in BYTES, and including the "\n\n" that will join this section
+		// to the previous one. Measuring the heading in characters and ignoring
+		// the joiner left the total 101 bytes over a 256 KB cap -- close enough
+		// to look right, which is the least useful kind of nearly.
+		const heading = byteLength(renderItem(item, ""));
+		const joiner = sections.length > 0 ? 2 : 0;
+		const remaining = Math.max(MAX_CONTEXT_BYTES - used - heading - joiner, 0);
+
+		// Nothing left for even the heading: emit NO section at all. Rendering an
+		// empty heading still costs bytes, and once the budget is gone every
+		// remaining item added one -- which is how a cap of 262,144 produced
+		// 262,216 with twelve items and 265,096 with five hundred. Reported as
+		// truncated with zero bytes, so the item is visibly dropped rather than
+		// silently contributing nothing but a title.
+		if (remaining <= 0) {
+			itemReport.push({
+				itemId: item.id,
+				title: item.title,
+				bytes: 0,
+				included: true,
+				truncated: true,
+			});
+			continue;
 		}
 
+		const before = byteLength(scrubbed.value);
+		const text = before > remaining ? truncateToBytes(scrubbed.value, remaining) : scrubbed.value;
+		const after = byteLength(text);
+
+		// Truncated means SOMETHING WAS REMOVED, not that the branch was taken.
+		// It used to be set before comparing, so items reported `truncated:true`
+		// while carrying every byte they arrived with -- a warning about a loss
+		// that had not happened, which teaches a reader to ignore the flag.
+		const cut = after < before;
+
 		const section = renderItem(item, text);
+		used += byteLength(section) + joiner;
 		sections.push(section);
-		used += byteLength(section);
 		itemReport.push({
 			itemId: item.id,
 			title: item.title,
-			bytes: byteLength(text),
+			bytes: after,
 			included: true,
 			truncated: cut,
 		});

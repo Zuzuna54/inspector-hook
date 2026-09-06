@@ -263,3 +263,70 @@ describe("tray persistence", () => {
 		assert.deepEqual((await readTray(basePath)).items, []);
 	});
 });
+
+describe("the cap actually caps", () => {
+	// It did not. `truncateToBytes` computed `budget = maxBytes - 31` and passed
+	// it to `subarray(0, budget)`; a negative end counts from the END of the
+	// buffer, so a cap of 5 returned 1005 bytes for a 1000-byte input — more
+	// than went in. The single-item path never hit it because it always passes a
+	// large positive budget. The tray's per-item loop passes whatever is LEFT,
+	// which reaches zero exactly when the cap starts mattering, and twelve 60 KB
+	// items rendered 682,232 bytes against a 262,144 cap.
+	const CAP = 256 * 1024;
+
+	function trayOfSize(count, bytesEach) {
+		let tray = emptyTray();
+		for (let i = 0; i < count; i++) {
+			tray = addItem(tray, {
+				kind: "free_text",
+				title: `item ${i}`,
+				text: "y".repeat(bytesEach),
+			}).tray;
+		}
+		return tray;
+	}
+
+	it("never exceeds the cap, whatever the shape of the tray", () => {
+		// Many-large, many-small and absurdly-many all overflowed differently:
+		// the first through the truncation arithmetic, the others because every
+		// item past the budget still emitted its heading.
+		for (const [count, size] of [
+			[12, 60 * 1024],
+			[500, 1024],
+			[5000, 64],
+		]) {
+			const preview = renderTray(trayOfSize(count, size));
+			assert.ok(
+				preview.bytes <= CAP,
+				`${count} x ${size}B rendered ${preview.bytes} bytes, over the ${CAP} cap`,
+			);
+		}
+	});
+
+	it("drops items past the budget visibly, rather than emitting bare headings", () => {
+		const preview = renderTray(trayOfSize(12, 60 * 1024));
+		const dropped = preview.items.filter((i) => i.truncated && i.bytes === 0);
+		assert.ok(dropped.length > 0, "nothing was reported as dropped");
+		assert.equal(preview.truncated, true);
+	});
+
+	it("does not flag an item as truncated when nothing was removed", () => {
+		// `cut` was set before comparing, so items reported truncated while
+		// carrying every byte they arrived with. A warning about a loss that did
+		// not happen teaches a reader to ignore the flag.
+		const preview = renderTray(trayOfSize(3, 10));
+		assert.deepEqual(
+			preview.items.filter((i) => i.truncated),
+			[],
+			"an item was flagged as cut while intact",
+		);
+		assert.equal(preview.truncated, false);
+	});
+
+	it("stays under the cap even when one item alone would exceed it", () => {
+		// MAX_ITEM_BYTES refuses these on the way in, so this builds the tray
+		// past the guard to check the renderer's own arithmetic.
+		const preview = renderTray(trayOfSize(1, 60 * 1024));
+		assert.ok(preview.bytes <= CAP);
+	});
+});

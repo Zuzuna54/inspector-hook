@@ -194,3 +194,117 @@ describe("editing a memory file whose name differs from its filename", () => {
 		);
 	});
 });
+
+describe("a body edit never rewrites the curated index line", () => {
+	/**
+	 * MEMORY.md is hand-written prose, and it is the artefact loaded every
+	 * session — its title and description are what a future Claude reads to
+	 * decide whether a file is worth opening. Saving a body edit sent no title,
+	 * so the line was regenerated from frontmatter:
+	 *
+	 *   before: - [Untrue reporting is the priority bug class](f.md) — the user…
+	 *   after:  - [untrue-reporting-bug-class](f.md) — The user treats…
+	 *
+	 * and where the file had no frontmatter description, the prose was DELETED.
+	 * Both reported `indexUpdated: true`.
+	 *
+	 * The existing tests in this file miss it because they assert only that one
+	 * link exists and points at the right file — their fixture passes straight
+	 * through the corruption. This one asserts the words survive.
+	 */
+	async function withCuratedIndex() {
+		const basePath = await makeTempStore();
+		dirs.push(basePath);
+		const memoryDir = join(basePath, "memory");
+		const { mkdir } = await import("node:fs/promises");
+		await mkdir(memoryDir, { recursive: true });
+		await writeFile(
+			join(memoryDir, "notes.md"),
+			"---\nname: untrue-reporting-bug-class\ndescription: The user treats it as the priority\nmetadata:\n  type: feedback\n---\n\noriginal body\n",
+			"utf-8",
+		);
+		await writeFile(
+			join(memoryDir, "MEMORY.md"),
+			"# Memory\n\n- [Untrue reporting is the priority bug class](notes.md) — the user ranks false claims above crashes\n",
+			"utf-8",
+		);
+		return memoryDir;
+	}
+
+	const editOnly = {
+		name: "untrue-reporting-bug-class",
+		fileName: "notes.md",
+		description: "The user treats it as the priority",
+		type: "feedback",
+		body: "edited body",
+	};
+
+	it("keeps the hand-written TITLE", async () => {
+		const memoryDir = await withCuratedIndex();
+		await writeMemoryFile(memoryDir, editOnly, { userInitiated: true });
+		const index = await readFile(join(memoryDir, "MEMORY.md"), "utf-8");
+		assert.match(
+			index,
+			/\[Untrue reporting is the priority bug class\]/,
+			"the curated title was regenerated from frontmatter",
+		);
+		assert.ok(
+			!index.includes("[untrue-reporting-bug-class]"),
+			"the slug replaced the prose",
+		);
+	});
+
+	it("keeps the hand-written DESCRIPTION", async () => {
+		const memoryDir = await withCuratedIndex();
+		await writeMemoryFile(memoryDir, editOnly, { userInitiated: true });
+		const index = await readFile(join(memoryDir, "MEMORY.md"), "utf-8");
+		assert.match(index, /ranks false claims above crashes/);
+	});
+
+	it("does not delete the prose when the file has no frontmatter description", async () => {
+		// The worse half: no description meant the line was rewritten WITHOUT
+		// one, silently removing what a human had written.
+		const memoryDir = await withCuratedIndex();
+		await writeMemoryFile(
+			memoryDir,
+			{ ...editOnly, description: "" },
+			{ userInitiated: true },
+		);
+		const index = await readFile(join(memoryDir, "MEMORY.md"), "utf-8");
+		assert.match(index, /ranks false claims above crashes/, "the prose was deleted");
+	});
+
+	it("still writes the body it was asked to write", async () => {
+		// Preserving the index must not turn the edit itself into a no-op.
+		const memoryDir = await withCuratedIndex();
+		const result = await writeMemoryFile(memoryDir, editOnly, { userInitiated: true });
+		assert.equal(result.written, true);
+		const file = await readFile(join(memoryDir, "notes.md"), "utf-8");
+		assert.match(file, /edited body/);
+	});
+
+	it("uses a supplied title when there IS one", async () => {
+		// The preservation is for callers with nothing to say, not a refusal to
+		// ever update a line.
+		const memoryDir = await withCuratedIndex();
+		await writeMemoryFile(
+			memoryDir,
+			{ ...editOnly, title: "A deliberately new title" },
+			{ userInitiated: true },
+		);
+		const index = await readFile(join(memoryDir, "MEMORY.md"), "utf-8");
+		assert.match(index, /\[A deliberately new title\]/);
+	});
+
+	it("still indexes a NEW file, which has no line to preserve", async () => {
+		const memoryDir = await withCuratedIndex();
+		await writeMemoryFile(memoryDir, {
+			name: "brand-new",
+			description: "a fresh entry",
+			type: "project",
+			body: "x",
+		});
+		const index = await readFile(join(memoryDir, "MEMORY.md"), "utf-8");
+		assert.match(index, /\(brand-new\.md\)/, "a new file was not indexed");
+	});
+});
