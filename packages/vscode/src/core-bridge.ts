@@ -102,10 +102,9 @@ export class CoreBridge extends EventEmitter {
 				env: {
 					...process.env,
 					INSPECTOR_HOOK_HTTP_PORT: String(this.options.httpPort),
-					// Forwarded EXPLICITLY, not inherited. The core reads this from
-					// its environment, and the only other way to set it was to launch
-					// VS Code itself from a shell with the variable exported — so the
-					// feature had no reachable switch at all from inside the editor.
+					// Explicit, not inherited: without this the only way to enable
+					// session memory was launching VS Code from a shell with the
+					// variable exported, so it had no reachable switch at all.
 					...(this.options.writeSessionMemory
 						? { INSPECTOR_HOOK_SESSION_MEMORY: "1" }
 						: {}),

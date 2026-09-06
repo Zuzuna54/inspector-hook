@@ -42,7 +42,11 @@ const OVER_LIMIT = {
 	// 720 -> 645: memory and tray calls moved to src/bridge/memory-bridge.ts.
 	// Still one method per IPC call, so it still grows with every feature; the
 	// remaining domains (changes, history, sessions) split the same way.
-	"src/core-bridge.ts": { lines: 645, why: "one method per IPC call; more domains to split out" },
+	// 645 -> 653: the writeSessionMemory option and its spawn-env forwarding.
+	// Raised deliberately rather than quietly: M3's switch had to live in the
+	// spawn environment, which is core-bridge's own job and not one of the
+	// per-IPC-method domains queued for extraction. The split is still owed.
+	"src/core-bridge.ts": { lines: 653, why: "one method per IPC call; more domains to split out" },
 };
 
 const ROOTS = ["media", "src"];
