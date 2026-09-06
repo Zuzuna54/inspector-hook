@@ -57,14 +57,30 @@ output_decision() {
     fi
 }
 
-# Output with additional context
+# Output with additional context.
+#
+# Takes the EVENT NAME, because additionalContext only works nested under
+# hookSpecificOutput with a matching hookEventName -- and only on events that
+# support it (UserPromptSubmit, PreToolUse, PostToolUse, SubagentStop).
+# SessionStart takes raw stdout instead; SessionEnd and PreCompact cannot
+# inject at all.
+#
+# The previous version emitted a top-level additionalContext, which is parsed
+# and ignored on every event. Nothing called it, which is the only reason that
+# did not cost anything.
 output_with_context() {
-    local context="$1"
+    local event="$1"
+    local context="$2"
+
+    if [ -z "$event" ] || [ -z "$context" ]; then
+        return 0
+    fi
 
     if command -v jq &> /dev/null; then
-        jq -n --arg c "$context" '{additionalContext: $c}'
+        jq -n --arg e "$event" --arg c "$context" \
+            '{hookSpecificOutput: {hookEventName: $e, additionalContext: $c}}'
     else
-        echo "{\"additionalContext\": \"$context\"}"
+        echo "{\"hookSpecificOutput\": {\"hookEventName\": \"$event\", \"additionalContext\": \"$context\"}}"
     fi
 }
 

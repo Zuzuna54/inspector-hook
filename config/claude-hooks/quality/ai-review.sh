@@ -70,7 +70,10 @@ fi
 if [[ ${#ISSUES[@]} -gt 0 ]]; then
     ISSUE_TEXT=$(printf "%s\n" "${ISSUES[@]}")
     ESCAPED=$(echo "$ISSUE_TEXT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')
-    echo "{\"additionalContext\": \"Code Review Notes:\\n$ESCAPED\"}"
+    # Nested under hookSpecificOutput. A TOP-LEVEL "additionalContext" is parsed
+    # and then ignored -- measured, not assumed: a probe emitted both shapes in
+    # one object and only the nested one reached the model.
+    echo "{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"additionalContext\": \"Code Review Notes:\\n$ESCAPED\"}}"
 fi
 
 exit 0

@@ -179,7 +179,12 @@ def main():
     # Output as additionalContext
     if context_parts:
         context = "\\n".join(context_parts)
-        print(json.dumps({"additionalContext": context}))
+    # SessionStart appends a hook's RAW STDOUT to the session context. That
+    # is the mechanism this repo has verified end to end in
+    # packages/hooks/claude/inspector-context.sh. Two doc sources disagree
+    # on whether SessionStart also accepts additionalContext or
+    # systemMessage; printing text needs neither to be right.
+        print(context)
 
     exit(0)
 

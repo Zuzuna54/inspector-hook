@@ -229,7 +229,17 @@ def main():
             # If there are warnings, add them as context
             if warnings:
                 context = "Commit warnings:\n- " + "\n- ".join(warnings)
-                print(json.dumps({"decision": "approve", "additionalContext": context}))
+                # `decision` is deliberately untouched: this is a security
+                # gate, its permission behaviour was never the broken part,
+                # and changing a schema I have not measured would risk the
+                # one thing here that matters. Only the context is renested.
+                print(json.dumps({
+                    "decision": "approve",
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "additionalContext": context,
+                    },
+                }))
                 sys.exit(0)
 
         # Approve

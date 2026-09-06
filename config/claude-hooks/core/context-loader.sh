@@ -64,7 +64,11 @@ fi
 if [[ -n "$CONTEXT" ]]; then
     # Use jq if available for proper JSON escaping
     if command -v jq &> /dev/null; then
-        echo -e "$CONTEXT" | jq -Rs '{additionalContext: .}'
+        # SessionStart appends a hook's RAW STDOUT to the session context.
+        # That is the mechanism verified end to end in
+        # packages/hooks/claude/inspector-context.sh. Printing text needs
+        # neither of the two conflicting doc claims to be right.
+        echo -e "$CONTEXT"
     else
         # Fallback: output as plain text
         echo -e "$CONTEXT"

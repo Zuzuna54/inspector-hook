@@ -64,6 +64,11 @@ if [[ $BACKUP_COUNT -gt $MAX_BACKUPS ]]; then
 fi
 
 # Output confirmation
-echo "{\"additionalContext\": \"State backed up to $BACKUP_FILE before compaction.\"}"
+# PreCompact has no context-injection field: whatever this printed was parsed
+# and discarded. It emitted a top-level "additionalContext", which does not
+# work on ANY event, so this has always been a no-op wearing the costume of a
+# feature. The backup itself is the real work; the path goes to stderr, where
+# it is visible in hook debug output without pretending to reach the model.
+echo "State backed up to $BACKUP_FILE before compaction." >&2
 
 exit 0
