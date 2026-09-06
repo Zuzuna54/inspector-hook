@@ -24,6 +24,12 @@ import type {
 	ResearchSearchResult,
 } from "@inspector-hook/protocol";
 import type { PersistenceStore } from "../persistence/store.js";
+import {
+	type Embedder,
+	VectorStore,
+	loadEmbedder,
+	reciprocalRankFusion,
+} from "./embeddings.js";
 import { Bm25Index } from "./bm25.js";
 import { SemanticExpander } from "./semantic.js";
 import { resolveProject } from "../managers/project-resolver.js";
@@ -32,6 +38,14 @@ import { extractResearchItem } from "./extract.js";
 /** Where the snapshot lives inside the store. */
 const SNAPSHOT_CATEGORY = "research";
 const SNAPSHOT_ID = "index";
+/**
+ * Vectors live in their own snapshot.
+ *
+ * Separate from the index so a core running without the optional embedding
+ * model never writes an empty vector file, and so a build that predates
+ * embeddings still loads the index it understands.
+ */
+const VECTOR_SNAPSHOT_ID = "vectors";
 
 /**
  * How many items to hold.
@@ -85,6 +99,19 @@ export class ResearchIndex {
 	 * changes, so associations can never describe a corpus that has moved on.
 	 */
 	private expander?: SemanticExpander;
+
+	/**
+	 * The semantic half of hybrid retrieval (M4).
+	 *
+	 * Absent until `enableEmbeddings` succeeds, and everything degrades to BM25
+	 * alone when it does not. The model is a 255MB optional dependency, so "no
+	 * embedder" is a supported state rather than a failure.
+	 */
+	private vectors = new VectorStore();
+	private embedder: Embedder | null = null;
+	private vectorsDirty = false;
+	/** Why the embedder is unavailable, when it is. Surfaced, never swallowed. */
+	private embedderError?: string;
 
 	constructor(options: ResearchIndexOptions = {}) {
 		this.persistence = options.persistence;
@@ -244,6 +271,190 @@ export class ResearchIndex {
 			expandedWith: weighted?.filter((w) => !w.typed).map((w) => w.term) ?? [],
 			scope: options?.projectKey !== undefined ? "project" : "all",
 			projectKey: options?.projectKey,
+			// Stated on this path too. The protocol says `retrieval` is always
+			// reported, and leaving it undefined here made that a false claim:
+			// a caller could not distinguish "lexical" from "an older core that
+			// did not report at all", which is the whole point of the field.
+			retrieval: "lexical",
+		};
+	}
+
+	// =========================================================================
+	// Hybrid retrieval (M4)
+	//
+	// Measured on the live corpus of 693 items against 5 known-answer queries,
+	// with relevance fixed before any ranking was inspected:
+	//
+	//     BM25 alone        MRR 0.440
+	//     embeddings alone  MRR 0.614
+	//     HYBRID            MRR 0.700     and never worse than either alone
+	//
+	// The case that decides it: "writing outside the folder" is answered by
+	// documents about path traversal. Embeddings rank that 14th, BM25 finds it
+	// 5th, fusion puts it 2nd. Neither signal dominates, so neither replaces
+	// the other. See embeddings.ts for the full table.
+	// =========================================================================
+
+	/**
+	 * Load the embedding model.
+	 *
+	 * @returns true when embeddings are available afterwards. False is a normal
+	 * outcome — the dependency is optional — and leaves search working on BM25.
+	 */
+	async enableEmbeddings(options?: {
+		model?: string;
+		loader?: () => Promise<unknown>;
+		cacheDir?: string;
+	}): Promise<boolean> {
+		if (this.embedder) return true;
+		this.embedderError = undefined;
+		this.embedder = await loadEmbedder({
+			...options,
+			onError: (reason) => {
+				this.embedderError = reason;
+			},
+		});
+		return this.embedder !== null;
+	}
+
+	/**
+	 * Why embeddings are off, when they are.
+	 *
+	 * Undefined means either "they work" or "nobody asked for them" -- both
+	 * states in which there is nothing to explain.
+	 */
+	get embeddingsError(): string | undefined {
+		return this.embedderError;
+	}
+
+	get embeddingsAvailable(): boolean {
+		return this.embedder !== null;
+	}
+
+	/** How many items have a vector, against how many exist. */
+	get embeddedCount(): number {
+		return this.vectors.size;
+	}
+
+	/**
+	 * Embed items that have no vector yet.
+	 *
+	 * Incremental and bounded, because the first run over a real corpus is 23
+	 * seconds of CPU and must not block a search or a shutdown. Returns how
+	 * many were embedded, so a caller can loop until it reaches zero.
+	 */
+	async embedPending(limit = 200): Promise<number> {
+		if (!this.embedder) return 0;
+		const pending: ResearchItem[] = [];
+		for (const item of this.items.values()) {
+			if (this.vectors.has(item.id)) continue;
+			pending.push(item);
+			if (pending.length >= limit) break;
+		}
+		if (pending.length === 0) return 0;
+
+		const vectors = await this.embedder.embed(
+			pending.map((i) => `${i.title ?? ""}. ${i.text ?? ""}`),
+		);
+		let added = 0;
+		for (let i = 0; i < pending.length; i++) {
+			const vector = vectors[i];
+			// A short batch means the model returned fewer vectors than texts;
+			// pairing by position past that point would attach the wrong vector
+			// to the wrong item, which is worse than embedding nothing.
+			if (!vector) break;
+			if (this.vectors.add(pending[i].id, vector)) added++;
+		}
+		if (added > 0) this.vectorsDirty = true;
+		return added;
+	}
+
+	/**
+	 * Search using both signals, fused on rank.
+	 *
+	 * Falls back to the lexical result when there is no embedder or no vector
+	 * for anything, and says so in `retrieval` rather than quietly returning a
+	 * worse answer under the same name.
+	 */
+	async searchHybrid(
+		query: string,
+		options?: {
+			limit?: number;
+			projectKey?: string;
+			kinds?: ResearchKind[];
+			since?: string;
+		},
+	): Promise<ResearchSearchResult> {
+		const limit = options?.limit ?? 20;
+		// Fusion needs depth, not just the page being displayed: an item ranked
+		// 40th lexically and 1st semantically must be reachable to be fused.
+		const depth = Math.max(limit * 5, 50);
+		const lexical = this.search(query, { ...options, limit: depth });
+
+		if (!this.embedder || this.vectors.size === 0) {
+			return { ...lexical, hits: lexical.hits.slice(0, limit), retrieval: "lexical" };
+		}
+
+		let queryVector: Float32Array | undefined;
+		try {
+			[queryVector] = await this.embedder.embed([query]);
+		} catch {
+			// A model that fails mid-session must not fail the search.
+			return { ...lexical, hits: lexical.hits.slice(0, limit), retrieval: "lexical" };
+		}
+		if (!queryVector) {
+			return { ...lexical, hits: lexical.hits.slice(0, limit), retrieval: "lexical" };
+		}
+
+		// The vector half must honour the same scope the lexical half used, or
+		// the two lists come from different corpora and fusing them is
+		// meaningless.
+		const kinds = options?.kinds?.length ? new Set(options.kinds) : undefined;
+		const inScope = (id: string): boolean => {
+			const item = this.items.get(id);
+			if (!item) return false;
+			if (
+				options?.projectKey !== undefined &&
+				item.projectKey !== options.projectKey
+			) {
+				return false;
+			}
+			if (kinds && !kinds.has(item.kind)) return false;
+			if (options?.since && item.timestamp < options.since) return false;
+			return true;
+		};
+
+		const semantic = this.vectors.search(queryVector, {
+			limit: depth,
+			filter: inScope,
+		});
+
+		const fused = reciprocalRankFusion({
+			lexical: lexical.hits.map((h) => h.item.id),
+			semantic: semantic.map((h) => h.id),
+		});
+
+		const lexicalScore = new Map(lexical.hits.map((h) => [h.item.id, h]));
+		const hits: ResearchHit[] = [];
+		for (const entry of fused) {
+			const item = this.items.get(entry.id);
+			if (!item) continue;
+			const fromLexical = lexicalScore.get(entry.id);
+			hits.push({
+				item,
+				score: entry.score,
+				// Only lexical matches have terms; a purely semantic hit matched
+				// no typed word, and claiming otherwise would misdescribe it.
+				matched: fromLexical?.matched ?? [],
+			});
+			if (hits.length >= limit) break;
+		}
+
+		return {
+			...lexical,
+			hits,
+			total: fused.length,
+			retrieval: "hybrid",
 		};
 	}
 
@@ -270,6 +481,14 @@ export class ResearchIndex {
 			defaultProjectKey: this.defaultProjectKey(),
 			items: this.items.size,
 			terms: this.index.vocabulary,
+			// Coverage, not just availability: an embedder that is loaded but has
+			// embedded 3 of 693 items gives semantic results for 0.4% of the
+			// corpus, and reporting only "on" would misdescribe that badly.
+			embeddings: {
+				available: this.embedder !== null,
+				embedded: this.vectors.size,
+				error: this.embedderError,
+			},
 			byKind,
 			byProject,
 			oldest,
@@ -279,6 +498,17 @@ export class ResearchIndex {
 
 	/** Persist, if anything changed. */
 	async flush(): Promise<boolean> {
+		// Vectors are saved separately from the index, so a core without the
+		// optional model never writes an empty vector file, and an older build
+		// that cannot read them still loads the index.
+		if (this.persistence && this.vectorsDirty) {
+			await this.persistence.saveJSON(
+				SNAPSHOT_CATEGORY,
+				VECTOR_SNAPSHOT_ID,
+				this.vectors.toJSON(),
+			);
+			this.vectorsDirty = false;
+		}
 		if (!this.persistence || !this.dirty) return false;
 		await this.persistence.saveJSON(SNAPSHOT_CATEGORY, SNAPSHOT_ID, {
 			version: 1,
@@ -300,6 +530,18 @@ export class ResearchIndex {
 	 */
 	async load(): Promise<{ items: number; rebuilt: boolean }> {
 		if (!this.persistence) return { items: 0, rebuilt: false };
+
+		// Vectors are optional and independent: a missing or unreadable vector
+		// snapshot must cost the index nothing.
+		try {
+			const stored = await this.persistence.loadJSON<unknown>(
+				SNAPSHOT_CATEGORY,
+				VECTOR_SNAPSHOT_ID,
+			);
+			if (stored) this.vectors = VectorStore.fromJSON(stored);
+		} catch {
+			this.vectors = new VectorStore();
+		}
 
 		const snapshot = await this.persistence.loadJSON<{
 			version?: number;

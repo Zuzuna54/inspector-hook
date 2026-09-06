@@ -396,3 +396,32 @@
 	color: var(--vscode-foreground);
 	flex-shrink: 0;
 }
+
+/* Retrieval mode and semantic coverage. Both are stated rather than implied:
+   a hybrid search that degraded to lexical looks identical to one that ranked
+   differently, and "semantic: on" at 3 of 693 items embedded is true and
+   useless. */
+.rs-retrieval {
+	background: var(--vscode-badge-background);
+	border-radius: 3px;
+	color: var(--vscode-badge-foreground);
+	font-size: 10px;
+	margin-left: 6px;
+	padding: 1px 5px;
+	text-transform: uppercase;
+}
+
+.rs-retrieval-lexical {
+	background: transparent;
+	border: 1px solid var(--vscode-panel-border);
+	color: var(--vscode-descriptionForeground);
+}
+
+.rs-embed-on {
+	color: var(--vscode-testing-iconPassed);
+}
+
+.rs-embed-partial,
+.rs-embed-off {
+	color: var(--vscode-descriptionForeground);
+}

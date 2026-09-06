@@ -197,6 +197,20 @@ export {
 	type GraphifyStats,
 } from "./research/graphify.js";
 export {
+	DEFAULT_MODEL,
+	EMBEDDING_DIMENSIONS,
+	EMBED_BATCH,
+	MAX_EMBED_CHARS,
+	RRF_K,
+	VectorStore,
+	cosine,
+	loadEmbedder,
+	reciprocalRankFusion,
+	type Embedder,
+	type FusedHit,
+	type VectorHit,
+} from "./research/embeddings.js";
+export {
 	EXPANSIONS_PER_TERM,
 	EXPANSION_WEIGHT,
 	SemanticExpander,

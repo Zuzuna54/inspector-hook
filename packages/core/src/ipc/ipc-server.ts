@@ -697,12 +697,59 @@ export class IpcServer {
 			const kinds = Array.isArray(rec.kinds)
 				? (rec.kinds.filter((k) => typeof k === "string") as string[])
 				: undefined;
-			return this.core.getResearchIndex().search(query, {
+			const index = this.core.getResearchIndex();
+			const searchOptions = {
 				limit: asNum(rec.limit),
 				projectKey: asStr(rec.projectKey),
 				kinds: kinds as never,
 				since: asStr(rec.since),
+			};
+			// Hybrid when embeddings are loaded, lexical otherwise. The result
+			// carries `retrieval` either way, because a hybrid search silently
+			// degrading to lexical is indistinguishable from one that merely
+			// ranked differently.
+			return index.embeddingsAvailable
+				? index.searchHybrid(query, searchOptions)
+				: index.search(query, searchOptions);
+		});
+
+		/**
+		 * Turn on semantic retrieval, and report honestly if it cannot.
+		 *
+		 * Separate from getStats because it is slow the first time: loading the
+		 * model takes about a second and embedding a real corpus takes tens of
+		 * seconds, so it is an explicit action rather than a side effect of
+		 * opening a view.
+		 */
+		this.methods.set("research.enableEmbeddings", async (params) => {
+			const rec = asRec(params) ?? {};
+			const index = this.core.getResearchIndex();
+			const available = await index.enableEmbeddings({
+				model: asStr(rec.model),
 			});
+			return {
+				available,
+				error: index.embeddingsError,
+				embedded: index.embeddedCount,
+			};
+		});
+
+		/**
+		 * Embed a bounded batch of items that have none yet.
+		 *
+		 * Bounded and repeatable rather than one long call: the first pass over
+		 * a real corpus is around 23 seconds of CPU, and the IPC connection has
+		 * other work to do. A caller loops until this returns 0.
+		 */
+		this.methods.set("research.embedPending", async (params) => {
+			const rec = asRec(params) ?? {};
+			const index = this.core.getResearchIndex();
+			const embedded = await index.embedPending(asNum(rec.limit) ?? 200);
+			return {
+				embedded,
+				total: index.embeddedCount,
+				available: index.embeddingsAvailable,
+			};
 		});
 
 		/** One item by id, for opening a hit whose log entry may be long gone. */

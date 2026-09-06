@@ -106,7 +106,7 @@ const ResearchView = {
 	},
 
 	cleanup() {
-		this._unsubscribers.forEach((unsub) => unsub());
+		for (const unsub of this._unsubscribers) unsub();
 		this._unsubscribers = [];
 	},
 
@@ -222,7 +222,28 @@ const ResearchView = {
 		}
 		const projects = Object.keys(v.stats.byProject || {}).length;
 		host.className = "rs-stats";
-		host.innerHTML = `${v.stats.items} items · ${v.stats.terms} terms · ${projects} project${projects === 1 ? "" : "s"}`;
+		host.innerHTML = `${v.stats.items} items · ${v.stats.terms} terms · ${projects} project${projects === 1 ? "" : "s"}${this._renderEmbeddingState(v.stats)}`;
+	},
+
+	/**
+	 * Semantic coverage, as a fraction rather than a light.
+	 *
+	 * An embedder that is loaded but has embedded 3 of 693 items serves
+	 * semantic results for 0.4% of the corpus. Rendering that as "on" would be
+	 * true and useless; the fraction is what tells someone whether to wait.
+	 */
+	_renderEmbeddingState(stats) {
+		const e = stats.embeddings;
+		if (!e) return "";
+		if (!e.available) {
+			return e.error
+				? ` · <span class="rs-embed-off" title="${Utils.escapeHtml(e.error)}">lexical only</span>`
+				: ` · <span class="rs-embed-off">lexical only</span>`;
+		}
+		if (e.embedded < stats.items) {
+			return ` · <span class="rs-embed-partial">semantic ${e.embedded}/${stats.items}</span>`;
+		}
+		return ` · <span class="rs-embed-on">semantic</span>`;
 	},
 
 	renderResults() {
@@ -255,6 +276,7 @@ const ResearchView = {
 		const header = `<div class="rs-summary">
 			${r.total} match${r.total === 1 ? "" : "es"} in ${this._scopeLabel(r)}
 			${r.searched ? `<span class="rs-dim">of ${r.searched} indexed</span>` : ""}
+			${this._renderRetrieval(r)}
 			${
 				r.expandedWith && r.expandedWith.length
 					? `<span class="rs-dim" title="terms the corpus associated with your query">+ ${r.expandedWith.map(Utils.escapeHtml).join(", ")}</span>`
@@ -264,6 +286,24 @@ const ResearchView = {
 
 		host.innerHTML = header + r.hits.map((h) => this._renderHit(h, v)).join("");
 		this._bindHits();
+	},
+
+	/**
+	 * Which signals produced this ranking.
+	 *
+	 * Shown because a hybrid search that silently degraded to lexical is
+	 * otherwise indistinguishable from one that merely ranked differently --
+	 * and the difference is whether a result that shares no words with the
+	 * query could have been found at all.
+	 */
+	_renderRetrieval(r) {
+		if (r.retrieval === "hybrid") {
+			return `<span class="rs-retrieval" title="BM25 and local embeddings, fused on rank">hybrid</span>`;
+		}
+		if (r.retrieval === "lexical") {
+			return `<span class="rs-retrieval rs-retrieval-lexical" title="Keyword matching only — embeddings are unavailable">lexical</span>`;
+		}
+		return "";
 	},
 
 	_scopeLabel(r) {

@@ -79,6 +79,15 @@ export interface ResearchHit {
 
 export interface ResearchSearchResult {
 	/**
+	 * Which signals produced this ranking.
+	 *
+	 * "hybrid" means BM25 and local embeddings were fused on rank; "lexical"
+	 * means embeddings were unavailable and this is BM25 alone. Reported rather
+	 * than assumed, because a hybrid search silently degrading to lexical is
+	 * indistinguishable from one that simply ranked differently.
+	 */
+	retrieval?: "lexical" | "hybrid";
+	/**
 	 * Which corpus was actually searched.
 	 *
 	 * M4 specifies a per-project index with opt-in cross-project search. One
@@ -110,6 +119,19 @@ export interface ResearchSearchResult {
 
 /** Index size and composition, for the UI and for capacity questions. */
 export interface ResearchIndexStats {
+	/**
+	 * Semantic retrieval coverage.
+	 *
+	 * Coverage rather than a boolean: an embedder that is loaded but has
+	 * embedded 3 of 693 items serves semantic results for 0.4% of the corpus,
+	 * and reporting that as simply "on" would misdescribe it.
+	 */
+	embeddings?: {
+		available: boolean;
+		embedded: number;
+		/** Why it is unavailable, when it is. */
+		error?: string;
+	};
 	/**
 	 * The project this core's workspace belongs to, so a caller can default its
 	 * search scope to "here" without guessing. Undefined when the core has no
