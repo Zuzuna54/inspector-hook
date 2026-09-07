@@ -17,4 +17,5 @@ export * from "./query.js";
 export * from "./ipc.js";
 export * from "./memory.js";
 export * from "./context.js";
+export * from "./agent.js";
 export * from "./research.js";

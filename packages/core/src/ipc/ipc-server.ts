@@ -772,6 +772,35 @@ export class IpcServer {
 		);
 
 		// ---------------------------------------------------------------------
+		// Agents and subagents (M5)
+		//
+		// The tree is built from the ordinary log stream: `agentId` rides on
+		// tool events, so what an agent did needs no separate transport.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("agents.getTree", async (params) => {
+			const p = asRec(params) ?? {};
+			const tracker = this.core.getAgentTracker();
+			return {
+				agents: tracker.getTree({
+					sessionId: asStr(p.sessionId),
+					limit: asNum(p.limit),
+				}),
+				stats: tracker.stats(),
+			};
+		});
+
+		/** One agent by our id or by the platform's agentId. */
+		this.methods.set("agents.get", async (params) => {
+			const id = asStr(asRec(params)?.id);
+			return id ? this.core.getAgentTracker().get(id) : null;
+		});
+
+		this.methods.set("agents.getStats", async () =>
+			this.core.getAgentTracker().stats(),
+		);
+
+		// ---------------------------------------------------------------------
 		// Graphify: the code and docs graph (M4)
 		//
 		// The plan's division: graphify owns the code/docs graph, the research

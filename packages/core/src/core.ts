@@ -23,6 +23,7 @@ import { migrateStore } from "./persistence/migrations.js";
 import { PersistenceStore } from "./persistence/store.js";
 import { ResearchIndex } from "./research/research-index.js";
 import { GraphifyReader } from "./research/graphify.js";
+import { AgentTracker } from "./managers/agent-tracker.js";
 import { HttpServer } from "./server/http-server.js";
 
 export class InspectorCore {
@@ -42,6 +43,15 @@ export class InspectorCore {
 	 * this is keyed on a path that arrives from outside.
 	 */
 	private readonly graphifyReaders = new Map<string, GraphifyReader>();
+	/**
+	 * Agent and subagent tracking (M5).
+	 *
+	 * Fed from the same log stream as everything else rather than from its own
+	 * hook path: `agentId` rides on ordinary tool events -- 3757 of 9014 in the
+	 * live store -- so what an agent DID is already in the stream and needs no
+	 * new transport.
+	 */
+	private readonly agentTracker = new AgentTracker();
 
 	/**
 	 * Periodic index flush.
@@ -132,6 +142,10 @@ export class InspectorCore {
 
 		// Index anything research-shaped as it arrives. Most entries yield
 		// nothing, which is the normal case; the call is a cheap field check.
+		this.logManager.on("log:added", (log) => {
+			this.agentTracker.ingest(log);
+		});
+
 		this.logManager.on("log:added", (log) => {
 			this.researchIndex.ingest(log);
 		});
@@ -294,11 +308,24 @@ export class InspectorCore {
 			// run: everything captured before the index existed is still in the
 			// log, and re-reading it once beats telling a user their history
 			// starts today.
+			// Read once, use twice. Both the research index and the agent tracker
+			// want the whole log on a cold start, and this is a 100k-row read.
+			let cachedLogs: Awaited<
+				ReturnType<typeof this.logManager.getLogs>
+			>["logs"] | null = null;
+			const allLogs = async () => {
+				if (!cachedLogs) {
+					const { logs } = await this.logManager.getLogs({
+						pagination: { limit: 100_000, offset: 0 },
+					});
+					cachedLogs = logs;
+				}
+				return cachedLogs;
+			};
+
 			const restored = await this.researchIndex.load();
 			if (restored.items === 0) {
-				const { logs } = await this.logManager.getLogs({
-					pagination: { limit: 100_000, offset: 0 },
-				});
+				const logs = await allLogs();
 				const built = this.researchIndex.backfill(logs);
 				if (built.indexed > 0) {
 					process.stderr.write(
@@ -311,6 +338,21 @@ export class InspectorCore {
 					`[Research] index was inconsistent with its items; rebuilt ${restored.items}\n`,
 				);
 				await this.researchIndex.flush();
+			}
+
+			// Rebuild the agent tree from the log.
+			//
+			// Nothing about agents is persisted -- the tree is a projection of
+			// events that are already stored -- so without this the view is
+			// empty until the next subagent runs, which is the "built but shows
+			// nothing" failure this project keeps finding. Backfilling 13593
+			// live events yields 199 agents and 1904 attributed tool calls.
+			const agentLogs = await allLogs();
+			const agentsBuilt = this.agentTracker.backfill(agentLogs);
+			if (agentsBuilt.agents > 0) {
+				process.stderr.write(
+					`[Agents] rebuilt ${agentsBuilt.agents} agents from ${agentsBuilt.scanned} logs\n`,
+				);
 			}
 
 			// Start HTTP server for hook ingestion
@@ -576,6 +618,11 @@ export class InspectorCore {
 	 * -- one fixed filename under one fixed directory -- and a relative path is
 	 * refused rather than resolved against whatever the cwd happens to be.
 	 */
+	/** Get the agent tracker (M5). */
+	getAgentTracker(): AgentTracker {
+		return this.agentTracker;
+	}
+
 	/** The workspace this core was started for. */
 	getWorkspaceRoot(): string {
 		return this.workspaceRoot;
