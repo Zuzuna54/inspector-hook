@@ -167,6 +167,17 @@ export {
 	type LogSource,
 } from "./memory/digest-input.js";
 
+// Export the MCP server (Milestone 5)
+export {
+	MAX_RESULT_CHARS,
+	PROTOCOL_VERSION,
+	SERVER_NAME,
+	TOOLS,
+	callTool,
+	startMcpServer,
+	type McpTool,
+} from "./mcp/mcp-server.js";
+
 // Export agent tracking (Milestone 5)
 export {
 	AgentTracker,

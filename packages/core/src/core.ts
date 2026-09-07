@@ -280,7 +280,14 @@ export class InspectorCore {
 	/**
 	 * Start the core process
 	 */
-	async start(): Promise<void> {
+	/**
+	 * Start the core.
+	 *
+	 * `ipc: false` loads everything but leaves stdio alone, for the MCP server
+	 * (M5) which speaks a different protocol on the same stream. Both reading
+	 * stdin would mean two readers racing for every line.
+	 */
+	async start(options?: { ipc?: boolean }): Promise<void> {
 		this.startTime = Date.now();
 		this.status = "starting";
 
@@ -359,7 +366,9 @@ export class InspectorCore {
 			await this.httpServer.start();
 
 			// Start IPC server for wrapper communication
-			await this.ipcServer.start();
+			if (options?.ipc !== false) {
+				await this.ipcServer.start();
+			}
 
 			this.researchFlushInterval = setInterval(
 				() => {

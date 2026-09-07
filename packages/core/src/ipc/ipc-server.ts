@@ -1776,6 +1776,15 @@ export class IpcServer {
 	 * Send JSON-RPC notification
 	 */
 	sendNotification(method: string, params: unknown): void {
+		// Silent until the transport is actually listening.
+		//
+		// `--mcp` loads the whole core but leaves stdio to the MCP server, and
+		// this method wrote to stdout regardless -- so every session, log and
+		// fileChange event was interleaved into the MCP stream as an unsolicited
+		// JSON-RPC notification the client never asked for. Two protocols on one
+		// pipe. Nothing had started this server, so nothing was listening for
+		// these anyway.
+		if (!this.readline) return;
 		const notification: JsonRpcNotification = {
 			jsonrpc: "2.0",
 			method,
