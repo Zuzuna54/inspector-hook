@@ -18,7 +18,12 @@ import { describe, it } from "node:test";
 
 import { installGlobals, readMedia } from "./harness.js";
 
-const TRAY_LOAD_ORDER = ["scripts/tray/tray-render.js", "scripts/tray/tray-host.js"];
+const TRAY_LOAD_ORDER = [
+	"scripts/shared/budget.js",
+	"scripts/tray/tray-render.js",
+	"scripts/tray/tray-preview.js",
+	"scripts/tray/tray-host.js",
+];
 
 function loadTray(overrides = {}) {
 	const registered = {};

@@ -20,6 +20,14 @@ const TrayView = {
 		this._unsubscribers.push(
 			State.subscribe("contextTray", () => this.render()),
 		);
+		// The "what would load" pane reads the memory corpus, which lives in a
+		// different slice and arrives asynchronously. Without this it would sit
+		// on "pick a project" after one had been picked.
+		this._unsubscribers.push(
+			State.subscribe("contextView", () => {
+				if (State.contextTray.activeTab === "load") this.render();
+			}),
+		);
 		this.setupHandlers();
 		this.render();
 		API.contextGetTray();
@@ -36,11 +44,46 @@ const TrayView = {
 	render() {
 		const el = document.getElementById("tray-body");
 		if (!el) return;
-		const { tray, preview, lastRefusal, editing, draft, targets, targetSessionId, armed } =
-			State.contextTray;
-		el.innerHTML = this.renderTray(
-			tray, preview, lastRefusal, editing, draft, targets, targetSessionId, armed,
-		);
+		const t = State.contextTray;
+		const tabs = `
+      <div class="tray-tabs" role="tablist">
+        <button class="tray-tab ${t.activeTab === "items" ? "active" : ""}" data-tray-tab="items">
+          Compose
+        </button>
+        <button class="tray-tab ${t.activeTab === "load" ? "active" : ""}" data-tray-tab="load">
+          What would load
+        </button>
+      </div>
+    `;
+
+		// The "what would load" pane is per PROJECT, because memory is. It reads
+		// the project selected in the Context view rather than duplicating a
+		// picker, and says so when none is selected.
+		const body =
+			t.activeTab === "load"
+				? this.renderWhatWouldLoad(
+						this.selectedMemoryProject(),
+						t.preview,
+						State.contextView.staged,
+					)
+				: this.renderTray(
+						t.tray, t.preview, t.lastRefusal, t.editing, t.draft,
+						t.targets, t.targetSessionId, t.armed,
+					);
+
+		el.innerHTML = tabs + body;
+	},
+
+	/**
+	 * The project the Context view has selected, if any.
+	 *
+	 * Read rather than duplicated: a second project picker would be a second
+	 * source of truth about which project is being looked at.
+	 */
+	selectedMemoryProject() {
+		const { projects, selectedProject } = State.contextView;
+		if (!selectedProject) return null;
+		return (projects || []).find((p) => p.memoryDir === selectedProject) || null;
 	},
 
 	/** The item currently open in the editor, or null. */
@@ -65,6 +108,14 @@ const TrayView = {
 			const row = e.target.closest(".tray-item");
 			const itemId = row?.dataset.itemId;
 
+			const tab = e.target.closest(".tray-tab");
+			if (tab) {
+				State.update("contextTray", {
+					...State.contextTray,
+					activeTab: tab.dataset.trayTab,
+				});
+				return;
+			}
 			if (e.target.closest(".tray-clear")) {
 				API.contextClearTray();
 				return;
@@ -194,6 +245,6 @@ const TrayView = {
 	},
 };
 
-Object.assign(TrayView, window.TrayRenderMixin);
+Object.assign(TrayView, window.TrayRenderMixin, window.TrayPreviewMixin);
 window.TrayView = TrayView;
 Router.register("tray", TrayView);

@@ -10,19 +10,7 @@
  *  - a refusal renders the backend's own words, never a paraphrase
  */
 
-/**
- * Claude's index load budget, mirrored from packages/protocol/src/memory.ts.
- *
- * The webview cannot import from the protocol package -- these are classic
- * scripts with no module system -- so the numbers are restated here and a test
- * (context-view.test.js) asserts they still match the protocol's, because two
- * silent copies of one constant is how a budget indicator starts lying.
- *
- * Reporting only: nothing truncates the user's file. Past this point Claude
- * stops reading the tail.
- */
-const INDEX_LOAD_LINES = 200;
-const INDEX_LOAD_BYTES = 25 * 1024;
+// The index load budget lives in scripts/shared/budget.js, loaded before this.
 
 const ContextRenderMixin = {
 	/**

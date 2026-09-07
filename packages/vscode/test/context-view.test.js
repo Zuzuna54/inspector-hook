@@ -26,6 +26,8 @@ import { apiSource } from "./api-sources.js";
 import { installGlobals, readMedia } from "./harness.js";
 
 const CONTEXT_LOAD_ORDER = [
+	// The load budget, which the renderers report against.
+	"scripts/shared/budget.js",
 	"scripts/views/context/memory-render.js",
 	"scripts/views/context/injection-render.js",
 	"scripts/views/context/handlers.js",
@@ -689,12 +691,12 @@ describe("context: the index is reachable", () => {
 				.reduce((a, b) => a * b, 1);
 		};
 
-		const viewSrc = readMedia("scripts/views/context/memory-render.js");
+		const viewSrc = readMedia("scripts/shared/budget.js");
 		for (const name of ["INDEX_LOAD_LINES", "INDEX_LOAD_BYTES"]) {
 			const declared = valueOf(protocolSrc, `export const ${name}`);
 			const used = valueOf(viewSrc, `const ${name}`);
 			assert.ok(declared, `protocol no longer declares ${name}`);
-			assert.equal(used, declared, `${name} drifted: view ${used}, protocol ${declared}`);
+			assert.equal(used, declared, `${name} drifted: webview ${used}, protocol ${declared}`);
 		}
 	});
 });
