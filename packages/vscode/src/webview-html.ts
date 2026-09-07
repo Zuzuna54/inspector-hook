@@ -94,6 +94,7 @@ export function buildWebviewHtml(
 		["styles", "views", "archived", "accordion.css"],
 		["styles", "views", "archived", "preview.css"],
 		["styles", "views", "context.css"],
+		["styles", "views", "agents.css"],
 		["styles", "views", "research.css"],
 		["styles", "views", "tray.css"],
 	];
@@ -121,6 +122,8 @@ export function buildWebviewHtml(
 		["scripts", "api", "inbound-context.js"],
 		["scripts", "api", "research-senders.js"],
 		["scripts", "api", "inbound-research.js"],
+		["scripts", "api", "agents-senders.js"],
+		["scripts", "api", "inbound-agents.js"],
 		["scripts", "api", "graphify-senders.js"],
 		["scripts", "api", "inbound-graphify.js"],
 		["scripts", "api", "inbound-tray.js"],
@@ -160,6 +163,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "context", "handlers.js"],
 		["scripts", "views", "context", "curation.js"],
 		["scripts", "views", "context.js"],
+		["scripts", "views", "agents.js"],
 		["scripts", "views", "research", "graph-render.js"],
 		["scripts", "views", "research.js"],
 		// The tray: renderers before the controller that composes them.
@@ -227,6 +231,9 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         </button>
         <button class="tab" data-view="sessions" role="tab" aria-selected="false" tabindex="-1">
           Sessions
+        </button>
+        <button class="tab" data-view="agents" role="tab" aria-selected="false" tabindex="-1">
+          Agents
         </button>
       </div>
       <div class="nav-group">
@@ -348,6 +355,12 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
       <!-- Research View: search the indexed research history (M4).
            The shell is static for the same reason the context chrome is: a view
            whose init never runs must still show something, not a blank pane. -->
+      <div id="view-agents" class="view hidden" role="tabpanel" aria-labelledby="nav-group-monitor">
+        <div id="agents-view" class="ag-root">
+          <div class="ag-empty">Loading agents…</div>
+        </div>
+      </div>
+
       <div id="view-research" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
         <div id="research-view" class="rs-root">
           <div class="rs-empty">Loading research history…</div>

@@ -76,6 +76,17 @@ const State = {
 	// project unless given a projectKey, because "where did I solve this
 	// before" is only answerable across projects.
 	// ==========================================================================
+	// Agent tree (M5). `filter` is a UI choice; the tree itself is whatever the
+	// core has seen, including agents whose spawn call was never captured.
+	agentsView: {
+		agents: [],
+		stats: null,
+		selected: null,
+		filter: "all",   // all | running | worked | unreported
+		loading: false,
+		error: null,
+	},
+
 	researchView: {
 		query: "",
 		// Which corpus is showing: "history" (the research index) or "graph"
@@ -365,6 +376,14 @@ const State = {
 			activityAvailableLogs: null,
 			activitySince: null,
 			activityHasMore: false,
+		};
+		this.agentsView = {
+			agents: [],
+			stats: null,
+			selected: null,
+			filter: "all",
+			loading: false,
+			error: null,
 		};
 		this.researchView = {
 			query: "",

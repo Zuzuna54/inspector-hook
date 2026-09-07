@@ -25,6 +25,10 @@ const EXPECTED_TYPES = [
 	// Another session is building the Research view; its handlers ship in the
 	// tree already. Recorded rather than exempted, so the inventory keeps
 	// describing what actually registers.
+	// Agent tree (M5).
+	"agents-tree",
+	"agents-stats",
+	"agent-detail",
 	"research-item",
 	"research-results",
 	"research-stats",
