@@ -104,11 +104,12 @@ for k in set(ms_actual) | set(ms_header):
         fails.append(f"M3/M4 header says {k}={ms_header.get(k,0)}, rows say {ms_actual.get(k,0)}")
 
 # The intro must not understate its own scope, which is what it did before.
-claimed = re.search(r'plus (\d+) rows for Milestones 3 and 4', full)
+# Milestone list grows; the count is what must stay true.
+claimed = re.search(r'plus (\d+) rows for Milestones [\d, and]+', full)
 if not claimed:
-    fails.append("the intro no longer states how many M3/M4 rows exist")
+    fails.append("the intro no longer states how many milestone rows exist")
 elif int(claimed.group(1)) != len(ms_rows):
-    fails.append(f"intro claims {claimed.group(1)} M3/M4 rows, found {len(ms_rows)}")
+    fails.append(f"intro claims {claimed.group(1)} milestone rows, found {len(ms_rows)}")
 
 print(f"checked {len(ms_rows)} M3/M4 rows")
 print(f"checked {len(rows)} rows")

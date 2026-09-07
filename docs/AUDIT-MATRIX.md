@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 38 rows for Milestones 3 and 4**, tallied separately at the end.
+status with evidence — **plus 50 rows for Milestones 3, 4 and 5**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -747,22 +747,25 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 38 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+**These 50 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
 from `docs/phases/*.md`; M3 and M4 were added by the plan and have no phase document, which is
 why this matrix covered neither of the two milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
 
-Criteria are taken from the plan's Milestone 3 (five numbered deliverables) and Milestone 4
-(capture, per-project index, hybrid retrieval, storage tiering, graphify).
+Criteria are taken from the plan's Milestone 3 (five numbered deliverables), Milestone 4
+(capture, per-project index, hybrid retrieval, storage tiering, graphify) and Milestone 5
+(agent capture, the live tree, MCP exposure).
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 36 | 95% |
-| **untested** | 2 | 5% |
+| **verified** | 46 | 92% |
+| **untested** | 3 | 6% |
+| **not-impl** | 1 | 2% |
 
-Three of the 36 `verified` rows were **`broken` or `inert` when first audited this cycle** —
+Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
-M4.18 (the Search view never subscribed, so every search spun forever). Their evidence records
+M4.18 (the Search view never subscribed, so every search spun forever) and M5.12
+(two protocols sharing one pipe). Their evidence records
 what they were, because a matrix showing only the end state hides the class of defect that
 produced it. No status outside the five defined above is used here.
 
@@ -813,6 +816,23 @@ produced it. No status outside the five defined above is used here.
 | M4.16 | Graph staleness is three-valued (true/false/**unknown**) | verified | test · `graphify.test.js`; unknown is never rendered as current |
 | M4.17 | Inspector Hook can trigger graphify builds | verified | live · was **inert**: `buildGraph` existed, was exported and tested, and no IPC method reached it. `graphify.build` now returns `ok: true` and the post-build status |
 | M4.18 | The index is reachable from the UI | verified | test · was **broken** on arrival — the Search view never subscribed to its own state, so every search spun forever · `research-view.test.js` |
+
+### Milestone 5 — agents, the tree, and MCP exposure
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M5.1 | Capture `SubagentStart`/`SubagentStop` | verified | live · 44 starts, 384 stops in the store; all five agent events registered in settings.json |
+| M5.2 | Capture `TaskCreated`/`TaskCompleted`/`TeammateIdle` | untested | live · registered and ingested, but **0 TaskCreated/TaskCompleted have ever been captured**; 23 TeammateIdle have. Nothing to verify against yet |
+| M5.3 | Attribute an agent's work to it | verified | live · 3757 of 9014 tool events carry `agentId`; 1874 calls attributed across the backfill · `agent-tracker.test.js` |
+| M5.4 | Show what each agent was asked | verified | live · from the spawn call's `tool_input`, present on 32 of 32 |
+| M5.5 | Show what each returned, and what KIND of thing that is | verified | live · `resultKind` report/spawn-ack/none; 14 of 170 are spawn-ack · `agents-view.test.js` |
+| M5.6 | Show duration | verified | test · `SubagentStop.durationMs` is null in 384 of 384, so it is computed and carries `durationSource`; a spawn call's duration is explicitly NOT trusted as the agent's runtime |
+| M5.7 | Live agent tree in the UI | verified | test · Agents tab in Monitor, filters incl. "Never reported" · `agents-view.test.js` |
+| M5.8 | Tree survives a core restart | verified | live · backfilled from the log on startup, 170 agents from 10000 rows |
+| M5.9 | Nesting: which agent spawned which | not-impl | read · no captured event states parentage. `children` exists and is always empty; inventing a hierarchy would be a guess |
+| M5.10 | Expose prior findings over MCP | verified | live · `--mcp`, real handshake: initialize / tools/list / tools/call, 3 tools, `-32601` on unknown |
+| M5.11 | MCP results never misdescribe themselves | verified | test · a spawn acknowledgement renders as "NEVER REPORTED"; the graph reports current / out-of-date / unknown age · `mcp-server.test.js` |
+| M5.12 | `--mcp` does not share stdio with IPC | verified | live · was **broken**: notifications were interleaved into the MCP stream. Observed before/after on the binary; an end-to-end test spawns `--mcp` and asserts zero unsolicited notifications |
 
 ## Method, and what it does not claim
 
