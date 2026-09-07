@@ -62,6 +62,14 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # The audit matrix is the project's backlog, and it has twice overstated
+      # its own coverage. This script attacks it: row counts against the phase
+      # docs, header arithmetic, percentages, cited files existing, and the rule
+      # that no behavioural row may be "verified" on a code read alone.
+      - name: Check the audit matrix against itself
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 scripts/check-matrix.py
+
       # The extension shipped unpackageable for the whole life of the project:
       # a scoped name vsce rejects, workspace:* deps it cannot resolve, no
       # .vscodeignore, and a core that was looked up in a node_modules the VSIX

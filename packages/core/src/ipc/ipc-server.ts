@@ -25,6 +25,7 @@ import type {
 } from "@inspector-hook/protocol";
 import { ErrorCodes } from "@inspector-hook/protocol";
 import type { InspectorCore } from "../core.js";
+import { buildGraph } from "../research/graphify.js";
 import {
 	deleteMemoryFile,
 	indexMemoryFile,
@@ -775,6 +776,26 @@ export class IpcServer {
 		this.methods.set("graphify.status", async (params) =>
 			this.core.getGraphify(asStr(asRec(params)?.root)).status(),
 		);
+
+		/**
+		 * Rebuild the graph.
+		 *
+		 * The plan's "Inspector Hook can trigger graphify builds" was inert
+		 * without this: `buildGraph` existed, was exported and was tested, and
+		 * no IPC method reached it, so nothing in the live system could ever
+		 * call it. Runs `graphify update`, which is AST-only -- no LLM, no API
+		 * key, no network.
+		 */
+		this.methods.set("graphify.build", async (params) => {
+			const rec = asRec(params) ?? {};
+			const root = asStr(rec.root);
+			const result = await buildGraph(root && root.startsWith("/") ? root : this.core.getWorkspaceRoot(), {
+				timeoutMs: asNum(rec.timeoutMs),
+			});
+			// The fresh status is returned with it, so a caller does not have to
+			// ask again to find out whether the build changed anything.
+			return { ...result, status: this.core.getGraphify(root).status() };
+		});
 
 		this.methods.set("graphify.search", async (params) => {
 			const rec = asRec(params) ?? {};

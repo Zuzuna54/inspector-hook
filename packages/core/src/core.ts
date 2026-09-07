@@ -576,6 +576,11 @@ export class InspectorCore {
 	 * -- one fixed filename under one fixed directory -- and a relative path is
 	 * refused rather than resolved against whatever the cwd happens to be.
 	 */
+	/** The workspace this core was started for. */
+	getWorkspaceRoot(): string {
+		return this.workspaceRoot;
+	}
+
 	getGraphify(root?: string): GraphifyReader {
 		const key = root && root.startsWith("/") ? root : this.workspaceRoot;
 		const existing = this.graphifyReaders.get(key);
