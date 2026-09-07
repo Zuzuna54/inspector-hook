@@ -7,6 +7,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createMemoryBridge, type MemoryBridge } from "./bridge/memory-bridge.js";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import type {
@@ -191,9 +192,25 @@ export class CoreBridge extends EventEmitter {
 	 * Find the path to the core CLI
 	 */
 	private findCorePath(): string {
-		// When running from VS Code extension, look in node_modules
 		if (this.options.extensionPath) {
-			return join(
+			// Bundled beside the extension, NOT resolved through node_modules.
+			//
+			// This used to point at `node_modules/@inspector-hook/core/dist/cli.js`,
+			// which a packaged VSIX never contains: `vsce package
+			// --no-dependencies` excludes node_modules, and without that flag vsce
+			// cannot resolve the `workspace:*` deps either. Both ways the packaged
+			// extension shipped with no core to spawn. The build now bundles the
+			// core CLI to dist/core/cli.js as a self-contained file.
+			const bundled = join(
+				this.options.extensionPath,
+				"dist",
+				"core",
+				"cli.js",
+			);
+			if (existsSync(bundled)) return bundled;
+
+			// An older layout, kept so an already-installed extension still runs.
+			const legacy = join(
 				this.options.extensionPath,
 				"node_modules",
 				"@inspector-hook",
@@ -201,6 +218,7 @@ export class CoreBridge extends EventEmitter {
 				"dist",
 				"cli.js",
 			);
+			if (existsSync(legacy)) return legacy;
 		}
 
 		// Fallback to workspace path for development

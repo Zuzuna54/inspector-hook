@@ -163,7 +163,6 @@ export class SessionManager extends EventEmitter {
 			options.completedTimeoutMs ?? DEFAULT_COMPLETED_TIMEOUT_MS;
 	}
 
-
 	/**
 	 * Load sessions from persistence
 	 */
@@ -380,7 +379,6 @@ export class SessionManager extends EventEmitter {
 		return session;
 	}
 
-
 	/**
 	 * Track activity from a log entry
 	 */
@@ -433,10 +431,7 @@ export class SessionManager extends EventEmitter {
 		}
 
 		// Track tool execution start (supports both tool.start and PreToolUse)
-		if (
-			log.tool &&
-			isToolStartEvent(log.event)
-		) {
+		if (log.tool && isToolStartEvent(log.event)) {
 			const execution = createExecution(log);
 			session.toolExecutions.push(execution);
 			this.emit("tool:started", { sessionId, execution });
@@ -607,6 +602,19 @@ export class SessionManager extends EventEmitter {
 		return Array.from(this.sessions.values()).filter(
 			(s) => s.status === "active" || s.status === "idle",
 		);
+	}
+
+	/**
+	 * A session already held in memory, without touching disk.
+	 *
+	 * Exists for the tool-lifecycle broadcast in core.ts, which fires on every
+	 * tool call and must not await a persistence read to answer. A tool event
+	 * always concerns the session that is currently running, so the resident map
+	 * is the right and complete source there -- and `getSession` returning a
+	 * Promise made the first version of that listener broadcast a Promise.
+	 */
+	getResidentSession(id: string): Session | null {
+		return this.sessions.get(id) ?? null;
 	}
 
 	/**

@@ -194,6 +194,34 @@ export class InspectorCore {
 			this.ipcServer.sendNotification("session", session);
 		});
 
+		// Tool lifecycle -> the session broadcast.
+		//
+		// These five events had SIX emit sites, ZERO listeners and ZERO tests:
+		// a working-looking event bus that reached nothing. `session:*` next door
+		// all forward to IPC; `tool:*` forwarded nowhere, so a tool starting or
+		// finishing produced no update and the webview only learned by asking.
+		//
+		// Re-broadcasting the session is the honest mapping rather than a new
+		// message type: a tool call beginning or ending genuinely changes the
+		// session, `session` is already a handled notification, and M5's agent
+		// tree can carry a richer payload when it has a consumer to build
+		// against. Deleting them instead would have thrown away the one signal
+		// M5 needs.
+		for (const event of [
+			"tool:started",
+			"tool:completed",
+			"tool:failed",
+			"tool:blocked",
+			"tool:unknown",
+		] as const) {
+			this.sessionManager.on(event, ({ sessionId }) => {
+				// Resident, not awaited: getSession returns a Promise, and the
+				// first version of this broadcast a Promise as the payload.
+				const session = this.sessionManager.getResidentSession(sessionId);
+				if (session) this.ipcServer.sendNotification("session", session);
+			});
+		}
+
 		// NOTE: file capture/tracking is deliberately NOT wired to the
 		// "tool:started"/"tool:completed" session events. HttpServer.handleLogPost
 		// already drives captureBeforeContent on PreToolUse and trackFromLog on

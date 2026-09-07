@@ -1,0 +1,18 @@
+# Everything the VSIX does not need at runtime.
+#
+# The extension is a single esbuild bundle (dist/extension.js) plus the core CLI
+# bundled beside it (dist/core/cli.js) and the webview assets under media/.
+# Nothing else ships -- in particular node_modules, which `vsce package
+# --no-dependencies` excludes and which the `workspace:*` deps could not be
+# resolved from anyway.
+.vscode/**
+.vscode-test/**
+src/**
+test/**
+node_modules/**
+**/*.ts
+**/*.map
+**/tsconfig*.json
+**/*.tsbuildinfo
+.gitignore
+.eslintrc*

@@ -48,6 +48,15 @@ const SNAPSHOT_ID = "index";
 const VECTOR_SNAPSHOT_ID = "vectors";
 
 /**
+ * Snapshot format version.
+ *
+ * v2 re-keys items whose `projectKey` predates `project-resolver.ts`. Bumped
+ * rather than migrating on every load so the work happens once and can be
+ * reported.
+ */
+const SNAPSHOT_VERSION = 2;
+
+/**
  * How many items to hold.
  *
  * The index is durable, so it needs its own bound or it grows without limit —
@@ -112,6 +121,8 @@ export class ResearchIndex {
 	private vectorsDirty = false;
 	/** Why the embedder is unavailable, when it is. Surfaced, never swallowed. */
 	private embedderError?: string;
+	/** How many items the last load re-keyed. Reported, not silently done. */
+	private migratedKeys = 0;
 
 	constructor(options: ResearchIndexOptions = {}) {
 		this.persistence = options.persistence;
@@ -241,7 +252,9 @@ export class ResearchIndex {
 		// Left reachable so a real embedding model can be evaluated behind the
 		// same interface without re-plumbing anything.
 		const useSemantic = options?.semantic === true;
-		let weighted: { term: string; weight: number; typed: boolean }[] | undefined;
+		let weighted:
+			| { term: string; weight: number; typed: boolean }[]
+			| undefined;
 		if (useSemantic) {
 			this.expander ??= new SemanticExpander(this.index);
 			weighted = this.expander.expand(query);
@@ -392,7 +405,11 @@ export class ResearchIndex {
 		const lexical = this.search(query, { ...options, limit: depth });
 
 		if (!this.embedder || this.vectors.size === 0) {
-			return { ...lexical, hits: lexical.hits.slice(0, limit), retrieval: "lexical" };
+			return {
+				...lexical,
+				hits: lexical.hits.slice(0, limit),
+				retrieval: "lexical",
+			};
 		}
 
 		let queryVector: Float32Array | undefined;
@@ -400,10 +417,18 @@ export class ResearchIndex {
 			[queryVector] = await this.embedder.embed([query]);
 		} catch {
 			// A model that fails mid-session must not fail the search.
-			return { ...lexical, hits: lexical.hits.slice(0, limit), retrieval: "lexical" };
+			return {
+				...lexical,
+				hits: lexical.hits.slice(0, limit),
+				retrieval: "lexical",
+			};
 		}
 		if (!queryVector) {
-			return { ...lexical, hits: lexical.hits.slice(0, limit), retrieval: "lexical" };
+			return {
+				...lexical,
+				hits: lexical.hits.slice(0, limit),
+				retrieval: "lexical",
+			};
 		}
 
 		// The vector half must honour the same scope the lexical half used, or
@@ -481,6 +506,9 @@ export class ResearchIndex {
 			defaultProjectKey: this.defaultProjectKey(),
 			items: this.items.size,
 			terms: this.index.vocabulary,
+			// Reported so a re-key is visible rather than silent -- 471 of 777
+			// items moved the first time this ran.
+			migratedKeys: this.migratedKeys,
 			// Coverage, not just availability: an embedder that is loaded but has
 			// embedded 3 of 693 items gives semantic results for 0.4% of the
 			// corpus, and reporting only "on" would misdescribe that badly.
@@ -511,7 +539,7 @@ export class ResearchIndex {
 		}
 		if (!this.persistence || !this.dirty) return false;
 		await this.persistence.saveJSON(SNAPSHOT_CATEGORY, SNAPSHOT_ID, {
-			version: 1,
+			version: SNAPSHOT_VERSION,
 			items: [...this.items.values()],
 			index: this.index.toJSON(),
 		});
@@ -528,6 +556,90 @@ export class ResearchIndex {
 	 * return the wrong set — the failure that is hardest to notice, since an
 	 * empty or short result looks exactly like "nothing matched".
 	 */
+	/**
+	 * Re-key items written before `project-resolver.ts` existed.
+	 *
+	 * Measured on the live index before this ran: 777 items across NINE
+	 * projectKeys, of which SIX were the same repository --
+	 *
+	 *     302  Zuzuna54/inspector-hook          (correct, 09-04 22:05 onward)
+	 *     268  /Users/.../inspector-hook        (M2 regression window)
+	 *     102  /Users/.../inspector-hook/packages/core
+	 *      91  inspector-hook                   (oldest hook, bare repo name)
+	 *       8  /Users/.../packages/vscode
+	 *       2  /Users/.../packages/vscode/media/scripts/views
+	 *
+	 * 471 of 777 items -- 61% -- carried a stale key, so "This project" search
+	 * saw 302 of roughly 773. The CAUSE was fixed in `a66b43f`; the DATA was
+	 * never migrated, which is why the bug kept presenting as live.
+	 *
+	 * Two legacy shapes, handled differently because only one can be resolved
+	 * with certainty:
+	 *
+	 *  - a PATH key is re-resolved through `resolveProject`, which is exactly
+	 *    what a current event would produce
+	 *  - a BARE repo name (`inspector-hook`) is not a path and cannot be
+	 *    resolved. It is mapped only when exactly ONE `owner/repo` key in the
+	 *    corpus ends with it. Ambiguous or unmatched names are left alone --
+	 *    guessing would merge two projects, which is worse than leaving them
+	 *    split.
+	 *
+	 * Idempotent: a key already canonical resolves to itself.
+	 *
+	 * @returns how many items were re-keyed.
+	 */
+	migrateProjectKeys(): { migrated: number; unresolved: number } {
+		// Remote-style keys present in the corpus, for disambiguating bare names.
+		const remoteKeys = new Set<string>();
+		for (const item of this.items.values()) {
+			const key = item.projectKey;
+			if (key && !key.startsWith("/") && key.includes("/")) remoteKeys.add(key);
+		}
+
+		let migrated = 0;
+		let unresolved = 0;
+
+		for (const item of this.items.values()) {
+			const key = item.projectKey;
+			if (!key) continue;
+
+			let next: string | undefined;
+			let name: string | undefined;
+
+			if (key.startsWith("/")) {
+				const project = resolveProject(key);
+				if (project) {
+					next = project.gitRemote ?? project.root;
+					name = project.projectName;
+				}
+			} else if (!key.includes("/")) {
+				// A bare repo name. Only safe when exactly one remote matches.
+				const matches = [...remoteKeys].filter((r) => r.endsWith(`/${key}`));
+				if (matches.length === 1) {
+					next = matches[0];
+					name = key;
+				}
+			}
+
+			if (!next) {
+				// Not stale, or not safely resolvable. Both are fine; only the
+				// second is worth counting.
+				if (key.startsWith("/") || !key.includes("/")) unresolved++;
+				continue;
+			}
+			if (next === key) continue;
+
+			item.projectKey = next;
+			// The UI groups by projectName, so leaving it stale would split the
+			// same repository in the view even after the keys agree.
+			if (name) item.projectName = name;
+			migrated++;
+			this.dirty = true;
+		}
+
+		return { migrated, unresolved };
+	}
+
 	async load(): Promise<{ items: number; rebuilt: boolean }> {
 		if (!this.persistence) return { items: 0, rebuilt: false };
 
@@ -574,6 +686,16 @@ export class ResearchIndex {
 				this.index.add(item.id, `${item.title}\n${item.title}\n${item.text}`);
 			}
 			this.dirty = true;
+		}
+
+		// Re-key legacy items once, then persist under the new version. Gated so
+		// a store already migrated pays nothing on every subsequent start.
+		if ((snapshot.version ?? 1) < SNAPSHOT_VERSION) {
+			const { migrated } = this.migrateProjectKeys();
+			// `dirty` is set by the migration itself when anything changed, so a
+			// store that needed no work is not rewritten.
+			this.migratedKeys = migrated;
+			if (migrated > 0) this.dirty = true;
 		}
 
 		return { items: this.items.size, rebuilt: !consistent };

@@ -151,15 +151,22 @@ export class LogManager extends EventEmitter {
 		// them where 1610 of 4325 older ones did.
 		//
 		// Derived here instead, from the `cwd` every event already carries. The
-		// hook pays nothing, the result is cached per directory, and it resolves
-		// to the REPOSITORY ROOT — which is what stops one repo fragmenting into
-		// five projectKeys, as it had in the live index.
+		// hook pays nothing, and the result is cached per directory.
+		//
+		// `projectRoot` is the field that actually stops the fragmenting, and it
+		// was missing. An earlier version of this comment claimed the resolution
+		// "resolves to the REPOSITORY ROOT — which is what stops one repo
+		// fragmenting into five projectKeys", while the code below wrote only
+		// projectName/gitBranch/gitRemote. So for a repository with NO remote,
+		// `projectKeyFor` still fell through to `cwd` and still fragmented by
+		// subdirectory — exactly the bug the comment claimed was fixed.
 		//
 		// A value the payload already carries always wins: a producer that knows
 		// its own project must not be overridden by our inference.
 		const project = resolveProject(details.cwd);
 		if (project) {
 			if (!details.projectName) details.projectName = project.projectName;
+			if (!details.projectRoot) details.projectRoot = project.root;
 			if (!details.gitBranch && project.gitBranch) {
 				details.gitBranch = project.gitBranch;
 			}

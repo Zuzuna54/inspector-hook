@@ -14,7 +14,7 @@
     {
       "label": "Watch Extension",
       "type": "shell",
-      "command": "pnpm --filter @inspector-hook/vscode dev",
+      "command": "pnpm --filter inspector-hook dev",
       "group": "build",
       "isBackground": true,
       "problemMatcher": []
