@@ -40,6 +40,7 @@ const EXPECTED_TYPES = [
 	"transcript-page",
 	"transcript-stats",
 	"context-armed",
+	"context-bundles",
 	"context-targets",
 	"context-tray",
 	"core-status",

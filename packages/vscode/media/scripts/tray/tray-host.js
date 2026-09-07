@@ -53,6 +53,9 @@ const TrayView = {
         <button class="tray-tab ${t.activeTab === "load" ? "active" : ""}" data-tray-tab="load">
           What would load
         </button>
+        <button class="tray-tab ${t.activeTab === "bundles" ? "active" : ""}" data-tray-tab="bundles">
+          Bundles
+        </button>
       </div>
     `;
 
@@ -60,7 +63,9 @@ const TrayView = {
 		// the project selected in the Context view rather than duplicating a
 		// picker, and says so when none is selected.
 		const body =
-			t.activeTab === "load"
+			t.activeTab === "bundles"
+				? this.renderBundles(t.bundles, t.tray)
+				: t.activeTab === "load"
 				? this.renderWhatWouldLoad(
 						this.selectedMemoryProject(),
 						t.preview,
@@ -110,11 +115,42 @@ const TrayView = {
 
 			const tab = e.target.closest(".tray-tab");
 			if (tab) {
-				State.update("contextTray", {
-					...State.contextTray,
-					activeTab: tab.dataset.trayTab,
-				});
+				const activeTab = tab.dataset.trayTab;
+				State.update("contextTray", { ...State.contextTray, activeTab });
+				// Fetched when the pane is opened rather than at init: a list
+				// nobody looked at is a read nobody needed.
+				if (activeTab === "bundles") API.contextListBundles();
 				return;
+			}
+
+			if (e.target.closest(".tray-bundle-create")) {
+				const input = document.getElementById("tray-bundle-name");
+				const name = (input?.value || "").trim();
+				if (name) {
+					API.contextSaveBundle({ name });
+					if (input) input.value = "";
+				}
+				return;
+			}
+
+			const bundleRow = e.target.closest(".tray-bundle");
+			const bundleId = bundleRow?.dataset.bundleId;
+			if (bundleId) {
+				if (e.target.closest(".tray-bundle-load")) {
+					API.contextLoadBundle({ id: bundleId, mode: "replace" });
+					// Loading puts items back in the tray, so show them.
+					State.update("contextTray", { ...State.contextTray, activeTab: "items" });
+					return;
+				}
+				if (e.target.closest(".tray-bundle-append")) {
+					API.contextLoadBundle({ id: bundleId, mode: "append" });
+					State.update("contextTray", { ...State.contextTray, activeTab: "items" });
+					return;
+				}
+				if (e.target.closest(".tray-bundle-delete")) {
+					API.contextDeleteBundle(bundleId);
+					return;
+				}
 			}
 			if (e.target.closest(".tray-clear")) {
 				API.contextClearTray();
@@ -245,6 +281,11 @@ const TrayView = {
 	},
 };
 
-Object.assign(TrayView, window.TrayRenderMixin, window.TrayPreviewMixin);
+Object.assign(
+	TrayView,
+	window.TrayRenderMixin,
+	window.TrayPreviewMixin,
+	window.TrayBundlesMixin,
+);
 window.TrayView = TrayView;
 Router.register("tray", TrayView);

@@ -267,6 +267,39 @@ export async function handleMemoryCommand(
 			break;
 		}
 
+		case "context-save-bundle": {
+			const result = await ctx.coreBridge.saveBundle(
+				params as { name: string; description?: string; id?: string },
+			);
+			ctx.send({ type: "context-bundles", payload: result });
+			break;
+		}
+
+		case "context-list-bundles": {
+			ctx.send({
+				type: "context-bundles",
+				payload: await ctx.coreBridge.listBundles(),
+			});
+			break;
+		}
+
+		case "context-load-bundle": {
+			const result = await ctx.coreBridge.loadBundle(
+				params as { id: string; mode?: "replace" | "append" },
+			);
+			ctx.send({ type: "context-tray", payload: result });
+			break;
+		}
+
+		case "context-delete-bundle": {
+			await ctx.coreBridge.deleteBundle((params as { id: string }).id);
+			ctx.send({
+				type: "context-bundles",
+				payload: await ctx.coreBridge.listBundles(),
+			});
+			break;
+		}
+
 		default:
 			return false;
 	}

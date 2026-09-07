@@ -40,6 +40,13 @@ import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
 import { renderTray } from "../context/render.js";
 import { composeFromTranscript, composeTitle } from "../context/compose.js";
+import {
+	deleteBundle,
+	listBundles,
+	loadIntoTray,
+	readBundle,
+	saveBundle,
+} from "../context/bundle-store.js";
 import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
@@ -1412,6 +1419,53 @@ export class IpcServer {
 						}
 					: {}),
 			};
+		});
+
+		// ---------------------------------------------------------------------
+		// Bundles: a tray worth keeping.
+		//
+		// Stored as the ITEM LIST, never as rendered text. A rendered string is
+		// a snapshot of the redaction patterns and the cap on the day it was
+		// saved; keeping items means a bundle loaded later is re-rendered
+		// through today's rules, so a secret pattern added since is applied to
+		// old material rather than a stale copy shipping it.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("context.saveBundle", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tray = await readTray(this.storagePath);
+			return saveBundle(this.storagePath, {
+				name: asStr(rec.name) ?? "",
+				description: asStr(rec.description),
+				id: asStr(rec.id),
+				items: tray.items,
+			});
+		});
+
+		this.methods.set("context.listBundles", async () => ({
+			bundles: await listBundles(this.storagePath),
+		}));
+
+		this.methods.set("context.deleteBundle", async (params) => ({
+			deleted: await deleteBundle(this.storagePath, asStr(asRec(params)?.id) ?? ""),
+		}));
+
+		/**
+		 * Put a bundle back in the tray.
+		 *
+		 * Returns the preview alongside, re-rendered now -- which is the point of
+		 * storing items rather than text.
+		 */
+		this.methods.set("context.loadBundle", async (params) => {
+			const rec = asRec(params) ?? {};
+			const bundle = await readBundle(this.storagePath, asStr(rec.id) ?? "");
+			if (!bundle) return { ok: false, reason: "No such bundle." };
+			const mode = asStr(rec.mode) === "append" ? "append" : "replace";
+			const saved = await writeTray(
+				this.storagePath,
+				loadIntoTray(await readTray(this.storagePath), bundle, mode),
+			);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
 		});
 
 		/** Exactly what arming would write. Same renderer, no second path. */

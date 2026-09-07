@@ -115,6 +115,17 @@ export {
 } from "./context/tray-store.js";
 export { includedCount, renderTray } from "./context/render.js";
 export {
+	bundlePath,
+	bundlesDir,
+	deleteBundle,
+	isSafeBundleId,
+	listBundles,
+	loadIntoTray,
+	readBundle,
+	saveBundle,
+	type ContextBundle,
+} from "./context/bundle-store.js";
+export {
 	composeFromTranscript,
 	composeTitle,
 	MAX_ENTRY_BYTES,
@@ -155,6 +166,17 @@ export {
 	type CollectOptions,
 	type LogSource,
 } from "./memory/digest-input.js";
+
+// Export agent tracking (Milestone 5)
+export {
+	AgentTracker,
+	MAX_AGENTS,
+	MAX_TEXT,
+	MAX_TOOL_CALLS,
+	classifyResult,
+	typeFromAgentId,
+	type AgentTrackerOptions,
+} from "./managers/agent-tracker.js";
 
 // Export research history + search (Milestone 4)
 export {

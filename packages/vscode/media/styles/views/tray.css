@@ -252,3 +252,67 @@
 .tray-load-budget { color: var(--color-warning); }
 
 .tray-load-hint { margin: var(--spacing-xs) 0 0; }
+
+/* Saved bundles (P7). */
+
+.tray-bundles { padding: var(--spacing-sm); }
+
+.tray-bundle-save {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.tray-bundle-input {
+  flex: 1;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: var(--font-size-xs);
+}
+
+.tray-bundle-hint { margin: 0 0 var(--spacing-sm); }
+
+.tray-bundle {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+  background: var(--bg-secondary);
+}
+
+.tray-bundle-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+}
+
+.tray-bundle-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+}
+
+/* "about", because a bundle stores items and is re-rendered on load — the
+   exact injected size depends on today's redaction rules, not the day it was
+   saved. Stating a precise figure here would be a number that quietly differs
+   from what actually gets sent. */
+.tray-bundle-meta {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.tray-bundle-desc {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  margin-top: 2px;
+}
+
+.tray-bundle-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}

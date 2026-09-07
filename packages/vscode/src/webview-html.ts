@@ -165,6 +165,7 @@ export function buildWebviewHtml(
 		// The tray: renderers before the controller that composes them.
 		["scripts", "tray", "tray-render.js"],
 		["scripts", "tray", "tray-preview.js"],
+		["scripts", "tray", "tray-bundles.js"],
 		["scripts", "tray", "tray-host.js"],
 		// main.js wires everything up and must be last.
 		["scripts", "main.js"],

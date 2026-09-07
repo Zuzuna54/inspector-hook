@@ -22,6 +22,7 @@ const TRAY_LOAD_ORDER = [
 	"scripts/shared/budget.js",
 	"scripts/tray/tray-render.js",
 	"scripts/tray/tray-preview.js",
+	"scripts/tray/tray-bundles.js",
 	"scripts/tray/tray-host.js",
 ];
 
@@ -365,5 +366,145 @@ describe("arming sends the tier and target, and nothing else", () => {
 		});
 		view.arm("now");
 		assert.deepEqual(sent, []);
+	});
+});
+
+describe("what would load", () => {
+	/**
+	 * The composed picture, and the two distinctions that decide whether its
+	 * total is true.
+	 *
+	 * Shipped in P6 with no tests at all — 150 lines whose entire purpose is
+	 * getting arithmetic right, unguarded. That is the pattern this suite exists
+	 * to catch, committed by the person catching it.
+	 */
+	const view = loadTray();
+
+	const file = (over = {}) => ({
+		fileName: "a.md",
+		name: "A note",
+		size: 1024,
+		indexState: "referenced",
+		orphaned: false,
+		...over,
+	});
+
+	const project = (over = {}) => ({
+		memoryDir: "/m",
+		slug: "proj",
+		hasIndex: true,
+		indexLines: 16,
+		indexBytes: 2400,
+		files: [file()],
+		...over,
+	});
+
+	it("asks for a project rather than guessing one", () => {
+		const html = view.renderWhatWouldLoad(null, null, null);
+		assert.match(html, /Pick a project first/);
+	});
+
+	it("counts the index in the total, because it loads every session", () => {
+		const html = view.renderWhatWouldLoad(project(), null, null);
+		assert.match(html, /Every session starts with/);
+		assert.match(html, /MEMORY\.md/);
+		assert.match(html, /2\.3 KB/);
+	});
+
+	it("EXCLUDES on-demand files from the total", () => {
+		// The distinction the whole pane turns on. These load when Claude opens
+		// them, so folding them in would overstate every session by the size of
+		// the corpus. 2400 B index + 0 staged = 2.3 KB, with a 500 KB file
+		// present but not counted.
+		const html = view.renderWhatWouldLoad(
+			project({ files: [file({ size: 500 * 1024 })] }),
+			null,
+			null,
+		);
+		const total = /Every session starts with[\s\S]*?tray-load-total">([^<]+)</.exec(html);
+		assert.ok(total, "no total rendered");
+		assert.match(total[1], /2\.3 KB/, `the on-demand file leaked into the total: ${total[1]}`);
+		assert.match(html, /not<\/strong>\s+loaded automatically/);
+	});
+
+	it("adds staged context to the total, because that does load", () => {
+		const html = view.renderWhatWouldLoad(project(), null, { text: "x".repeat(1024) });
+		const total = /Every session starts with[\s\S]*?tray-load-total">([^<]+)</.exec(html);
+		assert.match(total[1], /3\.3 KB/, `staged bytes were not counted: ${total[1]}`);
+		assert.match(html, /used once, then gone/);
+	});
+
+	it("says an unstaged tray will NOT load", () => {
+		// A tray you have not sent is not context. Counting it would be the same
+		// overstatement in a different place.
+		const html = view.renderWhatWouldLoad(project(), { bytes: 4096 }, null);
+		assert.match(html, /not<\/strong>\s+staged yet/);
+		const total = /Every session starts with[\s\S]*?tray-load-total">([^<]+)</.exec(html);
+		assert.match(total[1], /2\.3 KB/, "the unstaged tray was counted");
+	});
+
+	it("mentions the budget only when the index is past it", () => {
+		// Reporting only: nothing truncates the file, and the largest index in
+		// this corpus is 16 lines against a limit of 200. A warning shown always
+		// is a warning nobody reads.
+		const under = view.renderWhatWouldLoad(project(), null, null);
+		assert.ok(!under.includes("tail is not read"), "warned about a budget nobody is near");
+
+		const over = view.renderWhatWouldLoad(
+			project({ indexLines: 900, indexBytes: 60 * 1024 }),
+			null,
+			null,
+		);
+		assert.match(over, /the tail is not read/);
+	});
+
+	it("counts only the part of an oversized index that is actually read", () => {
+		// Past the budget Claude stops reading, so the bytes beyond it never
+		// reach a session and must not be in the total.
+		const html = view.renderWhatWouldLoad(
+			project({ indexLines: 900, indexBytes: 60 * 1024 }),
+			null,
+			null,
+		);
+		const total = /Every session starts with[\s\S]*?tray-load-total">([^<]+)</.exec(html);
+		assert.match(total[1], /25\.0 KB/, `counted bytes past the budget: ${total[1]}`);
+	});
+
+	it("separates files the index never names", () => {
+		// The one thing invisible everywhere else, and the reason the Context
+		// view exists at all.
+		const html = view.renderWhatWouldLoad(
+			project({ files: [file(), file({ fileName: "b.md", indexState: "unreferenced" })] }),
+			null,
+			null,
+		);
+		assert.match(html, /Never loaded/);
+		assert.match(html, /no session will ever open them/);
+	});
+
+	it("explains a project with no index differently from one with gaps", () => {
+		// Different problems, different answers: "start an index" versus "add
+		// this file to it". Telling someone to index thirty files one at a time
+		// is noise.
+		const html = view.renderWhatWouldLoad(
+			project({ hasIndex: false, files: [file({ indexState: "no-index" })] }),
+			null,
+			null,
+		);
+		assert.match(html, /nothing in it is reachable by name/);
+		assert.match(html, /No <code>MEMORY\.md<\/code>/);
+	});
+
+	it("handles a project with no files at all", () => {
+		const html = view.renderWhatWouldLoad(project({ files: [] }), null, null);
+		assert.match(html, /Nothing is named by the index/);
+		assert.ok(!html.includes("Never loaded"), "invented a never-loaded group from nothing");
+	});
+
+	it("uses the same budget constants as the protocol", () => {
+		// The pane reports against them, so a drift here is a wrong number on
+		// screen rather than a lint failure.
+		assert.equal(globalThis.INDEX_LOAD_LINES, 200);
+		assert.equal(globalThis.INDEX_LOAD_BYTES, 25 * 1024);
 	});
 });
