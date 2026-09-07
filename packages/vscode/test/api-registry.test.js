@@ -22,6 +22,23 @@ import { installGlobals, readMedia } from "./harness.js";
 /** Every type the pre-split switch handled. */
 const EXPECTED_TYPES = [
 	"archived",
+	// Another session is building the Research view; its handlers ship in the
+	// tree already. Recorded rather than exempted, so the inventory keeps
+	// describing what actually registers.
+	"research-item",
+	"research-results",
+	"research-stats",
+	// Semantic retrieval control (M4). Explicit rather than automatic: the
+	// model load and corpus backfill are seconds of CPU each.
+	"research-embeddings",
+	// Graphify's code/docs graph (M4). A separate corpus from the research
+	// index above, so separate message types rather than an overloaded one.
+	"graph-status",
+	"graph-results",
+	"graph-neighbors",
+	"graph-node",
+	"transcript-page",
+	"transcript-stats",
 	"context-armed",
 	"context-targets",
 	"context-tray",

@@ -168,7 +168,19 @@ export async function clearStagedContext(storagePath: string): Promise<boolean> 
  */
 export function truncateToBytes(text: string, maxBytes: number): string {
 	const notice = "\n\n[truncated by Inspector Hook]";
-	const budget = maxBytes - Buffer.byteLength(notice, "utf-8");
+	const noticeBytes = Buffer.byteLength(notice, "utf-8");
+
+	// A budget below the notice length cannot carry the notice, so it carries
+	// nothing. Without this the arithmetic inverted: `budget` went negative,
+	// `subarray(0, negative)` counts from the END of the buffer, and the result
+	// was the input almost whole PLUS the notice -- 1005 bytes returned for a
+	// cap of 5. The single-item path never hit it because it always passes a
+	// large positive budget, but the tray's per-item loop passes whatever is
+	// left, which reaches 0 exactly when the cap starts mattering.
+	if (maxBytes <= 0) return "";
+	if (maxBytes <= noticeBytes) return notice.slice(0, maxBytes);
+
+	const budget = maxBytes - noticeBytes;
 	const buf = Buffer.from(text, "utf-8");
 	if (buf.length <= budget) return text;
 

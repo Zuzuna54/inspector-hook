@@ -69,6 +69,37 @@ const State = {
 	// ==========================================================================
 	// Context View State (M3 - native auto memory)
 	// ==========================================================================
+	// ==========================================================================
+	// Research View State (M4 - research history search)
+	//
+	// `scope` is a UI choice, not a filter default: the core searches every
+	// project unless given a projectKey, because "where did I solve this
+	// before" is only answerable across projects.
+	// ==========================================================================
+	researchView: {
+		query: "",
+		// Which corpus is showing: "history" (the research index) or "graph"
+		// (graphify's code/docs graph). Two corpora, never blended into one
+		// ranked list -- a symbol and a web lookup have no comparable score.
+		source: "history",
+		scope: "all",        // "all" | "project"
+		kinds: [],           // empty = every kind
+		results: null,       // the last ResearchSearchResult, or null
+		selected: null,      // an expanded item
+		stats: null,         // corpus size and composition
+		searching: false,
+		error: null,
+		// Graph slices, kept separate so switching source does not discard the
+		// other corpus's results.
+		graphStatus: null,   // size, and whether the graph still matches HEAD
+		graphResults: null,
+		graphSelected: null, // an expanded node
+		graphNeighbors: null,
+		neighborsLoading: false,
+		// True while the semantic backfill loop is running.
+		embedding: false,
+	},
+
 	contextView: {
 		projects: [],
 		selectedProject: null,   // memoryDir, which is the stable key
@@ -125,6 +156,32 @@ const State = {
 		targetSessionId: null,
 		/** What is currently armed for the selected session. */
 		armed: null,
+	},
+
+	// ==========================================================================
+	// Transcript View State (M3 P5 - the session's actual content)
+	//
+	// Separate from sessionView: that slice holds hook-derived activity, which
+	// is metadata. This holds what was actually said, read from Claude Code's
+	// own transcript, and the two answer different questions.
+	// ==========================================================================
+	transcriptView: {
+		sessionId: null,
+		/** Whole-file statistics, including how full the context got. */
+		stats: null,
+		entries: [],
+		total: 0,
+		hasMore: false,
+		/** Why there is nothing, when there is nothing. */
+		reason: null,
+		/**
+		 * Entry indexes picked for the composer, as a Set.
+		 *
+		 * Indexes rather than copies of the text: the core re-reads the
+		 * transcript when composing, so what reaches a future session is what
+		 * the file says now, not what this view happened to be holding.
+		 */
+		selected: new Set(),
 	},
 
 	// ==========================================================================
@@ -259,6 +316,7 @@ const State = {
 			filters: { ...this.filters },
 			stats: { ...this.stats },
 			contextTray: this.contextTray,
+			transcriptView: this.transcriptView,
 			config: { ...this.config },
 		};
 	},
@@ -304,6 +362,23 @@ const State = {
 			activitySince: null,
 			activityHasMore: false,
 		};
+		this.researchView = {
+			query: "",
+			source: "history",
+			scope: "all",
+			kinds: [],
+			results: null,
+			selected: null,
+			stats: null,
+			searching: false,
+			error: null,
+			graphStatus: null,
+			graphResults: null,
+			graphSelected: null,
+			graphNeighbors: null,
+			neighborsLoading: false,
+			embedding: false,
+		};
 		this.contextView = {
 			projects: [],
 			selectedProject: null,
@@ -317,6 +392,15 @@ const State = {
 			staged: null,
 			digest: null,
 			stageRefusal: null,
+		};
+		this.transcriptView = {
+			sessionId: null,
+			stats: null,
+			entries: [],
+			total: 0,
+			hasMore: false,
+			reason: null,
+			selected: new Set(),
 		};
 		this.contextTray = {
 			tray: null,

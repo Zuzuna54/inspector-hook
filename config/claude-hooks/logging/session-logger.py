@@ -83,13 +83,12 @@ def handle_start(data: dict):
     log_entry(entry)
 
     # Output context for Claude
-    print(
-        json.dumps(
-            {
-                "additionalContext": f"Session {session_id[:8]}... started at {entry['timestamp']}"
-            }
-        )
-    )
+    # SessionStart appends a hook's RAW STDOUT to the session context. That
+    # is the mechanism this repo has verified end to end in
+    # packages/hooks/claude/inspector-context.sh. Two doc sources disagree
+    # on whether SessionStart also accepts additionalContext or
+    # systemMessage; printing text needs neither to be right.
+    print(f"Session {session_id[:8]}... started at {entry['timestamp']}")
 
 
 def handle_end(data: dict):

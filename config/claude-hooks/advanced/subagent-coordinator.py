@@ -140,7 +140,13 @@ def main():
         output['additionalContext'] += f'\nSession has used {subagent_count} subagents (total time: {total_duration:.1f}s)'
 
     if output:
-        print(json.dumps(output))
+    # Nested under hookSpecificOutput. A TOP-LEVEL "additionalContext" is
+    # parsed and then ignored -- measured, not assumed: a probe emitted both
+    # shapes in one object and only the nested one reached the model.
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "SubagentStop",
+            **output,
+        }}))
 
     sys.exit(0)
 

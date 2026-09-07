@@ -569,10 +569,13 @@ export async function writeMemoryFile(
 	await writeFile(temp, text, "utf-8");
 	await rename(temp, target);
 
+	// `title` is passed only when the caller actually supplied one. A body edit
+	// sends none, and then the existing index line survives untouched rather
+	// than being regenerated from frontmatter.
 	const indexUpdated = await upsertIndexEntry(memoryDir, {
 		fileName,
-		title: entry.title ?? entry.name,
-		description: entry.description,
+		...(entry.title ? { title: entry.title } : {}),
+		...(entry.description ? { description: entry.description } : {}),
 	});
 
 	return { written: true, path: target, indexUpdated };
@@ -587,12 +590,24 @@ export async function writeMemoryFile(
  */
 export async function upsertIndexEntry(
 	memoryDir: string,
-	entry: { fileName: string; title: string; description?: string },
+	entry: {
+		fileName: string;
+		/**
+		 * The index line's title. OPTIONAL on purpose.
+		 *
+		 * When it is absent and a line for this file already exists, the
+		 * existing line is kept exactly as written. The index is hand-curated
+		 * prose -- "Untrue reporting is the priority bug class" rather than
+		 * "untrue-reporting-bug-class" -- and it is what a future session reads
+		 * to decide whether a file is worth opening. Regenerating it from
+		 * frontmatter silently degrades recall for every later session, and a
+		 * body edit is not a request to rewrite the reader's own words.
+		 */
+		title?: string;
+		description?: string;
+	},
 ): Promise<boolean> {
 	const indexPath = join(memoryDir, INDEX_FILE);
-	const line = entry.description
-		? `- [${entry.title}](${entry.fileName}) — ${entry.description}`
-		: `- [${entry.title}](${entry.fileName})`;
 
 	let text = "";
 	try {
@@ -609,6 +624,24 @@ export async function upsertIndexEntry(
 	const lines = text.split("\n");
 	const ref = `(${entry.fileName})`;
 	const existing = lines.findIndex((l) => l.startsWith("- [") && l.includes(ref));
+
+	// Nothing to say and a line already there: leave the curated prose alone.
+	// This is the whole point of `title` being optional. Saving a body edit sent
+	// no title, so the line was rewritten from the frontmatter name and any
+	// hand-written description was DELETED outright -- while reporting
+	// `indexUpdated: true`. The module header already says a hand-curated index
+	// must never be rewritten wholesale; this was the same mistake one line at
+	// a time.
+	// An explicit TITLE is the signal to rewrite. A description alone is not:
+	// the frontmatter description and the index prose are different things, and
+	// a body edit forwards the former while the latter is what a human wrote.
+	// Requiring a title means the line changes only when a caller means it to.
+	if (existing !== -1 && !entry.title) return false;
+
+	const title = entry.title ?? entry.fileName.replace(/\.md$/, "");
+	const line = entry.description
+		? `- [${title}](${entry.fileName}) — ${entry.description}`
+		: `- [${title}](${entry.fileName})`;
 
 	if (existing !== -1) {
 		if (lines[existing] === line) return false; // already correct

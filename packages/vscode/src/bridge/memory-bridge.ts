@@ -92,6 +92,38 @@ export function createMemoryBridge(send: SendRequest) {
 			return send("context.getTargets", {});
 		},
 
+		// =====================================================================
+		// The session transcript (P5)
+		// =====================================================================
+
+		/** Compose selected transcript turns into a tray item, core-side. */
+		async addFromTranscript(params: {
+			sessionId: string;
+			indexes: number[];
+			title?: string;
+		}): Promise<unknown> {
+			return send("context.addFromTranscript", params);
+		},
+
+		/** A page of transcript entries, plus whole-file statistics. */
+		async getTranscript(params: {
+			sessionId?: string;
+			transcriptPath?: string;
+			offset?: number;
+			limit?: number;
+			includeAll?: boolean;
+		}): Promise<unknown> {
+			return send("transcript.get", params);
+		},
+
+		/** How full the context got, without carrying content back. */
+		async getTranscriptStats(params: {
+			sessionId?: string;
+			transcriptPath?: string;
+		}): Promise<unknown> {
+			return send("transcript.stats", params);
+		},
+
 		/** Exactly what arming would write. */
 		async previewContext(): Promise<unknown> {
 			return send("context.preview", {});

@@ -18,10 +18,10 @@
   color: var(--fg-primary);
 }
 
-.tray-budget.over .tray-budget-size { color: var(--warning); }
+.tray-budget.over .tray-budget-size { color: var(--color-warning); }
 
 .tray-budget-warn {
-  color: var(--warning);
+  color: var(--color-warning);
 }
 
 .tray-redacted {
@@ -68,7 +68,7 @@
   border-radius: var(--radius-sm);
 }
 
-.tray-item-edited { color: var(--warning); }
+.tray-item-edited { color: var(--color-warning); }
 .tray-item-bytes { margin-left: auto; font-family: var(--font-family-mono); }
 
 .tray-item-actions {
@@ -161,7 +161,7 @@
 
 /* A pin is the one that repeats. It gets the warning colour so it cannot be
    mistaken for a one-shot at a glance. */
-.tray-armed-row.pinned .tray-armed-tier { color: var(--warning); }
+.tray-armed-row.pinned .tray-armed-tier { color: var(--color-warning); }
 
 .tray-armed-tier {
   font-weight: var(--font-weight-medium);

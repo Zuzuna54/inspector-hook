@@ -79,6 +79,15 @@ export interface ResearchHit {
 
 export interface ResearchSearchResult {
 	/**
+	 * Which signals produced this ranking.
+	 *
+	 * "hybrid" means BM25 and local embeddings were fused on rank; "lexical"
+	 * means embeddings were unavailable and this is BM25 alone. Reported rather
+	 * than assumed, because a hybrid search silently degrading to lexical is
+	 * indistinguishable from one that simply ranked differently.
+	 */
+	retrieval?: "lexical" | "hybrid";
+	/**
 	 * Which corpus was actually searched.
 	 *
 	 * M4 specifies a per-project index with opt-in cross-project search. One
@@ -98,10 +107,31 @@ export interface ResearchSearchResult {
 	searched: number;
 	/** Terms actually used, after stop-word removal — empty means no query. */
 	terms: string[];
+	/**
+	 * Terms the corpus associated with the query and added at reduced weight.
+	 *
+	 * Reported so a hit matching none of the typed words can be explained.
+	 * These are learned from the indexed documents, not from a pretrained
+	 * model — see `semantic.ts` for what that does and does not claim.
+	 */
+	expandedWith?: string[];
 }
 
 /** Index size and composition, for the UI and for capacity questions. */
 export interface ResearchIndexStats {
+	/**
+	 * Semantic retrieval coverage.
+	 *
+	 * Coverage rather than a boolean: an embedder that is loaded but has
+	 * embedded 3 of 693 items serves semantic results for 0.4% of the corpus,
+	 * and reporting that as simply "on" would misdescribe it.
+	 */
+	embeddings?: {
+		available: boolean;
+		embedded: number;
+		/** Why it is unavailable, when it is. */
+		error?: string;
+	};
 	/**
 	 * The project this core's workspace belongs to, so a caller can default its
 	 * search scope to "here" without guessing. Undefined when the core has no
@@ -118,4 +148,81 @@ export interface ResearchIndexStats {
 	/** Oldest and newest item timestamps, ISO 8601. */
 	oldest?: string;
 	newest?: string;
+}
+
+// ============================================================================
+// Graphify: the code and docs graph (Milestone 4)
+//
+// A separate corpus from the research history above, deliberately. The plan's
+// division of labour: "graphify owns the code/docs graph; the hybrid index owns
+// session/research history. They compose." A ResearchItem is something that
+// happened; a GraphNode is something that exists in the code.
+// ============================================================================
+
+/** A node in graphify's graph: a symbol, a file, a heading, a rationale. */
+export interface GraphNode {
+	id: string;
+	label: string;
+	/** "code" | "document" | "rationale" observed; not closed, graphify may add. */
+	fileType: string;
+	sourceFile: string;
+	/** Verbatim from graphify, usually "L12" or "L12-L40". */
+	sourceLocation: string;
+	community: number | null;
+}
+
+export interface GraphHit {
+	node: GraphNode;
+	score: number;
+	matched: string[];
+	/** Edges touching this node — a cheap proxy for how central it is. */
+	degree: number;
+}
+
+export interface GraphSearchResult {
+	hits: GraphHit[];
+	total: number;
+	terms: string[];
+	/** Nodes in the graph, so a hit count is never shown without its universe. */
+	searched: number;
+}
+
+export interface GraphNeighbor {
+	node: GraphNode;
+	relation: string;
+	/**
+	 * "out" when the queried node is the edge's source.
+	 *
+	 * Preserved because `calls` backwards is a different question from `calls`
+	 * forwards, and graphify's file declares the graph undirected.
+	 */
+	direction: "in" | "out";
+	weight: number;
+	depth: number;
+}
+
+export interface GraphNeighborsResult {
+	id: string | null;
+	node?: GraphNode | null;
+	neighbors: GraphNeighbor[];
+}
+
+export interface GraphStatus {
+	available: boolean;
+	path: string | null;
+	nodes: number;
+	edges: number;
+	communities: number;
+	byFileType: Record<string, number>;
+	byRelation: Record<string, number>;
+	builtAtCommit: string | null;
+	builtAt: string | null;
+	/**
+	 * `null` means unknown — no recorded commit, or HEAD unreadable — which is
+	 * deliberately not the same as `false`. A graph of unknown age must not be
+	 * presented as current.
+	 */
+	stale: boolean | null;
+	headCommit: string | null;
+	error?: string;
 }

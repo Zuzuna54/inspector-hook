@@ -115,6 +115,24 @@ export {
 } from "./context/tray-store.js";
 export { includedCount, renderTray } from "./context/render.js";
 export {
+	composeFromTranscript,
+	composeTitle,
+	MAX_ENTRY_BYTES,
+	type ComposeResult,
+} from "./context/compose.js";
+// Export the transcript reader (Milestone 3, P5)
+export {
+	readTranscript,
+	transcriptStats,
+	MAX_LINE_BYTES,
+	MAX_TRANSCRIPT_BYTES,
+	type TranscriptEntry,
+	type TranscriptKind,
+	type TranscriptPage,
+	type TranscriptStats,
+	type TranscriptUsage,
+} from "./transcript/transcript-reader.js";
+export {
 	armContext,
 	disarmContext,
 	estimatedRepeatBytes,
@@ -158,6 +176,46 @@ export {
 	SNIPPET_LENGTH,
 	type ResearchIndexOptions,
 } from "./research/research-index.js";
+// Export the graphify code/docs graph (Milestone 4). Separate from the
+// research index by design: graphify owns code and docs, the research index
+// owns session history. See research/graphify.ts.
+export {
+	GRAPH_DIR,
+	GRAPH_FILE,
+	GraphifyGraph,
+	GraphifyReader,
+	MAX_GRAPH_BYTES,
+	buildGraph,
+	findGraphPath,
+	headCommit,
+	identifierText,
+	type GraphifyEdge,
+	type GraphifyNeighbor,
+	type GraphifyNode,
+	type GraphifySearchHit,
+	type GraphifySearchResult,
+	type GraphifyStats,
+} from "./research/graphify.js";
+export {
+	DEFAULT_MODEL,
+	EMBEDDING_DIMENSIONS,
+	EMBED_BATCH,
+	MAX_EMBED_CHARS,
+	RRF_K,
+	VectorStore,
+	cosine,
+	loadEmbedder,
+	reciprocalRankFusion,
+	type Embedder,
+	type FusedHit,
+	type VectorHit,
+} from "./research/embeddings.js";
+export {
+	EXPANSIONS_PER_TERM,
+	EXPANSION_WEIGHT,
+	SemanticExpander,
+	type Association,
+} from "./research/semantic.js";
 
 export {
 	clearProjectCache,

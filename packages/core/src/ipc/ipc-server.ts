@@ -38,6 +38,8 @@ import {
 import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
 import { renderTray } from "../context/render.js";
+import { composeFromTranscript, composeTitle } from "../context/compose.js";
+import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
 	disarmContext,
@@ -695,12 +697,59 @@ export class IpcServer {
 			const kinds = Array.isArray(rec.kinds)
 				? (rec.kinds.filter((k) => typeof k === "string") as string[])
 				: undefined;
-			return this.core.getResearchIndex().search(query, {
+			const index = this.core.getResearchIndex();
+			const searchOptions = {
 				limit: asNum(rec.limit),
 				projectKey: asStr(rec.projectKey),
 				kinds: kinds as never,
 				since: asStr(rec.since),
+			};
+			// Hybrid when embeddings are loaded, lexical otherwise. The result
+			// carries `retrieval` either way, because a hybrid search silently
+			// degrading to lexical is indistinguishable from one that merely
+			// ranked differently.
+			return index.embeddingsAvailable
+				? index.searchHybrid(query, searchOptions)
+				: index.search(query, searchOptions);
+		});
+
+		/**
+		 * Turn on semantic retrieval, and report honestly if it cannot.
+		 *
+		 * Separate from getStats because it is slow the first time: loading the
+		 * model takes about a second and embedding a real corpus takes tens of
+		 * seconds, so it is an explicit action rather than a side effect of
+		 * opening a view.
+		 */
+		this.methods.set("research.enableEmbeddings", async (params) => {
+			const rec = asRec(params) ?? {};
+			const index = this.core.getResearchIndex();
+			const available = await index.enableEmbeddings({
+				model: asStr(rec.model),
 			});
+			return {
+				available,
+				error: index.embeddingsError,
+				embedded: index.embeddedCount,
+			};
+		});
+
+		/**
+		 * Embed a bounded batch of items that have none yet.
+		 *
+		 * Bounded and repeatable rather than one long call: the first pass over
+		 * a real corpus is around 23 seconds of CPU, and the IPC connection has
+		 * other work to do. A caller loops until this returns 0.
+		 */
+		this.methods.set("research.embedPending", async (params) => {
+			const rec = asRec(params) ?? {};
+			const index = this.core.getResearchIndex();
+			const embedded = await index.embedPending(asNum(rec.limit) ?? 200);
+			return {
+				embedded,
+				total: index.embeddedCount,
+				available: index.embeddingsAvailable,
+			};
 		});
 
 		/** One item by id, for opening a hit whose log entry may be long gone. */
@@ -713,6 +762,60 @@ export class IpcServer {
 		this.methods.set("research.getStats", async () =>
 			this.core.getResearchIndex().stats(),
 		);
+
+		// ---------------------------------------------------------------------
+		// Graphify: the code and docs graph (M4)
+		//
+		// The plan's division: graphify owns the code/docs graph, the research
+		// index owns session history. These read graphify's own artifact --
+		// the same graph.json its MCP server opens -- rather than spawning a
+		// Python process per question.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("graphify.status", async (params) =>
+			this.core.getGraphify(asStr(asRec(params)?.root)).status(),
+		);
+
+		this.methods.set("graphify.search", async (params) => {
+			const rec = asRec(params) ?? {};
+			const query = asStr(rec.query);
+			if (!query) return { hits: [], total: 0, terms: [], searched: 0 };
+			return this.core.getGraphify(asStr(rec.root)).search(query, {
+				limit: asNum(rec.limit),
+				fileType: asStr(rec.fileType),
+			});
+		});
+
+		/** One node by id, for opening a search hit. */
+		this.methods.set("graphify.get", async (params) => {
+			const rec = asRec(params) ?? {};
+			const id = asStr(rec.id);
+			return id ? this.core.getGraphify(asStr(rec.root)).node(id) : null;
+		});
+
+		/**
+		 * What a node connects to. This is the question the research index
+		 * cannot answer at all: "what calls this, and what breaks if I change
+		 * it" is a graph query, not a text one.
+		 */
+		this.methods.set("graphify.neighbors", async (params) => {
+			const rec = asRec(params) ?? {};
+			const id = asStr(rec.id);
+			if (!id) return { id: null, neighbors: [] };
+			const relations = Array.isArray(rec.relations)
+				? (rec.relations.filter((r) => typeof r === "string") as string[])
+				: undefined;
+			const reader = this.core.getGraphify(asStr(rec.root));
+			return {
+				id,
+				node: reader.node(id),
+				neighbors: reader.neighbors(id, {
+					depth: asNum(rec.depth),
+					relations,
+					limit: asNum(rec.limit),
+				}),
+			};
+		});
 
 		// File change operations
 		this.methods.set("fileChanges.getPending", async (params) =>
@@ -1198,6 +1301,98 @@ export class IpcServer {
 			return { targets, idleAfterMs: 30 * 60 * 1000, completedAfterMs: 2 * 60 * 60 * 1000 };
 		});
 
+		// ---------------------------------------------------------------------
+		// The session transcript (Milestone 3, P5).
+		//
+		// The core captures hook EVENTS, which are metadata. The transcript is
+		// the session's actual content, and nothing here had ever opened one --
+		// which is why a digest reads as a fact list. Streamed, because the
+		// largest on this machine is 48 MB with a 326 KB line in it.
+		// ---------------------------------------------------------------------
+
+		/** A page of the transcript, plus statistics for the whole file. */
+		this.methods.set("transcript.get", async (params) => {
+			const rec = asRec(params) ?? {};
+			const path = await this.transcriptPathFor(rec);
+			if (!path) {
+				return {
+					entries: [],
+					total: 0,
+					hasMore: false,
+					reason:
+						"This session has no transcript path recorded, so there is nothing to read.",
+				};
+			}
+			return readTranscript(path, {
+				offset: asNum(rec.offset),
+				limit: asNum(rec.limit),
+				includeAll: asBool(rec.includeAll),
+			});
+		});
+
+		/**
+		 * Statistics only: how full the context got, and what the file holds.
+		 *
+		 * Separate from `get` because it is the cheap question -- "how much of
+		 * the window did this session use" -- and answering it should not carry
+		 * a page of content back across the wire.
+		 */
+		this.methods.set("transcript.stats", async (params) => {
+			const path = await this.transcriptPathFor(asRec(params) ?? {});
+			if (!path) return { reason: "No transcript path for this session." };
+			return transcriptStats(path);
+		});
+
+		/**
+		 * Add selected transcript turns to the tray, as one item.
+		 *
+		 * The selection is resolved HERE against a fresh read rather than taking
+		 * text the panel is holding: composing from a client-side copy would mean
+		 * the text reaching a future session came from whatever the view last
+		 * rendered, which can be stale. Indexes that no longer resolve are
+		 * reported rather than silently producing a shorter item.
+		 */
+		this.methods.set("context.addFromTranscript", async (params) => {
+			const rec = asRec(params) ?? {};
+			const path = await this.transcriptPathFor(rec);
+			if (!path) {
+				return { ok: false, reason: "This session has no transcript to read." };
+			}
+
+			const raw = rec.indexes;
+			const indexes = Array.isArray(raw)
+				? raw.filter((n): n is number => typeof n === "number")
+				: [];
+			const composed = await composeFromTranscript(path, indexes);
+			if (!composed.text) {
+				return { ok: false, reason: composed.reason ?? "Nothing to add." };
+			}
+
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: "session_digest",
+				title: asStr(rec.title) ?? `${composed.matched} turns from a session`,
+				text: composed.text,
+				source: { sessionId: asStr(rec.sessionId) },
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+
+			const saved = await writeTray(this.storagePath, result.tray);
+			return {
+				ok: true,
+				tray: saved,
+				item: result.item,
+				preview: renderTray(saved),
+				// Said plainly rather than folded into the item: a selection that
+				// partly failed should not look like one that succeeded.
+				...(composed.missing.length
+					? {
+							reason: `${composed.missing.length} of ${composed.requested} selected turns are no longer in the transcript.`,
+						}
+					: {}),
+			};
+		});
+
 		/** Exactly what arming would write. Same renderer, no second path. */
 		this.methods.set("context.preview", async () =>
 			renderTray(await readTray(this.storagePath)),
@@ -1329,6 +1524,29 @@ export class IpcServer {
 			// A cost we cannot measure is reported as zero rather than guessed.
 		}
 		return { deliveries, estimatedRepeatBytes: entry.bytes * deliveries };
+	}
+
+	/**
+	 * Where a session's transcript lives.
+	 *
+	 * An explicit path wins, so a caller can read a transcript for a session the
+	 * store no longer holds -- 27 of 33 memory files cite an origin session and
+	 * none of those sessions still exist, so "the session is gone" is the normal
+	 * case rather than the exception.
+	 */
+	private async transcriptPathFor(
+		rec: Record<string, unknown>,
+	): Promise<string | null> {
+		const explicit = asStr(rec.transcriptPath);
+		if (explicit) return explicit;
+		const sessionId = asStr(rec.sessionId);
+		if (!sessionId) return null;
+		const session = await this.sessionManager.getSession(sessionId);
+		if (!session) return null;
+		return (
+			asStr((session.metadata as Record<string, unknown> | undefined)?.transcriptPath) ??
+			null
+		);
 	}
 
 	private async digestFor(session: Session) {

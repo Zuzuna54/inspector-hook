@@ -91,7 +91,10 @@ fi
 if [[ -n "$OUTPUT" ]]; then
     # Escape for JSON
     ESCAPED=$(echo -e "$OUTPUT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')
-    echo "{\"additionalContext\": \"Rust: $ESCAPED\"}"
+    # Nested under hookSpecificOutput. A TOP-LEVEL "additionalContext" is parsed
+    # and then ignored -- measured, not assumed: a probe emitted both shapes in
+    # one object and only the nested one reached the model.
+    echo "{\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"Rust: $ESCAPED\"}}"
 fi
 
 exit 0

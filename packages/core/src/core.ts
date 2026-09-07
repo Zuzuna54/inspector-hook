@@ -22,6 +22,7 @@ import { buildSessionDigest } from "./memory/session-digest.js";
 import { migrateStore } from "./persistence/migrations.js";
 import { PersistenceStore } from "./persistence/store.js";
 import { ResearchIndex } from "./research/research-index.js";
+import { GraphifyReader } from "./research/graphify.js";
 import { HttpServer } from "./server/http-server.js";
 
 export class InspectorCore {
@@ -32,6 +33,15 @@ export class InspectorCore {
 	private fileTracker: FileTracker;
 	private persistence: PersistenceStore;
 	private researchIndex: ResearchIndex;
+	private readonly workspaceRoot: string;
+	/**
+	 * One graph reader per repository.
+	 *
+	 * The core is machine-wide and graphify graphs are per-repo, so a single
+	 * reader would serve one project's graph to every project. Bounded because
+	 * this is keyed on a path that arrives from outside.
+	 */
+	private readonly graphifyReaders = new Map<string, GraphifyReader>();
 
 	/**
 	 * Periodic index flush.
@@ -88,6 +98,8 @@ export class InspectorCore {
 			persistence: this.persistence,
 			workspaceRoot: params.workspaceRoot,
 		});
+
+		this.workspaceRoot = params.workspaceRoot;
 
 		// Initialize servers
 		this.httpServer = new HttpServer({
@@ -526,6 +538,26 @@ export class InspectorCore {
 	 */
 	getResearchIndex(): ResearchIndex {
 		return this.researchIndex;
+	}
+
+	/**
+	 * Get the graphify reader for a repository.
+	 *
+	 * `root` may name any repository this core has seen, defaulting to the
+	 * workspace. It is only ever used to open `<root>/graphify-out/graph.json`
+	 * -- one fixed filename under one fixed directory -- and a relative path is
+	 * refused rather than resolved against whatever the cwd happens to be.
+	 */
+	getGraphify(root?: string): GraphifyReader {
+		const key = root && root.startsWith("/") ? root : this.workspaceRoot;
+		const existing = this.graphifyReaders.get(key);
+		if (existing) return existing;
+		// Each reader holds a parsed graph, so this cache is measured in
+		// megabytes, not entries.
+		if (this.graphifyReaders.size >= 8) this.graphifyReaders.clear();
+		const reader = new GraphifyReader(key);
+		this.graphifyReaders.set(key, reader);
+		return reader;
 	}
 
 	/**

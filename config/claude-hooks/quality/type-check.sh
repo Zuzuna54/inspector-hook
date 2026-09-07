@@ -45,7 +45,10 @@ EXIT_CODE=$?
 if [[ $EXIT_CODE -ne 0 ]]; then
     # Type errors found - provide as context (non-blocking)
     ESCAPED=$(echo "$RESULT" | jq -Rs '.')
-    echo "{\"additionalContext\": \"TypeScript errors found:\n$RESULT\"}"
+    # Nested under hookSpecificOutput. A TOP-LEVEL "additionalContext" is parsed
+    # and then ignored -- measured, not assumed: a probe emitted both shapes in
+    # one object and only the nested one reached the model.
+    echo "{\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"TypeScript errors found:\n$RESULT\"}}"
 fi
 
 # Always exit 0 (non-blocking)

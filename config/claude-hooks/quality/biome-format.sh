@@ -99,7 +99,10 @@ if [[ -n "$OUTPUT" ]] && [[ "$OUTPUT" != *"No fixes needed"* ]] && [[ "$OUTPUT" 
         hook_log "warn" "Biome issues in $FILE_PATH" "PostToolUse" "Write" "$FILE_PATH"
         # Escape for JSON
         ESCAPED=$(echo "$FILTERED" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')
-        echo "{\"additionalContext\": \"Biome: $ESCAPED\"}"
+        # Nested under hookSpecificOutput. A TOP-LEVEL "additionalContext" is parsed
+        # and then ignored -- measured, not assumed: a probe emitted both shapes in
+        # one object and only the nested one reached the model.
+        echo "{\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"Biome: $ESCAPED\"}}"
     fi
 fi
 

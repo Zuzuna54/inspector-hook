@@ -5,7 +5,20 @@ packages:
 # allowlisted, and fails the whole install with ERR_PNPM_IGNORED_BUILDS otherwise.
 # esbuild's postinstall resolves its platform-specific binary, so it must run.
 # vsce-sign/keytar are only needed to *publish* a VSIX, never to build locally.
+# protobufjs/sharp arrive with the optional @xenova/transformers embedding model.
+#
+# sharp MUST build. The first version of this comment claimed text embeddings
+# never enter sharp's code path, so it could stay off -- that was written as a
+# justification before it was tested, and it is wrong. transformers.js v2
+# imports sharp eagerly at module load, so with it off the whole package throws
+# "Cannot find module '../build/Release/sharp-darwin-x64.node'" and the embedder
+# silently degrades to BM25. Verified both ways.
+#
+# protobufjs stays off: its postinstall only builds its own CLI, and the
+# embedder is verified to load without it.
 allowBuilds:
   esbuild: true
   '@vscode/vsce-sign': false
   keytar: false
+  protobufjs: false
+  sharp: true

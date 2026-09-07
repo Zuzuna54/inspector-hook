@@ -113,7 +113,13 @@ def main():
     # Output as additionalContext (only if we have something useful)
     if context_parts:
         context = " | ".join(context_parts)
-        print(json.dumps({"additionalContext": f"[{context}]"}))
+    # Nested under hookSpecificOutput. A TOP-LEVEL "additionalContext" is
+    # parsed and then ignored -- measured, not assumed: a probe emitted both
+    # shapes in one object and only the nested one reached the model.
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": f"[{context}]",
+        }}))
 
     exit(0)
 
