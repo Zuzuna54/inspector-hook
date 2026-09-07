@@ -44,4 +44,21 @@
 			targets: payload?.targets || [],
 		});
 	});
+
+	// Bundles. A save that was refused comes back `{ok:false, reason}` with no
+	// bundle; branching on the flag rather than on truthiness is the lesson from
+	// the staging path, where a refusal rendered as a success.
+	API.on("context-bundles", function (payload) {
+		const refused = payload && payload.ok === false;
+		State.update("contextTray", {
+			...State.contextTray,
+			bundles: payload?.bundles ?? State.contextTray.bundles,
+			tray: payload?.tray ?? State.contextTray.tray,
+			preview: payload?.preview ?? State.contextTray.preview,
+			lastRefusal: refused ? payload.reason || "That was refused." : null,
+		});
+		// A save or delete changes the list, so refetch rather than patching a
+		// local copy that could drift from what the store holds.
+		if (!refused && !payload?.bundles) API.contextListBundles();
+	});
 })();

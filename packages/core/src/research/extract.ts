@@ -60,7 +60,16 @@ function clip(text: string): string {
 export function projectKeyFor(
 	details: Record<string, unknown> | undefined,
 ): string | undefined {
-	return str(details?.gitRemote) ?? str(details?.cwd);
+	// `projectRoot` sits between the remote and the raw cwd deliberately.
+	//
+	// Without it, a repository with no origin remote falls straight through to
+	// `cwd`, which differs for every subdirectory a tool happened to run in --
+	// so one repo becomes as many projects as it has directories. That is the
+	// exact fragmentation measured in the live index (one repo, six keys), and
+	// the remote-only fallback is why fixing the resolver alone did not fix it.
+	return (
+		str(details?.gitRemote) ?? str(details?.projectRoot) ?? str(details?.cwd)
+	);
 }
 
 /**

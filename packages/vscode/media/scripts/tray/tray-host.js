@@ -20,6 +20,14 @@ const TrayView = {
 		this._unsubscribers.push(
 			State.subscribe("contextTray", () => this.render()),
 		);
+		// The "what would load" pane reads the memory corpus, which lives in a
+		// different slice and arrives asynchronously. Without this it would sit
+		// on "pick a project" after one had been picked.
+		this._unsubscribers.push(
+			State.subscribe("contextView", () => {
+				if (State.contextTray.activeTab === "load") this.render();
+			}),
+		);
 		this.setupHandlers();
 		this.render();
 		API.contextGetTray();
@@ -36,11 +44,51 @@ const TrayView = {
 	render() {
 		const el = document.getElementById("tray-body");
 		if (!el) return;
-		const { tray, preview, lastRefusal, editing, draft, targets, targetSessionId, armed } =
-			State.contextTray;
-		el.innerHTML = this.renderTray(
-			tray, preview, lastRefusal, editing, draft, targets, targetSessionId, armed,
-		);
+		const t = State.contextTray;
+		const tabs = `
+      <div class="tray-tabs" role="tablist">
+        <button class="tray-tab ${t.activeTab === "items" ? "active" : ""}" data-tray-tab="items">
+          Compose
+        </button>
+        <button class="tray-tab ${t.activeTab === "load" ? "active" : ""}" data-tray-tab="load">
+          What would load
+        </button>
+        <button class="tray-tab ${t.activeTab === "bundles" ? "active" : ""}" data-tray-tab="bundles">
+          Bundles
+        </button>
+      </div>
+    `;
+
+		// The "what would load" pane is per PROJECT, because memory is. It reads
+		// the project selected in the Context view rather than duplicating a
+		// picker, and says so when none is selected.
+		const body =
+			t.activeTab === "bundles"
+				? this.renderBundles(t.bundles, t.tray)
+				: t.activeTab === "load"
+				? this.renderWhatWouldLoad(
+						this.selectedMemoryProject(),
+						t.preview,
+						State.contextView.staged,
+					)
+				: this.renderTray(
+						t.tray, t.preview, t.lastRefusal, t.editing, t.draft,
+						t.targets, t.targetSessionId, t.armed,
+					);
+
+		el.innerHTML = tabs + body;
+	},
+
+	/**
+	 * The project the Context view has selected, if any.
+	 *
+	 * Read rather than duplicated: a second project picker would be a second
+	 * source of truth about which project is being looked at.
+	 */
+	selectedMemoryProject() {
+		const { projects, selectedProject } = State.contextView;
+		if (!selectedProject) return null;
+		return (projects || []).find((p) => p.memoryDir === selectedProject) || null;
 	},
 
 	/** The item currently open in the editor, or null. */
@@ -65,6 +113,45 @@ const TrayView = {
 			const row = e.target.closest(".tray-item");
 			const itemId = row?.dataset.itemId;
 
+			const tab = e.target.closest(".tray-tab");
+			if (tab) {
+				const activeTab = tab.dataset.trayTab;
+				State.update("contextTray", { ...State.contextTray, activeTab });
+				// Fetched when the pane is opened rather than at init: a list
+				// nobody looked at is a read nobody needed.
+				if (activeTab === "bundles") API.contextListBundles();
+				return;
+			}
+
+			if (e.target.closest(".tray-bundle-create")) {
+				const input = document.getElementById("tray-bundle-name");
+				const name = (input?.value || "").trim();
+				if (name) {
+					API.contextSaveBundle({ name });
+					if (input) input.value = "";
+				}
+				return;
+			}
+
+			const bundleRow = e.target.closest(".tray-bundle");
+			const bundleId = bundleRow?.dataset.bundleId;
+			if (bundleId) {
+				if (e.target.closest(".tray-bundle-load")) {
+					API.contextLoadBundle({ id: bundleId, mode: "replace" });
+					// Loading puts items back in the tray, so show them.
+					State.update("contextTray", { ...State.contextTray, activeTab: "items" });
+					return;
+				}
+				if (e.target.closest(".tray-bundle-append")) {
+					API.contextLoadBundle({ id: bundleId, mode: "append" });
+					State.update("contextTray", { ...State.contextTray, activeTab: "items" });
+					return;
+				}
+				if (e.target.closest(".tray-bundle-delete")) {
+					API.contextDeleteBundle(bundleId);
+					return;
+				}
+			}
 			if (e.target.closest(".tray-clear")) {
 				API.contextClearTray();
 				return;
@@ -194,6 +281,11 @@ const TrayView = {
 	},
 };
 
-Object.assign(TrayView, window.TrayRenderMixin);
+Object.assign(
+	TrayView,
+	window.TrayRenderMixin,
+	window.TrayPreviewMixin,
+	window.TrayBundlesMixin,
+);
 window.TrayView = TrayView;
 Router.register("tray", TrayView);

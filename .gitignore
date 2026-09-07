@@ -45,3 +45,7 @@ yarn.lock
 # regenerable from source with `graphify update .` and both rewritten on every
 # build. Committing them would put a machine-generated megabyte into every diff.
 graphify-out/
+
+# Built VSIX and its verification unpack (CI produces both).
+*.vsix
+.vsix-check/

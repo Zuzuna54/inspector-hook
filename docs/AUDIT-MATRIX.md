@@ -1,7 +1,10 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence.
+status with evidence — **plus 38 rows for Milestones 3 and 4**, tallied separately at the end.
+
+M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
+milestone except the two the branch actually shipped.
 
 > **This document previously claimed to cover "every acceptance criterion" while resolving 104
 > of 268, and cited a test count from 50 commits earlier.** Both are corrected here. A backlog
@@ -741,6 +744,75 @@ work". Two rows changed status purely by someone running the command.
 | Clean install on 3+ platforms | **untested** | macOS only |
 
 ---
+
+## Milestones 3–4 — native memory, research history and RAG
+
+**These 38 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+from `docs/phases/*.md`; M3 and M4 were added by the plan and have no phase document, which is
+why this matrix covered neither of the two milestones the branch actually shipped. A backlog
+silent about the newest work is the same failure this document was already corrected for once.
+
+Criteria are taken from the plan's Milestone 3 (five numbered deliverables) and Milestone 4
+(capture, per-project index, hybrid retrieval, storage tiering, graphify).
+
+| | Count | Share |
+|---|---:|---:|
+| **verified** | 36 | 95% |
+| **untested** | 2 | 5% |
+
+Three of the 36 `verified` rows were **`broken` or `inert` when first audited this cycle** —
+M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
+M4.18 (the Search view never subscribed, so every search spun forever). Their evidence records
+what they were, because a matrix showing only the end state hides the class of defect that
+produced it. No status outside the five defined above is used here.
+
+### Milestone 3 — session context on native auto memory
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M3.1 | Session digest written in the native memory format | verified | test · `native-memory.test.js`, `formatMemoryFile`/`writeMemoryFile` |
+| M3.2 | Written to the native location, not a parallel store | verified | test · `resolveMemoryDir(transcriptPath)` |
+| M3.3 | Writing is behind an explicit setting, default off | verified | test · `inspectorHook.writeSessionMemory`, `config-plumbing.test.js` |
+| M3.4 | The flag reaches the core process | verified | live · forwarded explicitly in `core-bridge.ts`; inheritance made it unreachable before `dec9245` |
+| M3.5 | Memory directory is created on first write | verified | test · `1a5ab2a`; the first write per project used to ENOENT |
+| M3.6 | Every path writes the same digest | verified | test · `8209091`, one digest collector |
+| M3.7 | Native loading picks the file up with no injection hook | untested | read · the platform reads these files; never observed end to end from a session Claude actually started |
+| M3.8 | Curation UI lists memory files across every project | verified | test · `context-view.test.js` |
+| M3.9 | Shows what would load, per file | verified | test · `f0f12f3` |
+| M3.10 | Edit a memory file | verified | test · `01a6ea1` — an edit used to land on a different file than the one opened |
+| M3.11 | Delete a memory file | verified | test · `deleteMemoryFile({force})` |
+| M3.12 | Retype an entry (`user`/`feedback`/`project`/`reference`) | verified | test · declared vs inferred type, `947bbb5` |
+| M3.13 | Promote an orphan into the index | verified | test · `39b56ef`, without rewriting the file |
+| M3.14 | Curated index prose is preserved, not regenerated | verified | test · `801ceed` |
+| M3.15 | Cross-project rollup | verified | live · Context view spans every project on the machine |
+| M3.16 | Picker: browse prior sessions | verified | test · `1f10d8c` |
+| M3.17 | Picker: inject via `SessionStart` stdout | verified | live · `inspector-context.sh`, one-shot and expiring |
+| M3.18 | Picker: inject via `UserPromptSubmit` `additionalContext` | verified | artifact · `inspector-prompt-context.sh` emits the nested `hookSpecificOutput` shape a top-level key is silently ignored in |
+| M3.19 | Inject into a session already running | verified | test · `e819ee9`, now and pinned tiers |
+| M3.20 | Multi-item context tray | verified | test · `27ddee3` |
+
+### Milestone 4 — research history and hybrid retrieval
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M4.1 | Capture web lookups (`web_search`, `web_fetch`) | verified | live · both kinds present in the 793-item store |
+| M4.2 | Capture subagent tasks and reports | verified | live · 192 `subagent_report` items |
+| M4.3 | Capture prompts and conclusions | verified | live · `user_prompt` + `conclusion` present |
+| M4.4 | Capture files read, without storing contents | verified | test · stable per-path id `read:<project>:<path>`; 165 events collapse to 107 items |
+| M4.5 | Index per project | verified | live · was **broken**: one repository held SIX keys and 471 of 793 items were mis-keyed. `migrateProjectKeys` + `projectRoot`; 9 keys → 4, this repo 318 → 789 · `project-keys.test.js` |
+| M4.6 | Cross-project search, opt-in scope | verified | live · scope is reported on every result, never implicit |
+| M4.7 | Hybrid BM25 + local embeddings | verified | live · MRR 0.440 (BM25) → 0.614 (embeddings) → **0.700** (fused), 5 known-answer queries fixed before ranking |
+| M4.8 | Offline, no API key | verified | live · local model, one-time download, no network at query time |
+| M4.9 | Rank fusion, not score blending | verified | test · `reciprocalRankFusion`, `embeddings.test.js` |
+| M4.10 | Degrades to BM25 when the model is absent, and says so | verified | test · `retrieval` is reported as lexical or hybrid on every result; CI installs `--no-optional` so every run exercises it |
+| M4.11 | Vectors persist across a restart | verified | live · 693 restored, 0 re-embedded |
+| M4.12 | Retention enforced (`logRetentionDays`) | verified | live · logs pruned to 2026-09-03, 4 rotated files; was a stub returning zeros |
+| M4.13 | Storage tiering: collapse to summaries before pruning | untested | read · `collapseSession` is wired and `summaries/` exists, but is **empty** — the store holds 4 days against a 7-day default, so this has never actually run |
+| M4.14 | graphify owns the code/docs graph | verified | live · 4095 nodes / 333 communities built from this repo |
+| M4.15 | Graph is searchable by word, not just exact symbol | verified | live · `identifierText` splitting; "research" returns 104 hits |
+| M4.16 | Graph staleness is three-valued (true/false/**unknown**) | verified | test · `graphify.test.js`; unknown is never rendered as current |
+| M4.17 | Inspector Hook can trigger graphify builds | verified | live · was **inert**: `buildGraph` existed, was exported and tested, and no IPC method reached it. `graphify.build` now returns `ok: true` and the post-build status |
+| M4.18 | The index is reachable from the UI | verified | test · was **broken** on arrival — the Search view never subscribed to its own state, so every search spun forever · `research-view.test.js` |
 
 ## Method, and what it does not claim
 

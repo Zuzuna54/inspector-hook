@@ -1,93 +1,93 @@
 {
-  "name": "@inspector-hook/vscode",
-  "displayName": "Inspector Hook",
-  "description": "AI Agent Monitoring & Orchestration for Claude Code and other AI agents",
-  "version": "0.1.0",
-  "publisher": "inspector-hook",
-  "license": "MIT",
-  "engines": {
-    "vscode": "^1.85.0"
-  },
-  "categories": [
-    "Other",
-    "Visualization"
-  ],
-  "keywords": [
-    "claude",
-    "ai",
-    "agent",
-    "monitoring",
-    "hooks"
-  ],
-  "main": "./dist/extension.js",
-  "activationEvents": [
-    "onStartupFinished"
-  ],
-  "contributes": {
-    "commands": [
-      {
-        "command": "inspectorHook.showPanel",
-        "title": "Inspector Hook: Show Panel"
-      },
-      {
-        "command": "inspectorHook.refreshLogs",
-        "title": "Inspector Hook: Refresh Logs"
-      },
-      {
-        "command": "inspectorHook.clearLogs",
-        "title": "Inspector Hook: Clear Logs"
-      }
-    ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "inspector-hook",
-          "title": "Inspector Hook",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "configuration": {
-      "title": "Inspector Hook",
-      "properties": {
-        "inspectorHook.autoStart": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically start the core process"
-        },
-        "inspectorHook.httpPort": {
-          "type": "number",
-          "default": 52376,
-          "description": "HTTP port for hook log ingestion"
-        },
-        "inspectorHook.logRetentionDays": {
-          "type": "number",
-          "default": 7,
-          "description": "Number of days to retain logs"
-        },
-        "inspectorHook.writeSessionMemory": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Write a digest of each finished session into Claude Code's own auto memory (`~/.claude/projects/<project>/memory/`), where future sessions load it automatically.\n\n**Off by default.** These files live outside your workspace and change what every future Claude session in that project is told, so switching it on is your decision, not the extension's. Digests are facts only \u2014 files changed, tools used, duration \u2014 with no model call and no paraphrasing of intent.\n\nInspector Hook never overwrites a memory file it did not author."
-        }
-      }
-    }
-  },
-  "scripts": {
-    "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --external:@inspector-hook/protocol --outfile=dist/extension.js",
-    "dev": "pnpm build --watch",
-    "package": "vsce package --no-dependencies",
-    "clean": "rm -rf dist *.tsbuildinfo",
-    "test": "node --test test/*.test.js",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@inspector-hook/core": "workspace:*",
-    "@inspector-hook/protocol": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.0",
-    "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "^2.22.0"
-  }
+	"name": "inspector-hook",
+	"displayName": "Inspector Hook",
+	"description": "AI Agent Monitoring & Orchestration for Claude Code and other AI agents",
+	"version": "0.1.0",
+	"publisher": "inspector-hook",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Other",
+		"Visualization"
+	],
+	"keywords": [
+		"claude",
+		"ai",
+		"agent",
+		"monitoring",
+		"hooks"
+	],
+	"main": "./dist/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"commands": [
+			{
+				"command": "inspectorHook.showPanel",
+				"title": "Inspector Hook: Show Panel"
+			},
+			{
+				"command": "inspectorHook.refreshLogs",
+				"title": "Inspector Hook: Refresh Logs"
+			},
+			{
+				"command": "inspectorHook.clearLogs",
+				"title": "Inspector Hook: Clear Logs"
+			}
+		],
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "inspector-hook",
+					"title": "Inspector Hook",
+					"icon": "media/icon.svg"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Inspector Hook",
+			"properties": {
+				"inspectorHook.autoStart": {
+					"type": "boolean",
+					"default": true,
+					"description": "Automatically start the core process"
+				},
+				"inspectorHook.httpPort": {
+					"type": "number",
+					"default": 52376,
+					"description": "HTTP port for hook log ingestion"
+				},
+				"inspectorHook.logRetentionDays": {
+					"type": "number",
+					"default": 7,
+					"description": "Number of days to retain logs"
+				},
+				"inspectorHook.writeSessionMemory": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "Write a digest of each finished session into Claude Code's own auto memory (`~/.claude/projects/<project>/memory/`), where future sessions load it automatically.\n\n**Off by default.** These files live outside your workspace and change what every future Claude session in that project is told, so switching it on is your decision, not the extension's. Digests are facts only \u2014 files changed, tools used, duration \u2014 with no model call and no paraphrasing of intent.\n\nInspector Hook never overwrites a memory file it did not author."
+				}
+			}
+		}
+	},
+	"scripts": {
+		"build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --external:@inspector-hook/protocol --outfile=dist/extension.js && esbuild ../core/src/cli.ts --bundle --platform=node --outfile=dist/core/cli.js",
+		"dev": "pnpm build --watch",
+		"package": "vsce package --no-dependencies",
+		"clean": "rm -rf dist *.tsbuildinfo",
+		"test": "node --test test/*.test.js",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@inspector-hook/core": "workspace:*",
+		"@inspector-hook/protocol": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^20.10.0",
+		"@types/vscode": "^1.85.0",
+		"@vscode/vsce": "^2.22.0"
+	}
 }

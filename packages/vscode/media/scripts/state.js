@@ -150,6 +150,10 @@ const State = {
 		/** The item open in the editor, and its working copy. */
 		editing: null,
 		draft: "",
+		/** "items" composes; "load" shows what loads; "bundles" saves and reloads. */
+		activeTab: "items",
+		/** Saved compositions, newest first. */
+		bundles: [],
 		/** Sessions this tray could be sent to, newest activity first. */
 		targets: [],
 		/** The session selected as the target, when one is. */
@@ -408,6 +412,8 @@ const State = {
 			lastRefusal: null,
 			editing: null,
 			draft: "",
+			activeTab: "items",
+			bundles: [],
 			targets: [],
 			targetSessionId: null,
 			armed: null,

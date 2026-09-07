@@ -71,6 +71,32 @@ const TrayApiMixin = {
 	contextGetTargets() {
 		this.send("context-get-targets", {});
 	},
+
+	// ==========================================================================
+	// Bundles (P7)
+	//
+	// The tray is a scratch surface; a bundle is a composition kept. Stored as
+	// the item list, so loading one re-renders through today's redaction rules
+	// rather than replaying a string scrubbed by whatever they were on the day.
+	// ==========================================================================
+
+	/** @param {{name: string, description?: string, id?: string}} params */
+	contextSaveBundle(params) {
+		this.send("context-save-bundle", params);
+	},
+
+	contextListBundles() {
+		this.send("context-list-bundles", {});
+	},
+
+	/** @param {{id: string, mode?: "replace"|"append"}} params */
+	contextLoadBundle(params) {
+		this.send("context-load-bundle", params);
+	},
+
+	contextDeleteBundle(id) {
+		this.send("context-delete-bundle", { id });
+	},
 };
 
 window.TrayApiMixin = TrayApiMixin;

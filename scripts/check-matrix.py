@@ -7,7 +7,18 @@ re-grade is wrong. A checker that only confirms the grader is worth nothing.
 import pathlib, re, sys
 from collections import Counter
 
-doc = pathlib.Path("docs/AUDIT-MATRIX.md").read_text()
+full = pathlib.Path("docs/AUDIT-MATRIX.md").read_text()
+
+# The document has TWO independently-tallied halves: the 268 phase-doc rows,
+# and the M3/M4 rows added afterwards (those milestones have no phase doc).
+# Scoping matters -- when the second tally table was added, the whole-document
+# regex below found it instead and reported the phase counts as wrong.
+MS_HEADING = "## Milestones 3-4"
+if MS_HEADING not in full:
+    MS_HEADING = "## Milestones 3\u20134"
+split = full.index(MS_HEADING) if MS_HEADING in full else len(full)
+doc = full[:split]
+ms_doc = full[split:]
 lines = doc.split("\n")
 fails = []
 
@@ -64,6 +75,42 @@ for st, n, pct in re.findall(r'\| \*\*(verified|broken|not-impl|untested|inert)\
     if int(pct) != int(n) * 100 // cb:
         fails.append(f"{st}: {n}/{cb} is {int(n)*100//cb}%, document says {pct}%")
 
+
+# 7. The M3/M4 section is held to the same standards as the 268.
+#    Its rows are four-column (they carry an id), so the parser above skips
+#    them entirely -- without this they would be graded by nobody.
+ms_rows = []
+for l in ms_doc.split("\n"):
+    if not l.startswith("| M"):
+        continue
+    c = [x.strip() for x in l.strip().strip("|").split("|")]
+    if len(c) != 4:
+        continue
+    ms_rows.append({"id": c[0], "crit": c[1], "status": c[2].strip("*"), "ev": c[3]})
+
+VALID = ("verified", "broken", "not-impl", "untested", "inert")
+for r in ms_rows:
+    if r["status"] not in VALID:
+        fails.append(f"{r['id']}: status '{r['status']}' is not one of the five defined")
+    # Same rule as the 268: a behavioural claim may not rest on a code read.
+    if r["status"] == "verified" and r["ev"].split("\u00b7")[0].strip() == "read":
+        fails.append(f"{r['id']}: verified row rests on a READ")
+
+ms_actual = Counter(r["status"] for r in ms_rows)
+ms_header = {m[0]: int(m[1]) for m in
+             re.findall(r'\| \*\*(verified|broken|not-impl|untested|inert)\*\* \| (\d+) \| \d+% \|', ms_doc)}
+for k in set(ms_actual) | set(ms_header):
+    if ms_actual.get(k, 0) != ms_header.get(k, 0):
+        fails.append(f"M3/M4 header says {k}={ms_header.get(k,0)}, rows say {ms_actual.get(k,0)}")
+
+# The intro must not understate its own scope, which is what it did before.
+claimed = re.search(r'plus (\d+) rows for Milestones 3 and 4', full)
+if not claimed:
+    fails.append("the intro no longer states how many M3/M4 rows exist")
+elif int(claimed.group(1)) != len(ms_rows):
+    fails.append(f"intro claims {claimed.group(1)} M3/M4 rows, found {len(ms_rows)}")
+
+print(f"checked {len(ms_rows)} M3/M4 rows")
 print(f"checked {len(rows)} rows")
 if fails:
     print(f"FAILURES ({len(fails)}):")

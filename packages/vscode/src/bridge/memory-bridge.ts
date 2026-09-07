@@ -105,6 +105,30 @@ export function createMemoryBridge(send: SendRequest) {
 			return send("context.addFromTranscript", params);
 		},
 
+		/** Save the current tray as a named bundle. */
+		async saveBundle(params: {
+			name: string;
+			description?: string;
+			id?: string;
+		}): Promise<unknown> {
+			return send("context.saveBundle", params);
+		},
+
+		async listBundles(): Promise<unknown> {
+			return send("context.listBundles", {});
+		},
+
+		async loadBundle(params: {
+			id: string;
+			mode?: "replace" | "append";
+		}): Promise<unknown> {
+			return send("context.loadBundle", params);
+		},
+
+		async deleteBundle(id: string): Promise<unknown> {
+			return send("context.deleteBundle", { id });
+		},
+
 		/** A page of transcript entries, plus whole-file statistics. */
 		async getTranscript(params: {
 			sessionId?: string;

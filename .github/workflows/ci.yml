@@ -1,0 +1,100 @@
+# Continuous integration.
+#
+# This project had none, and the gap was not theoretical: it has never once run
+# on Linux. Everything below has only ever been verified on one macOS machine,
+# and two of the bugs found by hand this cycle were platform-shaped (a native
+# binding with no darwin/x64 build, and a temp-directory path that differs
+# between macOS and Linux). So `ubuntu-latest` is here to find things, not for
+# symmetry.
+#
+# `--no-optional` is deliberate. It skips the ~255MB @xenova/transformers
+# embedding model, which keeps CI fast AND makes every run a live test of the
+# documented degradation path: with no embedder, retrieval must fall back to
+# BM25 and say so. If the suite ever needs the model to pass, that fallback has
+# regressed.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["22"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      # No flags beyond --no-optional. A clean install must succeed on its own;
+      # needing `--config.verify-deps-before-run=false` was Milestone 0's build
+      # blocker and must not come back.
+      - name: Install
+        run: pnpm install --frozen-lockfile --no-optional
+
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # The audit matrix is the project's backlog, and it has twice overstated
+      # its own coverage. This script attacks it: row counts against the phase
+      # docs, header arithmetic, percentages, cited files existing, and the rule
+      # that no behavioural row may be "verified" on a code read alone.
+      - name: Check the audit matrix against itself
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 scripts/check-matrix.py
+
+      # The extension shipped unpackageable for the whole life of the project:
+      # a scoped name vsce rejects, workspace:* deps it cannot resolve, no
+      # .vscodeignore, and a core that was looked up in a node_modules the VSIX
+      # never contained. Packaging in CI is what stops that returning.
+      - name: Package the extension
+        run: pnpm --filter inspector-hook exec vsce package --no-dependencies --out inspector-hook.vsix
+
+      - name: Verify the VSIX carries a runnable core
+        shell: bash
+        run: |
+          cd packages/vscode
+          rm -rf .vsix-check && mkdir .vsix-check
+          unzip -q inspector-hook.vsix -d .vsix-check
+          test -f .vsix-check/extension/dist/core/cli.js \
+            || { echo "::error::the VSIX has no bundled core to spawn"; exit 1; }
+          if unzip -l inspector-hook.vsix | grep -q node_modules; then
+            echo "::error::the VSIX contains node_modules"; exit 1
+          fi
+          echo '{"jsonrpc":"2.0","id":1,"method":"core.getStatus","params":{}}' \
+            | INSPECTOR_HOOK_WORKSPACE="$PWD" timeout 20 node .vsix-check/extension/dist/core/cli.js \
+            | grep -q '"id":1' \
+            || { echo "::error::the packaged core did not answer JSON-RPC"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: inspector-hook-vsix
+          path: packages/vscode/inspector-hook.vsix

@@ -120,6 +120,16 @@ export interface ResearchSearchResult {
 /** Index size and composition, for the UI and for capacity questions. */
 export interface ResearchIndexStats {
 	/**
+	 * How many items the last load re-keyed to a canonical project.
+	 *
+	 * Legacy items were keyed on the working directory a tool happened to run
+	 * in, so one repository appeared as several projects. Reported rather than
+	 * migrated silently, because the number changes what a scoped hit count
+	 * means.
+	 */
+	migratedKeys?: number;
+
+	/**
 	 * Semantic retrieval coverage.
 	 *
 	 * Coverage rather than a boolean: an embedder that is loaded but has

@@ -25,6 +25,7 @@ import type {
 } from "@inspector-hook/protocol";
 import { ErrorCodes } from "@inspector-hook/protocol";
 import type { InspectorCore } from "../core.js";
+import { buildGraph } from "../research/graphify.js";
 import {
 	deleteMemoryFile,
 	indexMemoryFile,
@@ -39,6 +40,13 @@ import type { ContextItemKind } from "@inspector-hook/protocol";
 import { collectDigestInput } from "../memory/digest-input.js";
 import { renderTray } from "../context/render.js";
 import { composeFromTranscript, composeTitle } from "../context/compose.js";
+import {
+	deleteBundle,
+	listBundles,
+	loadIntoTray,
+	readBundle,
+	saveBundle,
+} from "../context/bundle-store.js";
 import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
@@ -776,6 +784,26 @@ export class IpcServer {
 			this.core.getGraphify(asStr(asRec(params)?.root)).status(),
 		);
 
+		/**
+		 * Rebuild the graph.
+		 *
+		 * The plan's "Inspector Hook can trigger graphify builds" was inert
+		 * without this: `buildGraph` existed, was exported and was tested, and
+		 * no IPC method reached it, so nothing in the live system could ever
+		 * call it. Runs `graphify update`, which is AST-only -- no LLM, no API
+		 * key, no network.
+		 */
+		this.methods.set("graphify.build", async (params) => {
+			const rec = asRec(params) ?? {};
+			const root = asStr(rec.root);
+			const result = await buildGraph(root && root.startsWith("/") ? root : this.core.getWorkspaceRoot(), {
+				timeoutMs: asNum(rec.timeoutMs),
+			});
+			// The fresh status is returned with it, so a caller does not have to
+			// ask again to find out whether the build changed anything.
+			return { ...result, status: this.core.getGraphify(root).status() };
+		});
+
 		this.methods.set("graphify.search", async (params) => {
 			const rec = asRec(params) ?? {};
 			const query = asStr(rec.query);
@@ -1391,6 +1419,53 @@ export class IpcServer {
 						}
 					: {}),
 			};
+		});
+
+		// ---------------------------------------------------------------------
+		// Bundles: a tray worth keeping.
+		//
+		// Stored as the ITEM LIST, never as rendered text. A rendered string is
+		// a snapshot of the redaction patterns and the cap on the day it was
+		// saved; keeping items means a bundle loaded later is re-rendered
+		// through today's rules, so a secret pattern added since is applied to
+		// old material rather than a stale copy shipping it.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("context.saveBundle", async (params) => {
+			const rec = asRec(params) ?? {};
+			const tray = await readTray(this.storagePath);
+			return saveBundle(this.storagePath, {
+				name: asStr(rec.name) ?? "",
+				description: asStr(rec.description),
+				id: asStr(rec.id),
+				items: tray.items,
+			});
+		});
+
+		this.methods.set("context.listBundles", async () => ({
+			bundles: await listBundles(this.storagePath),
+		}));
+
+		this.methods.set("context.deleteBundle", async (params) => ({
+			deleted: await deleteBundle(this.storagePath, asStr(asRec(params)?.id) ?? ""),
+		}));
+
+		/**
+		 * Put a bundle back in the tray.
+		 *
+		 * Returns the preview alongside, re-rendered now -- which is the point of
+		 * storing items rather than text.
+		 */
+		this.methods.set("context.loadBundle", async (params) => {
+			const rec = asRec(params) ?? {};
+			const bundle = await readBundle(this.storagePath, asStr(rec.id) ?? "");
+			if (!bundle) return { ok: false, reason: "No such bundle." };
+			const mode = asStr(rec.mode) === "append" ? "append" : "replace";
+			const saved = await writeTray(
+				this.storagePath,
+				loadIntoTray(await readTray(this.storagePath), bundle, mode),
+			);
+			return { ok: true, tray: saved, preview: renderTray(saved) };
 		});
 
 		/** Exactly what arming would write. Same renderer, no second path. */

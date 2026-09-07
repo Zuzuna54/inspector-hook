@@ -169,3 +169,150 @@
 }
 
 .tray-armed-row .btn { margin-left: auto; }
+
+/* "What would load" (P6): the composed picture of a session's starting context. */
+
+.tray-tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tray-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-secondary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.tray-tab.active {
+  color: var(--fg-primary);
+  border-bottom-color: var(--accent);
+}
+
+.tray-load { padding: var(--spacing-sm); }
+
+.tray-load-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Only the first group is a genuine "every session starts with this", so it is
+   the only one given the accent. The others are reachable or unreachable, not
+   loaded, and colouring them the same would imply a total they are not part of. */
+.tray-load-group.always { border-left: 3px solid var(--accent); }
+.tray-load-group.ondemand { border-left: 3px solid var(--border); }
+.tray-load-group.never { border-left: 3px solid var(--fg-muted); opacity: 0.85; }
+
+.tray-load-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  margin-bottom: var(--spacing-xs);
+}
+
+.tray-load-total {
+  margin-left: auto;
+  font-family: var(--font-family-mono);
+  color: var(--fg-primary);
+}
+
+.tray-load-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--font-size-xs);
+}
+
+.tray-load-list li {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: 2px 0;
+}
+
+.tray-load-name { color: var(--fg-primary); }
+
+.tray-load-meta {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.tray-load-none { color: var(--fg-muted); }
+
+/* Stated as where reading stops, never as an error: nothing truncates the file,
+   and the largest index in this corpus is 16 lines against a limit of 200. */
+.tray-load-budget { color: var(--color-warning); }
+
+.tray-load-hint { margin: var(--spacing-xs) 0 0; }
+
+/* Saved bundles (P7). */
+
+.tray-bundles { padding: var(--spacing-sm); }
+
+.tray-bundle-save {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.tray-bundle-input {
+  flex: 1;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: var(--font-size-xs);
+}
+
+.tray-bundle-hint { margin: 0 0 var(--spacing-sm); }
+
+.tray-bundle {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+  background: var(--bg-secondary);
+}
+
+.tray-bundle-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+}
+
+.tray-bundle-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-primary);
+}
+
+/* "about", because a bundle stores items and is re-rendered on load — the
+   exact injected size depends on today's redaction rules, not the day it was
+   saved. Stating a precise figure here would be a number that quietly differs
+   from what actually gets sent. */
+.tray-bundle-meta {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-family: var(--font-family-mono);
+}
+
+.tray-bundle-desc {
+  font-size: var(--font-size-xs);
+  color: var(--fg-secondary);
+  margin-top: 2px;
+}
+
+.tray-bundle-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}

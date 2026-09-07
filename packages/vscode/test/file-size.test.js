@@ -46,7 +46,13 @@ const OVER_LIMIT = {
 	// Raised deliberately rather than quietly: M3's switch had to live in the
 	// spawn environment, which is core-bridge's own job and not one of the
 	// per-IPC-method domains queued for extraction. The split is still owed.
-	"src/core-bridge.ts": { lines: 653, why: "one method per IPC call; more domains to split out" },
+	"src/core-bridge.ts": {
+		lines: 671,
+		// +18 for findCorePath: a packaged VSIX has no node_modules, so the core
+		// is now looked up as a bundled file with the old location kept as a
+		// fallback for already-installed extensions.
+		why: "one method per IPC call; more domains to split out",
+	},
 };
 
 const ROOTS = ["media", "src"];
@@ -112,7 +118,8 @@ describe("file size", () => {
 		const grown = [];
 		for (const [relPath, entry] of Object.entries(OVER_LIMIT)) {
 			const actual = lineCount(relPath);
-			if (actual > entry.lines) grown.push(`${relPath}: ${entry.lines} → ${actual}`);
+			if (actual > entry.lines)
+				grown.push(`${relPath}: ${entry.lines} → ${actual}`);
 		}
 		assert.deepEqual(grown, [], "allowlisted files grew; split them instead");
 	});
@@ -121,8 +128,15 @@ describe("file size", () => {
 		// A bare number invites raising it. A reason has to be written, and a
 		// reviewer can tell whether it is still true.
 		for (const [relPath, entry] of Object.entries(OVER_LIMIT)) {
-			assert.equal(typeof entry.lines, "number", `${relPath} needs a line count`);
-			assert.ok(entry.why && entry.why.length > 10, `${relPath} needs a reason`);
+			assert.equal(
+				typeof entry.lines,
+				"number",
+				`${relPath} needs a line count`,
+			);
+			assert.ok(
+				entry.why && entry.why.length > 10,
+				`${relPath} needs a reason`,
+			);
 		}
 	});
 
@@ -139,7 +153,8 @@ describe("file size", () => {
 
 	it("lists only files that exist", () => {
 		const missing = Object.keys(OVER_LIMIT).filter(
-			(relPath) => !statSync(join(packageRoot, relPath), { throwIfNoEntry: false }),
+			(relPath) =>
+				!statSync(join(packageRoot, relPath), { throwIfNoEntry: false }),
 		);
 		assert.deepEqual(missing, [], "allowlisted file does not exist");
 	});
