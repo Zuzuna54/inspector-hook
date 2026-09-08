@@ -33,6 +33,18 @@ export interface HttpServerOptions {
 	logManager: LogManager;
 	sessionManager: SessionManager;
 	fileTracker: FileTracker;
+	/**
+	 * Supplies a prior-work briefing for the subagent hook (M5).
+	 *
+	 * A callback rather than the core itself: the core constructs this server,
+	 * so holding a reference back would be circular. Optional, so the server
+	 * stays constructible in tests without one.
+	 */
+	getBriefing?: (options: {
+		task?: string;
+		projectKey?: string;
+		maxChars?: number;
+	}) => Promise<{ text: string; cited: number; empty: boolean }>;
 }
 
 export class HttpServer {
@@ -44,11 +56,14 @@ export class HttpServer {
 	private fileTracker: FileTracker;
 	private rateLimiter: RateLimiter;
 	private redactSecrets: boolean;
+	/** Supplies the prior-work briefing, when a core provided one. */
+	private getBriefingFn?: HttpServerOptions["getBriefing"];
 	private pruneInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(options: HttpServerOptions) {
 		this.requestedPort = options.port;
 		this.redactSecrets = options.redactSecrets !== false;
+		this.getBriefingFn = options.getBriefing;
 		this.rateLimiter = new RateLimiter({
 			limit: RATE_LIMIT,
 			windowMs: RATE_WINDOW_MS,
@@ -206,6 +221,17 @@ export class HttpServer {
 					}
 					break;
 
+				// The subagent briefing hook posts here. HTTP rather than IPC
+				// because a hook is a short-lived shell script and the core's
+				// stdio belongs to the extension.
+				case "/api/briefing":
+					if (req.method === "POST") {
+						await this.handleBriefing(req, res);
+					} else {
+						this.sendMethodNotAllowed(res);
+					}
+					break;
+
 				case "/api/health":
 					this.handleHealth(res);
 					break;
@@ -252,10 +278,7 @@ export class HttpServer {
 		const limit = this.rateLimiter.check(peer);
 		res.setHeader("X-RateLimit-Limit", String(RATE_LIMIT));
 		res.setHeader("X-RateLimit-Remaining", String(limit.remaining));
-		res.setHeader(
-			"X-RateLimit-Reset",
-			String(Math.ceil(limit.resetAt / 1000)),
-		);
+		res.setHeader("X-RateLimit-Reset", String(Math.ceil(limit.resetAt / 1000)));
 		if (!limit.allowed) {
 			this.sendJson(res, { success: false, error: "Rate limit exceeded" }, 429);
 			return;
@@ -272,9 +295,7 @@ export class HttpServer {
 			// carry prompts, tool I/O and file contents, so they routinely contain
 			// keys and tokens -- and everything here is written to disk in plain
 			// text and shown on screen.
-			const logData = this.redactSecrets
-				? redactPayload(parsed).value
-				: parsed;
+			const logData = this.redactSecrets ? redactPayload(parsed).value : parsed;
 
 			// Validate required fields
 			if (!logData.hook || !logData.event) {
@@ -347,6 +368,45 @@ export class HttpServer {
 	/**
 	 * Handle GET /api/health
 	 */
+	/**
+	 * Answer a briefing request.
+	 *
+	 * Always answers, and answers with an empty briefing rather than an error
+	 * when no provider is configured: the caller is a PreToolUse hook, and a
+	 * hook that gets a 500 must not be the reason a tool call fails.
+	 */
+	private async handleBriefing(
+		req: IncomingMessage,
+		res: ServerResponse,
+	): Promise<void> {
+		let body: Record<string, unknown> = {};
+		try {
+			body = JSON.parse(await this.readBody(req)) as Record<string, unknown>;
+		} catch {
+			// A malformed request still gets a usable answer.
+		}
+		if (!this.getBriefingFn) {
+			this.sendJson(res, { text: "", cited: 0, empty: true });
+			return;
+		}
+		try {
+			const briefing = await this.getBriefingFn({
+				task: typeof body.task === "string" ? body.task : undefined,
+				projectKey:
+					typeof body.projectKey === "string" ? body.projectKey : undefined,
+				maxChars: typeof body.maxChars === "number" ? body.maxChars : undefined,
+			});
+			this.sendJson(res, briefing);
+		} catch (error) {
+			this.sendJson(res, {
+				text: "",
+				cited: 0,
+				empty: true,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
 	private handleHealth(res: ServerResponse): void {
 		this.sendJson(res, {
 			status: "healthy",

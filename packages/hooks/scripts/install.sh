@@ -56,6 +56,10 @@ CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-context.sh"
 # the same reason: the observer is silent on every event by contract, and this
 # one must print.
 PROMPT_CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-prompt-context.sh"
+# The subagent briefer: rewrites the prompt of an Agent/Task call to prepend
+# prior work. Registered on PreToolUse, and INERT unless
+# INSPECTOR_HOOK_BRIEF_SUBAGENTS=1 -- registering it does not turn it on.
+SUBAGENT_BRIEF_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-subagent-brief.sh"
 SETTINGS="${HOME}/.claude/settings.json"
 DRY_RUN=0
 UNINSTALL=0
@@ -200,13 +204,18 @@ build_install() {
   # session_id from its own payload: a registered hook fires for EVERY session,
   # so without that filter "send to this session" would mean "send to all".
   json="$(register_one "$json" "UserPromptSubmit" "$PROMPT_CONTEXT_SCRIPT")"
+  # Registered last on PreToolUse so it runs after the observer has recorded the
+  # call. It only acts on Agent/Task, and only when explicitly enabled.
+  json="$(register_one "$json" "PreToolUse" "$SUBAGENT_BRIEF_SCRIPT")"
   printf '%s' "$json"
 }
 
 # Remove only entries whose command is ours, then drop any group or event that
 # is left empty. Everything belonging to another tool survives.
 build_uninstall() {
-  jq --argjson cmds "[\"$HOOK_SCRIPT\", \"$CONTEXT_SCRIPT\", \"$PROMPT_CONTEXT_SCRIPT\"]" '
+  # Every script the installer can add must appear here, or uninstall leaves it
+  # behind -- the exact install/uninstall drift this file was rewritten to stop.
+  jq --argjson cmds "[\"$HOOK_SCRIPT\", \"$CONTEXT_SCRIPT\", \"$PROMPT_CONTEXT_SCRIPT\", \"$SUBAGENT_BRIEF_SCRIPT\"]" '
     if .hooks == null then .
     else
       .hooks |= with_entries(

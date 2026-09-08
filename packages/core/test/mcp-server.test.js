@@ -118,18 +118,63 @@ function fakeCore(over = {}) {
 }
 
 describe("mcp: the tools it advertises", () => {
-	it("declares three tools with schemas a client can use", () => {
-		assert.equal(TOOLS.length, 3);
+	it("declares four tools with schemas a client can use", () => {
+		assert.equal(TOOLS.length, 4);
 		for (const tool of TOOLS) {
 			assert.ok(tool.name, "every tool is named");
 			assert.ok(tool.description.length > 40, `${tool.name} explains itself`);
 			assert.equal(tool.inputSchema.type, "object");
 		}
 		assert.deepEqual(TOOLS.map((t) => t.name).sort(), [
+			"get_prior_context",
 			"list_agents",
 			"search_code",
 			"search_history",
 		]);
+		// Discovery comes FIRST in the list: a client reading tools in order
+		// should meet the one that needs no query before the ones that do.
+		assert.equal(TOOLS[0].name, "get_prior_context");
+	});
+});
+
+describe("mcp: get_prior_context answers without a query", () => {
+	it("REGRESSION: needs no query, because a fresh agent has none", async () => {
+		// The gap the MCP server alone left: search requires knowing what to
+		// look for, and an agent that has not started cannot know that yet.
+		let asked;
+		const core = {
+			getBriefing: async (o) => {
+				asked = o;
+				return {
+					text: "## Prior work\n- something relevant",
+					cited: 1,
+					searched: 100,
+					empty: false,
+					sections: [],
+					retrieval: "lexical",
+				};
+			},
+		};
+		const text = await callTool(core, "get_prior_context", { task: "audit x" });
+		assert.match(text, /Prior work/);
+		assert.equal(asked.task, "audit x");
+	});
+
+	it("says there is nothing to reuse rather than inventing a briefing", async () => {
+		const core = {
+			getBriefing: async () => ({
+				text: "",
+				cited: 0,
+				searched: 874,
+				empty: true,
+				sections: [],
+				retrieval: "lexical",
+			}),
+		};
+		const text = await callTool(core, "get_prior_context", { task: "brand new" });
+		assert.match(text, /No prior work/);
+		assert.match(text, /874 indexed/, "states its coverage");
+		assert.match(text, /proceed fresh/);
 	});
 });
 
@@ -312,7 +357,7 @@ describe("mcp: the stdio transport", () => {
 			params: { name: "list_agents", arguments: {} },
 		});
 		await h.settle();
-		assert.equal(h.replies[0].result.tools.length, 3);
+		assert.equal(h.replies[0].result.tools.length, 4);
 		assert.equal(h.replies[1].result.content[0].type, "text");
 		assert.match(h.replies[1].result.content[0].text, /NEVER REPORTED/);
 		h.server.close();
@@ -411,7 +456,7 @@ describe("mcp: --mcp owns stdio alone", () => {
 				`stdio carried ${notifications.length} unsolicited notifications`,
 			);
 			assert.equal(parsed[0].id, 1);
-			assert.equal(parsed[0].result.tools.length, 3);
+			assert.equal(parsed[0].result.tools.length, 4);
 		} finally {
 			child.kill();
 			await rm(storagePath);

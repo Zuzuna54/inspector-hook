@@ -74,12 +74,40 @@ export interface McpTool {
 /** The tools this server advertises. */
 export const TOOLS: McpTool[] = [
 	{
+		name: "get_prior_context",
+		description:
+			"START HERE before researching or planning. Returns what is already " +
+			"known about a task from earlier work on this repository: conclusions " +
+			"already reached, earlier agents whose findings never reached anyone, " +
+			"the files that work touched, and pages already fetched. Needs no " +
+			"query — search requires knowing what to look for, and an agent that " +
+			"has not started cannot know that yet. Returns nothing when there is " +
+			"no prior work, which is a real answer.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				task: {
+					type: "string",
+					description:
+						"What you are about to do. Drives relevance; pass your own " +
+						"instructions verbatim if you have nothing shorter.",
+				},
+				maxChars: {
+					type: "number",
+					description: "Ceiling on the briefing (default 2000).",
+				},
+			},
+		},
+	},
+	{
 		name: "search_history",
 		description:
-			"Search this machine's Claude Code history: web lookups, subagent " +
-			"reports, prompts, conclusions and files read. Cross-project by " +
-			"default, which is the point — it answers 'where did I solve this " +
-			"before' across every repository, which per-project memory cannot.",
+			"Call this BEFORE doing research a previous session may already have " +
+			"done. Searches this machine's Claude Code history: web lookups, " +
+			"subagent reports, prompts, conclusions and files read. Cross-project " +
+			"by default, which is the point — it answers 'where did I solve this " +
+			"before' across every repository, which per-project memory cannot. " +
+			"If you do not know what to search for, call get_prior_context first.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -103,11 +131,12 @@ export const TOOLS: McpTool[] = [
 	{
 		name: "list_agents",
 		description:
-			"List agents and subagents this machine has run: what each was asked, " +
-			"how many tool calls it made, how long it took, and whether its " +
-			"findings ever came back. An agent whose result is a spawn " +
-			"acknowledgement never reported to its parent, so its work is only " +
-			"visible here.",
+			"Call this when a task may already have been attempted by another " +
+			"agent. Lists agents and subagents this machine has run: what each " +
+			"was asked, how many tool calls it made, how long it took, and " +
+			"whether its findings ever came back. An agent whose result is a " +
+			"spawn acknowledgement never reported to its parent, so its work is " +
+			"visible ONLY here — those are the ones worth reading.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -155,6 +184,20 @@ export async function callTool(
 	args: Record<string, unknown>,
 ): Promise<string> {
 	switch (name) {
+		case "get_prior_context": {
+			const briefing = await core.getBriefing({
+				task: asStr(args.task),
+				maxChars: asNum(args.maxChars),
+			});
+			if (briefing.empty) {
+				return (
+					"No prior work found for this task in " +
+					`${briefing.searched} indexed items. Nothing to reuse — proceed fresh.`
+				);
+			}
+			return bounded(briefing.text);
+		}
+
 		case "search_history": {
 			const query = asStr(args.query);
 			if (!query) return "No query given.";

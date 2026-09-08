@@ -796,6 +796,22 @@ export class IpcServer {
 			return id ? this.core.getAgentTracker().get(id) : null;
 		});
 
+		/**
+		 * Prior work relevant to a task about to start.
+		 *
+		 * The answer to "what should a later agent ask?" -- it needs no query,
+		 * because an agent that has not started cannot know what to search for.
+		 */
+		this.methods.set("context.getBriefing", async (params) => {
+			const p = asRec(params) ?? {};
+			return this.core.getBriefing({
+				task: asStr(p.task),
+				projectKey: asStr(p.projectKey),
+				maxChars: asNum(p.maxChars),
+				root: asStr(p.root),
+			});
+		});
+
 		this.methods.set("agents.getStats", async () =>
 			this.core.getAgentTracker().stats(),
 		);
@@ -1478,6 +1494,68 @@ export class IpcServer {
 		this.methods.set("context.deleteBundle", async (params) => ({
 			deleted: await deleteBundle(this.storagePath, asStr(asRec(params)?.id) ?? ""),
 		}));
+
+		// ---------------------------------------------------------------------
+		// Cross-corpus search (P8).
+		//
+		// Four corpora, returned as GROUPS. There is deliberately no method
+		// here that returns one merged ranked list: each corpus is scored by a
+		// different index, so a combined order would be arbitrary while looking
+		// authoritative. See protocol/src/find.ts.
+		// ---------------------------------------------------------------------
+		this.methods.set("context.find", async (params) => {
+			const rec = asRec(params) ?? {};
+			return this.core.getContextFind().find(asStr(rec.query) ?? "", {
+				projectKey: asStr(rec.projectKey),
+				limit: asNum(rec.limit),
+				refresh: asBool(rec.refresh),
+			});
+		});
+
+		this.methods.set("context.findStats", async () =>
+			this.core.getContextFind().stats(),
+		);
+
+		this.methods.set("context.findRefresh", async () => {
+			await this.core.getContextFind().refresh();
+			return this.core.getContextFind().stats();
+		});
+
+		/**
+		 * Add a search hit to the tray.
+		 *
+		 * Resolves the hit back to its SOURCE rather than reusing the snippet
+		 * the search returned. A snippet is 600 characters; adding one while
+		 * the UI says "added the memory file" would inject a silently truncated
+		 * file, which is the class of quiet wrongness this project keeps
+		 * finding rather than a rounding error.
+		 */
+		this.methods.set("context.addFromFind", async (params) => {
+			const id = asStr(asRec(params)?.id) ?? "";
+			const resolved = await this.core.getContextFind().resolveHit(id);
+			if (!resolved) {
+				return {
+					ok: false,
+					reason:
+						"That result no longer resolves to a source — it may have been deleted since the index was built.",
+				};
+			}
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: resolved.kind as ContextItemKind,
+				title: resolved.title,
+				text: resolved.text,
+				source: resolved.source,
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return {
+				ok: true,
+				tray: saved,
+				item: result.item,
+				preview: renderTray(saved),
+			};
+		});
 
 		/**
 		 * Put a bundle back in the tray.

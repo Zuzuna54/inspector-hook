@@ -159,6 +159,20 @@ export {
 	type ArmedContext,
 	type ArmedTier,
 } from "./context/armed-store.js";
+export { ContextIndex, findResult } from "./context/context-index.js";
+export { ContextFindService, STALE_AFTER_MS } from "./context/find-service.js";
+export type { FindOptions, FindSources } from "./context/find-service.js";
+export type { ContextSearchOptions } from "./context/context-index.js";
+export {
+	changedLines,
+	digestDoc,
+	fileChangeDoc,
+	LOCAL_CORPORA,
+	memoryDoc,
+	snippetOf,
+	summaryDoc,
+} from "./context/context-corpus.js";
+
 
 export {
 	collectDigestInput,
@@ -177,6 +191,15 @@ export {
 	startMcpServer,
 	type McpTool,
 } from "./mcp/mcp-server.js";
+
+export {
+	DEFAULT_MAX_CHARS,
+	MIN_SCORE,
+	PER_SECTION,
+	buildBriefing,
+	type Briefing,
+	type BriefingSection,
+} from "./research/briefing.js";
 
 // Export agent tracking (Milestone 5)
 export {
