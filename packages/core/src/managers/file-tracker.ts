@@ -49,6 +49,27 @@ function isLiveVersion(v: number | string): boolean {
 	return LIVE_VERSION_ALIASES.has(typeof v === "string" ? v.toLowerCase() : v);
 }
 
+
+/**
+ * Replace a 1-based line range with new lines.
+ *
+ * Line-based rather than character-based because a diff hunk is expressed in
+ * lines, and because a file's trailing newline must survive the round trip --
+ * splitting on "\n" and rejoining preserves it exactly, where a regex splice
+ * would not.
+ */
+function spliceLines(
+	content: string,
+	start1Based: number,
+	count: number,
+	replacement: string[],
+): string {
+	const lines = content.split("\n");
+	const start = Math.max(0, start1Based - 1);
+	lines.splice(start, count, ...replacement);
+	return lines.join("\n");
+}
+
 export interface FileTrackerOptions {
 	workspaceRoot: string;
 	storagePath: string;
@@ -538,6 +559,167 @@ export class FileTracker extends EventEmitter {
 			change.afterContent,
 			{ contextLines: options?.contextLines },
 		);
+	}
+
+	/**
+	 * Apply or discard ONE hunk of a change.
+	 *
+	 * ## The bug this replaces
+	 *
+	 * `panel.ts` handled `keep-hunk` by calling `keepChange` and `revert-hunk`
+	 * by calling `revertChange` -- the WHOLE change, every hunk of it -- and
+	 * then reported success as `keep-hunk-result`. Clicking "revert this hunk"
+	 * reverted the entire file. Not inert: destructive, silent, and it touched
+	 * the user's files. Its own comment said "for now, keep the whole change".
+	 *
+	 * ## The model, which falls out of how diffs are stored
+	 *
+	 * Hunks are not persisted; `getDiff` recomputes them from `beforeContent`
+	 * and `afterContent` on demand. So resolving one hunk is just moving one of
+	 * those two contents for that hunk's region, and the recomputed diff then
+	 * has one fewer hunk. No per-hunk status has to be tracked, and the two
+	 * operations are exact mirrors:
+	 *
+	 *   revert  afterContent[hunk region]  <- the hunk's OLD lines, file written
+	 *   keep    beforeContent[hunk region] <- the hunk's NEW lines, no write
+	 *
+	 * When no hunks remain the change is fully resolved and archived, with the
+	 * resolution taken from whichever operation was applied last.
+	 *
+	 * ## Why it verifies against disk first
+	 *
+	 * Splicing by line number into a file that has moved on since the change was
+	 * captured would corrupt it. If the file on disk no longer matches the
+	 * content this change was built from, the operation is REFUSED rather than
+	 * attempted -- a refusal is recoverable and a mangled file is not.
+	 */
+	async resolveHunk(
+		changeId: string,
+		hunkIndex: number,
+		action: "keep" | "revert",
+	): Promise<{
+		success: boolean;
+		reason?: string;
+		remainingHunks?: number;
+		changeResolved?: boolean;
+		newVersionNumber?: number;
+	}> {
+		const change = this.changes.get(changeId);
+		if (!change) return { success: false, reason: "change not found" };
+
+		const diff = await this.getDiff(changeId);
+		const hunk = diff?.hunks?.[hunkIndex];
+		if (!hunk) {
+			return {
+				success: false,
+				reason: `hunk ${hunkIndex} does not exist (change has ${diff?.hunks?.length ?? 0})`,
+			};
+		}
+
+		// The two sides of this hunk, as they exist in each content.
+		const oldSide = hunk.lines
+			.filter((l) => l.type === "removed" || l.type === "context")
+			.map((l) => l.content);
+		const newSide = hunk.lines
+			.filter((l) => l.type === "added" || l.type === "context")
+			.map((l) => l.content);
+
+		if (action === "revert") {
+			// Refuse if the file is no longer what this change describes.
+			let onDisk: string;
+			try {
+				onDisk = await readFile(change.filePath, "utf-8");
+			} catch (error) {
+				return { success: false, reason: `cannot read file: ${error}` };
+			}
+			if (onDisk !== change.afterContent) {
+				return {
+					success: false,
+					reason:
+						"the file on disk no longer matches this change; " +
+						"reverting one hunk by line number would corrupt it",
+				};
+			}
+
+			const next = spliceLines(
+				change.afterContent,
+				hunk.newStart,
+				hunk.newLines,
+				oldSide,
+			);
+			try {
+				await writeFile(change.filePath, next, "utf-8");
+			} catch (error) {
+				return { success: false, reason: `failed to write file: ${error}` };
+			}
+			change.afterContent = next;
+			change.afterHash = this.diffEngine.computeHash(next);
+
+			// Same reasoning as revertChange: the file is already written, so a
+			// failure to record history must not report the write as failed.
+			let newVersionNumber: number | undefined;
+			try {
+				const version = await this.addVersion(change.filePath, next, {
+					sessionId: change.sessionId,
+					changeId: change.id,
+					tool: "revert-hunk",
+				});
+				newVersionNumber = version.versionNumber;
+			} catch {
+				// History is incomplete for this file; the revert stands.
+			}
+
+			return this.finishHunk(change, "reverted", newVersionNumber);
+		}
+
+		// Keep: the file already holds this hunk, so nothing is written. Moving
+		// beforeContent forward is what removes it from the pending diff.
+		change.beforeContent = spliceLines(
+			change.beforeContent,
+			hunk.oldStart,
+			hunk.oldLines,
+			newSide,
+		);
+		change.beforeHash = this.diffEngine.computeHash(change.beforeContent);
+		return this.finishHunk(change, "kept");
+	}
+
+	/** Persist a per-hunk resolution and archive the change once none remain. */
+	private async finishHunk(
+		change: FileChange,
+		resolution: "kept" | "reverted",
+		newVersionNumber?: number,
+	): Promise<{
+		success: boolean;
+		remainingHunks: number;
+		changeResolved: boolean;
+		newVersionNumber?: number;
+	}> {
+		const remaining = (await this.getDiff(change.id))?.hunks?.length ?? 0;
+
+		if (remaining === 0) {
+			change.status = resolution;
+			await this.archiveResolvedChange(change, resolution);
+			this.emit(
+				resolution === "kept" ? "change:kept" : "change:reverted",
+				change,
+			);
+			return {
+				success: true,
+				remainingHunks: 0,
+				changeResolved: true,
+				newVersionNumber,
+			};
+		}
+
+		await this.persistChange(change);
+		this.emit("change:tracked", change);
+		return {
+			success: true,
+			remainingHunks: remaining,
+			changeResolved: false,
+			newVersionNumber,
+		};
 	}
 
 	/**

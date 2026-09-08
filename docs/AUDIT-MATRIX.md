@@ -116,13 +116,13 @@ work". Two rows changed status purely by someone running the command.
 | Phase | Criterion | Why |
 |---|---|---|
 | 1 | Core process starts in < 500ms | **533ms measured** — over the 500ms target |
-| 2 | Add hunk-level operations | `keepHunk`/`revertHunk` exist in `api.js` and `panel.ts`; no core implementation behind them |
+| ~~2~~ | ~~Add hunk-level operations~~ | **FIXED 2026-09-08.** Worse than missing: the webview's per-hunk path called `keepChange`/`revertChange`, so "revert this hunk" reverted the WHOLE file and reported it as a per-hunk result. `FileTracker.resolveHunk` implements it, and refuses when the file on disk has moved on · `hunk-operations.test.js` |
 | 3 | Add search functionality | Global search affects the Logs view only; other views ignore it |
 | 4 | Implement advanced hooks (context, backup, subagent) | Context injection ships (`inspector-context.sh`); backup and subagent hooks do not |
 | 4 | 100% of built-in hooks functional on clean install | The observer and context hooks ship; the security/quality/notification set does not |
-| 5 | Create Rule types in protocol | `protocol/src/automation.ts` declares `Rule`/`RuleCondition`/`RuleAction` — **zero consumers** |
-| 5 | Create StagedChange types | `automation.ts` declares `StagedChange`/`ApplyResult` — **zero consumers** |
-| 5 | Create Analytics types | `automation.ts` declares `Analytics`/`TimeSeriesData`/`TopItem` — **zero consumers** |
+| 5 | Create Rule types in protocol | `protocol/src/automation.ts` declares `Rule`/`RuleCondition`/`RuleAction` — **zero consumers** · **Labelled DECLARED, NOT IMPLEMENTED in the file itself (2026-09-08)** so the types no longer read as a contract; still unimplemented |
+| 5 | Create StagedChange types | `automation.ts` declares `StagedChange`/`ApplyResult` — **zero consumers** · **Labelled DECLARED, NOT IMPLEMENTED in the file itself (2026-09-08)** so the types no longer read as a contract; still unimplemented |
+| 5 | Create Analytics types | `automation.ts` declares `Analytics`/`TimeSeriesData`/`TopItem` — **zero consumers** · **Labelled DECLARED, NOT IMPLEMENTED in the file itself (2026-09-08)** so the types no longer read as a contract; still unimplemented |
 | 6 | Security audit completed | Partial. Origin rejection, rate limiting, redaction and a **path-traversal fix** landed; no full audit |
 | 6 | Performance benchmarks met | Hook 37ms and payload size met; **core start 533ms misses the 500ms target** |
 | 6 | All features functional | The shipped views work; Phase 4 and 5 features do not exist |

@@ -47,10 +47,13 @@ const OVER_LIMIT = {
 	// spawn environment, which is core-bridge's own job and not one of the
 	// per-IPC-method domains queued for extraction. The split is still owed.
 	"src/core-bridge.ts": {
-		lines: 671,
+		lines: 694,
 		// +18 for findCorePath: a packaged VSIX has no node_modules, so the core
 		// is now looked up as a bundled file with the old location kept as a
 		// fallback for already-installed extensions.
+		// +23 for resolveHunk: per-hunk keep/revert used to call keepChange /
+		// revertChange -- the WHOLE change -- so the webview reverted an entire
+		// file when asked for one hunk.
 		why: "one method per IPC call; more domains to split out",
 	},
 };

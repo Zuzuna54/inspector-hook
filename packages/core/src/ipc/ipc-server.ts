@@ -897,6 +897,25 @@ export class IpcServer {
 		this.methods.set("fileChanges.getDiff", async (params) =>
 			this.fileTracker.getDiff((params as any).changeId),
 		);
+		/**
+		 * Resolve ONE hunk. See FileTracker.resolveHunk for why this is not
+		 * expressible as keep/revert of the whole change -- which is what the
+		 * webview used to do while reporting a per-hunk result.
+		 */
+		this.methods.set("fileChanges.resolveHunk", async (params) => {
+			const rec = asRec(params) ?? {};
+			const changeId = asStr(rec.changeId);
+			const hunkIndex = asNum(rec.hunkIndex);
+			const action = asStr(rec.action);
+			if (!changeId || hunkIndex === undefined) {
+				return { success: false, reason: "changeId and hunkIndex are required" };
+			}
+			if (action !== "keep" && action !== "revert") {
+				return { success: false, reason: `unknown action: ${action}` };
+			}
+			return this.fileTracker.resolveHunk(changeId, hunkIndex, action);
+		});
+
 		this.methods.set("fileChanges.keep", async (params) =>
 			this.fileTracker.keepChange((params as any).changeId),
 		);

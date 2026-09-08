@@ -3,6 +3,21 @@
  *
  * Split out of the former single index.ts; index.ts re-exports every
  * name here, so imports from @inspector-hook/protocol are unchanged.
+ *
+ * ## DECLARED, NOT IMPLEMENTED
+ *
+ * Every type below has ZERO consumers. Measured across `packages/core` and
+ * `packages/vscode`, source and tests: `Rule`, `RuleCondition`, `RuleAction`,
+ * `StagedChange`, `ApplyResult`, `Analytics`, `TimeSeriesData` and `TopItem`
+ * are referenced by nothing but this file and the barrel that re-exports it.
+ *
+ * They are a Phase 5 specification, kept because the spec is worth keeping --
+ * but an exported type with no implementation behind it reads like a contract,
+ * and someone importing `Rule` expecting a rules engine will find there is no
+ * engine. Hence this note rather than silence.
+ *
+ * Do not treat the presence of these types as evidence that automation exists;
+ * the audit matrix records them as specification only.
  */
 
 import type { FileChange } from "./file-change.js";

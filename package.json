@@ -7,11 +7,13 @@
 		"dev": "pnpm -r --parallel run dev",
 		"clean": "pnpm -r run clean",
 		"typecheck": "pnpm -r run typecheck",
-		"lint": "pnpm -r run lint"
+		"lint": "biome check packages scripts",
+		"lint:fix": "biome check --write packages scripts"
 	},
 	"devDependencies": {
 		"typescript": "^5.3.0",
-		"esbuild": "^0.20.0"
+		"esbuild": "^0.20.0",
+		"@biomejs/biome": "2.5.12"
 	},
 	"engines": {
 		"node": ">=18.0.0",
