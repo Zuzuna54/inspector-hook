@@ -11,18 +11,28 @@ import type {
 	SessionSummaryRecord,
 	Stats,
 } from "@inspector-hook/protocol";
+import {
+	CHANGE_SCAN_LIMIT,
+	ContextFindService,
+} from "./context/find-service.js";
 import { VERSION } from "./index.js";
 import { IpcServer } from "./ipc/ipc-server.js";
+import { AgentTracker } from "./managers/agent-tracker.js";
 import { FileTracker } from "./managers/file-tracker.js";
 import { LogManager } from "./managers/log-manager.js";
 import { SessionManager } from "./managers/session-manager.js";
 import { collectDigestInput } from "./memory/digest-input.js";
-import { resolveMemoryDir, writeMemoryFile } from "./memory/native-memory.js";
+import {
+	listMemoryProjects,
+	resolveMemoryDir,
+	writeMemoryFile,
+} from "./memory/native-memory.js";
 import { buildSessionDigest } from "./memory/session-digest.js";
 import { migrateStore } from "./persistence/migrations.js";
 import { PersistenceStore } from "./persistence/store.js";
-import { ResearchIndex } from "./research/research-index.js";
+import { type Briefing, buildBriefing } from "./research/briefing.js";
 import { GraphifyReader } from "./research/graphify.js";
+import { ResearchIndex } from "./research/research-index.js";
 import { HttpServer } from "./server/http-server.js";
 
 export class InspectorCore {
@@ -33,6 +43,7 @@ export class InspectorCore {
 	private fileTracker: FileTracker;
 	private persistence: PersistenceStore;
 	private researchIndex: ResearchIndex;
+	private contextFind: ContextFindService;
 	private readonly workspaceRoot: string;
 	/**
 	 * One graph reader per repository.
@@ -42,6 +53,15 @@ export class InspectorCore {
 	 * this is keyed on a path that arrives from outside.
 	 */
 	private readonly graphifyReaders = new Map<string, GraphifyReader>();
+	/**
+	 * Agent and subagent tracking (M5).
+	 *
+	 * Fed from the same log stream as everything else rather than from its own
+	 * hook path: `agentId` rides on ordinary tool events -- 3757 of 9014 in the
+	 * live store -- so what an agent DID is already in the stream and needs no
+	 * new transport.
+	 */
+	private readonly agentTracker = new AgentTracker();
 
 	/**
 	 * Periodic index flush.
@@ -99,6 +119,63 @@ export class InspectorCore {
 			workspaceRoot: params.workspaceRoot,
 		});
 
+		// Cross-corpus search (M3 P8). Reads its sources rather than being fed
+		// by them, so no mutation path in the core has to remember to notify it
+		// -- the failure mode of forgetting one is a search that answers from
+		// stale material and looks identical to one that found nothing.
+		this.contextFind = new ContextFindService({
+			memoryProjects: () => listMemoryProjects(),
+			sessions: async () =>
+				(await this.sessionManager.getSessions({})).sessions,
+			digestFor: async (session) =>
+				buildSessionDigest(
+					await collectDigestInput({
+						session,
+						logs: this.logManager,
+						changes: this.fileTracker,
+					}),
+				),
+			summaries: async () =>
+				[
+					...(await this.persistence.loadAllJSON("summaries")).values(),
+				] as never,
+			// Pending AND archived.
+			//
+			// `getAllChanges` reads only the pending map; keeping or reverting a
+			// change moves it to `archived`. On this machine that is 0 pending
+			// against 240 archived, so indexing only the former produced an
+			// empty corpus that looked like a working search finding nothing.
+			//
+			// Both limits are passed explicitly because both default to 100 --
+			// without them CHANGE_SCAN_LIMIT would be a number the code states
+			// and does not honour.
+			changes: async () => {
+				const [pending, archived] = await Promise.all([
+					this.fileTracker.getAllChanges({
+						pagination: { offset: 0, limit: CHANGE_SCAN_LIMIT },
+					}),
+					this.fileTracker.getArchivedChanges({ limit: CHANGE_SCAN_LIMIT }),
+				]);
+				return [
+					...pending.changes,
+					...archived.changes.map((change) => ({
+						id: change.id,
+						filePath: change.filePath,
+						sessionId: change.sessionId,
+						timestamp: change.originalTimestamp,
+						beforeContent: change.beforeContent,
+						afterContent: change.afterContent,
+						status: "kept" as const,
+					})),
+				];
+			},
+			research: () => this.researchIndex,
+			// Retention is off by choice, so the store grows without bound and
+			// nothing else in the UI reports what that costs. `getStats()` has
+			// computed it since it was written and had no consumer until here.
+			storeStats: () => this.persistence.getStats(),
+		});
+
 		this.workspaceRoot = params.workspaceRoot;
 
 		// Initialize servers
@@ -107,6 +184,8 @@ export class InspectorCore {
 			logManager: this.logManager,
 			sessionManager: this.sessionManager,
 			fileTracker: this.fileTracker,
+			// The subagent briefing hook reaches the core over HTTP.
+			getBriefing: (options) => this.getBriefing(options),
 		});
 
 		this.ipcServer = new IpcServer({
@@ -132,6 +211,10 @@ export class InspectorCore {
 
 		// Index anything research-shaped as it arrives. Most entries yield
 		// nothing, which is the normal case; the call is a cheap field check.
+		this.logManager.on("log:added", (log) => {
+			this.agentTracker.ingest(log);
+		});
+
 		this.logManager.on("log:added", (log) => {
 			this.researchIndex.ingest(log);
 		});
@@ -266,7 +349,14 @@ export class InspectorCore {
 	/**
 	 * Start the core process
 	 */
-	async start(): Promise<void> {
+	/**
+	 * Start the core.
+	 *
+	 * `ipc: false` loads everything but leaves stdio alone, for the MCP server
+	 * (M5) which speaks a different protocol on the same stream. Both reading
+	 * stdin would mean two readers racing for every line.
+	 */
+	async start(options?: { ipc?: boolean }): Promise<void> {
 		this.startTime = Date.now();
 		this.status = "starting";
 
@@ -294,11 +384,24 @@ export class InspectorCore {
 			// run: everything captured before the index existed is still in the
 			// log, and re-reading it once beats telling a user their history
 			// starts today.
+			// Read once, use twice. Both the research index and the agent tracker
+			// want the whole log on a cold start, and this is a 100k-row read.
+			let cachedLogs:
+				| Awaited<ReturnType<typeof this.logManager.getLogs>>["logs"]
+				| null = null;
+			const allLogs = async () => {
+				if (!cachedLogs) {
+					const { logs } = await this.logManager.getLogs({
+						pagination: { limit: 100_000, offset: 0 },
+					});
+					cachedLogs = logs;
+				}
+				return cachedLogs;
+			};
+
 			const restored = await this.researchIndex.load();
 			if (restored.items === 0) {
-				const { logs } = await this.logManager.getLogs({
-					pagination: { limit: 100_000, offset: 0 },
-				});
+				const logs = await allLogs();
 				const built = this.researchIndex.backfill(logs);
 				if (built.indexed > 0) {
 					process.stderr.write(
@@ -313,11 +416,28 @@ export class InspectorCore {
 				await this.researchIndex.flush();
 			}
 
+			// Rebuild the agent tree from the log.
+			//
+			// Nothing about agents is persisted -- the tree is a projection of
+			// events that are already stored -- so without this the view is
+			// empty until the next subagent runs, which is the "built but shows
+			// nothing" failure this project keeps finding. Backfilling 13593
+			// live events yields 199 agents and 1904 attributed tool calls.
+			const agentLogs = await allLogs();
+			const agentsBuilt = this.agentTracker.backfill(agentLogs);
+			if (agentsBuilt.agents > 0) {
+				process.stderr.write(
+					`[Agents] rebuilt ${agentsBuilt.agents} agents from ${agentsBuilt.scanned} logs\n`,
+				);
+			}
+
 			// Start HTTP server for hook ingestion
 			await this.httpServer.start();
 
 			// Start IPC server for wrapper communication
-			await this.ipcServer.start();
+			if (options?.ipc !== false) {
+				await this.ipcServer.start();
+			}
 
 			this.researchFlushInterval = setInterval(
 				() => {
@@ -576,6 +696,43 @@ export class InspectorCore {
 	 * -- one fixed filename under one fixed directory -- and a relative path is
 	 * refused rather than resolved against whatever the cwd happens to be.
 	 */
+	/** Cross-corpus search over memory, digests, file changes and prompts. */
+	getContextFind(): ContextFindService {
+		return this.contextFind;
+	}
+
+	/**
+	 * A briefing on prior work for a task that is about to start (M5).
+	 *
+	 * Lives here rather than in the briefing module because it is the only
+	 * place that holds all three sources at once -- the research index, the
+	 * agent tracker and the graph reader.
+	 */
+	async getBriefing(options?: {
+		task?: string;
+		projectKey?: string;
+		maxChars?: number;
+		root?: string;
+	}): Promise<Briefing> {
+		return buildBriefing({
+			index: this.researchIndex,
+			tracker: this.agentTracker,
+			graphify: this.getGraphify(options?.root),
+			task: options?.task,
+			// Default to this core's own project: a briefing drawn from every
+			// project on the machine would cite another repository's work as
+			// prior art for this one.
+			projectKey:
+				options?.projectKey ?? this.researchIndex.stats().defaultProjectKey,
+			maxChars: options?.maxChars,
+		});
+	}
+
+	/** Get the agent tracker (M5). */
+	getAgentTracker(): AgentTracker {
+		return this.agentTracker;
+	}
+
 	/** The workspace this core was started for. */
 	getWorkspaceRoot(): string {
 		return this.workspaceRoot;

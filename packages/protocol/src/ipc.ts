@@ -1,5 +1,9 @@
 /**
- * Transport: JSON-RPC, WebSocket, webview messaging, error codes, core config.
+ * Transport: JSON-RPC over stdio, webview messaging, error codes, core config.
+ *
+ * NOT WebSocket. This line used to claim one, and no WebSocket type, port or
+ * server has ever existed in this repo -- the transport is newline-delimited
+ * JSON-RPC on stdio, plus the local HTTP ingest server for hooks.
  *
  * Split out of the former single index.ts; index.ts re-exports every
  * name here, so imports from @inspector-hook/protocol are unchanged.

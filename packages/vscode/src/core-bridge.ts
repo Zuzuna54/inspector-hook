@@ -403,6 +403,29 @@ export class CoreBridge extends EventEmitter {
 	/**
 	 * Keep a change
 	 */
+	/**
+	 * Resolve one hunk of a change.
+	 *
+	 * Replaces the webview's old per-hunk path, which called keepChange /
+	 * revertChange -- the whole change -- and reported the result as per-hunk.
+	 */
+	async resolveHunk(
+		changeId: string,
+		hunkIndex: number,
+		action: "keep" | "revert",
+	): Promise<{
+		success: boolean;
+		reason?: string;
+		remainingHunks?: number;
+		changeResolved?: boolean;
+	}> {
+		return this.sendRequest("fileChanges.resolveHunk", {
+			changeId,
+			hunkIndex,
+			action,
+		});
+	}
+
 	async keepChange(changeId: string): Promise<{ success: boolean }> {
 		return this.sendRequest("fileChanges.keep", { changeId });
 	}

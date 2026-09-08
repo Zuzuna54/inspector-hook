@@ -2,16 +2,18 @@
 	"name": "inspector-hook",
 	"private": true,
 	"scripts": {
-		"build": "pnpm -r build",
-		"test": "pnpm -r test",
-		"dev": "pnpm -r --parallel dev",
-		"clean": "pnpm -r clean",
-		"typecheck": "pnpm -r typecheck",
-		"lint": "pnpm -r lint"
+		"build": "pnpm -r run build",
+		"test": "pnpm -r run test",
+		"dev": "pnpm -r --parallel run dev",
+		"clean": "pnpm -r run clean",
+		"typecheck": "pnpm -r run typecheck",
+		"lint": "biome check packages scripts",
+		"lint:fix": "biome check --write packages scripts"
 	},
 	"devDependencies": {
 		"typescript": "^5.3.0",
-		"esbuild": "^0.20.0"
+		"esbuild": "^0.20.0",
+		"@biomejs/biome": "2.5.12"
 	},
 	"engines": {
 		"node": ">=18.0.0",

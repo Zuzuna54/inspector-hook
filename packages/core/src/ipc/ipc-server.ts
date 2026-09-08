@@ -772,6 +772,51 @@ export class IpcServer {
 		);
 
 		// ---------------------------------------------------------------------
+		// Agents and subagents (M5)
+		//
+		// The tree is built from the ordinary log stream: `agentId` rides on
+		// tool events, so what an agent did needs no separate transport.
+		// ---------------------------------------------------------------------
+
+		this.methods.set("agents.getTree", async (params) => {
+			const p = asRec(params) ?? {};
+			const tracker = this.core.getAgentTracker();
+			return {
+				agents: tracker.getTree({
+					sessionId: asStr(p.sessionId),
+					limit: asNum(p.limit),
+				}),
+				stats: tracker.stats(),
+			};
+		});
+
+		/** One agent by our id or by the platform's agentId. */
+		this.methods.set("agents.get", async (params) => {
+			const id = asStr(asRec(params)?.id);
+			return id ? this.core.getAgentTracker().get(id) : null;
+		});
+
+		/**
+		 * Prior work relevant to a task about to start.
+		 *
+		 * The answer to "what should a later agent ask?" -- it needs no query,
+		 * because an agent that has not started cannot know what to search for.
+		 */
+		this.methods.set("context.getBriefing", async (params) => {
+			const p = asRec(params) ?? {};
+			return this.core.getBriefing({
+				task: asStr(p.task),
+				projectKey: asStr(p.projectKey),
+				maxChars: asNum(p.maxChars),
+				root: asStr(p.root),
+			});
+		});
+
+		this.methods.set("agents.getStats", async () =>
+			this.core.getAgentTracker().stats(),
+		);
+
+		// ---------------------------------------------------------------------
 		// Graphify: the code and docs graph (M4)
 		//
 		// The plan's division: graphify owns the code/docs graph, the research
@@ -852,6 +897,25 @@ export class IpcServer {
 		this.methods.set("fileChanges.getDiff", async (params) =>
 			this.fileTracker.getDiff((params as any).changeId),
 		);
+		/**
+		 * Resolve ONE hunk. See FileTracker.resolveHunk for why this is not
+		 * expressible as keep/revert of the whole change -- which is what the
+		 * webview used to do while reporting a per-hunk result.
+		 */
+		this.methods.set("fileChanges.resolveHunk", async (params) => {
+			const rec = asRec(params) ?? {};
+			const changeId = asStr(rec.changeId);
+			const hunkIndex = asNum(rec.hunkIndex);
+			const action = asStr(rec.action);
+			if (!changeId || hunkIndex === undefined) {
+				return { success: false, reason: "changeId and hunkIndex are required" };
+			}
+			if (action !== "keep" && action !== "revert") {
+				return { success: false, reason: `unknown action: ${action}` };
+			}
+			return this.fileTracker.resolveHunk(changeId, hunkIndex, action);
+		});
+
 		this.methods.set("fileChanges.keep", async (params) =>
 			this.fileTracker.keepChange((params as any).changeId),
 		);
@@ -1450,6 +1514,68 @@ export class IpcServer {
 			deleted: await deleteBundle(this.storagePath, asStr(asRec(params)?.id) ?? ""),
 		}));
 
+		// ---------------------------------------------------------------------
+		// Cross-corpus search (P8).
+		//
+		// Four corpora, returned as GROUPS. There is deliberately no method
+		// here that returns one merged ranked list: each corpus is scored by a
+		// different index, so a combined order would be arbitrary while looking
+		// authoritative. See protocol/src/find.ts.
+		// ---------------------------------------------------------------------
+		this.methods.set("context.find", async (params) => {
+			const rec = asRec(params) ?? {};
+			return this.core.getContextFind().find(asStr(rec.query) ?? "", {
+				projectKey: asStr(rec.projectKey),
+				limit: asNum(rec.limit),
+				refresh: asBool(rec.refresh),
+			});
+		});
+
+		this.methods.set("context.findStats", async () =>
+			this.core.getContextFind().stats(),
+		);
+
+		this.methods.set("context.findRefresh", async () => {
+			await this.core.getContextFind().refresh();
+			return this.core.getContextFind().stats();
+		});
+
+		/**
+		 * Add a search hit to the tray.
+		 *
+		 * Resolves the hit back to its SOURCE rather than reusing the snippet
+		 * the search returned. A snippet is 600 characters; adding one while
+		 * the UI says "added the memory file" would inject a silently truncated
+		 * file, which is the class of quiet wrongness this project keeps
+		 * finding rather than a rounding error.
+		 */
+		this.methods.set("context.addFromFind", async (params) => {
+			const id = asStr(asRec(params)?.id) ?? "";
+			const resolved = await this.core.getContextFind().resolveHit(id);
+			if (!resolved) {
+				return {
+					ok: false,
+					reason:
+						"That result no longer resolves to a source — it may have been deleted since the index was built.",
+				};
+			}
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: resolved.kind as ContextItemKind,
+				title: resolved.title,
+				text: resolved.text,
+				source: resolved.source,
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return {
+				ok: true,
+				tray: saved,
+				item: result.item,
+				preview: renderTray(saved),
+			};
+		});
+
 		/**
 		 * Put a bundle back in the tray.
 		 *
@@ -1747,6 +1873,15 @@ export class IpcServer {
 	 * Send JSON-RPC notification
 	 */
 	sendNotification(method: string, params: unknown): void {
+		// Silent until the transport is actually listening.
+		//
+		// `--mcp` loads the whole core but leaves stdio to the MCP server, and
+		// this method wrote to stdout regardless -- so every session, log and
+		// fileChange event was interleaved into the MCP stream as an unsolicited
+		// JSON-RPC notification the client never asked for. Two protocols on one
+		// pipe. Nothing had started this server, so nothing was listening for
+		// these anyway.
+		if (!this.readline) return;
 		const notification: JsonRpcNotification = {
 			jsonrpc: "2.0",
 			method,

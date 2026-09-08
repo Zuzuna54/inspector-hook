@@ -13,10 +13,10 @@
 
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 // The single canonical hook. Three implementations used to exist; the two
@@ -262,11 +262,25 @@ describe("installer", () => {
 				{
 					hooks: {
 						PreToolUse: [
-							{ matcher: "Bash", hooks: [{ type: "command", command: "/other/security-gate.py" }] },
-							{ matcher: "Bash", hooks: [{ type: "command", command: "/other/precommit-wave-gate.sh" }] },
+							{
+								matcher: "Bash",
+								hooks: [
+									{ type: "command", command: "/other/security-gate.py" },
+								],
+							},
+							{
+								matcher: "Bash",
+								hooks: [
+									{ type: "command", command: "/other/precommit-wave-gate.sh" },
+								],
+							},
 						],
 						Stop: [
-							{ hooks: [{ type: "command", command: "/other/stop-loop-gate.sh" }] },
+							{
+								hooks: [
+									{ type: "command", command: "/other/stop-loop-gate.sh" },
+								],
+							},
 						],
 					},
 					unrelatedSetting: 42,
@@ -347,11 +361,29 @@ describe("installer", () => {
 			JSON.stringify({
 				hooks: {
 					PostToolUse: [
-						{ matcher: "", hooks: [{ type: "command", command: "/home/u/.claude/hooks/logging/hook-inspector.sh" }] },
-						{ matcher: "Write", hooks: [{ type: "command", command: "/other/biome-format.sh" }] },
+						{
+							matcher: "",
+							hooks: [
+								{
+									type: "command",
+									command: "/home/u/.claude/hooks/logging/hook-inspector.sh",
+								},
+							],
+						},
+						{
+							matcher: "Write",
+							hooks: [{ type: "command", command: "/other/biome-format.sh" }],
+						},
 					],
 					PreToolUse: [
-						{ hooks: [{ type: "command", command: "/somewhere/else/inspector-hook.sh" }] },
+						{
+							hooks: [
+								{
+									type: "command",
+									command: "/somewhere/else/inspector-hook.sh",
+								},
+							],
+						},
 					],
 				},
 			}),
@@ -422,7 +454,6 @@ describe("installer", () => {
 	});
 });
 
-
 describe("deliberately excluded events", () => {
 	it("MessageDisplay and the Elicitation pair stay unregistered", () => {
 		// install.sh documents why in a comment above EVENTS=(, and a previous
@@ -438,7 +469,11 @@ describe("deliberately excluded events", () => {
 			.split("EVENTS=(")[1]
 			.split("\n)")[0]
 			.replace(/#.*$/gm, "");
-		for (const event of ["MessageDisplay", "Elicitation", "ElicitationResult"]) {
+		for (const event of [
+			"MessageDisplay",
+			"Elicitation",
+			"ElicitationResult",
+		]) {
 			assert.ok(
 				!new RegExp(`\\b${event}\\b`).test(block),
 				`${event} is excluded on purpose; see the reasoning above EVENTS=(`,
@@ -455,14 +490,21 @@ describe("event coverage", () => {
 	 * them, so the handling was dead in production. This locks the set.
 	 */
 	const REGISTERED = {
-
 		SessionStart: { start_reason: "startup", cwd: "/p" },
 		SessionEnd: { reason: "exit" },
 		UserPromptSubmit: { prompt: "go" },
 		UserPromptExpansion: { command_name: "deploy" },
-		PreToolUse: { tool_name: "Bash", tool_use_id: "x", tool_input: { command: "ls" } },
+		PreToolUse: {
+			tool_name: "Bash",
+			tool_use_id: "x",
+			tool_input: { command: "ls" },
+		},
 		PostToolUse: { tool_name: "Bash", tool_use_id: "x", duration_ms: 9 },
-		PostToolUseFailure: { tool_name: "Read", tool_use_id: "y", tool_error: "ENOENT" },
+		PostToolUseFailure: {
+			tool_name: "Read",
+			tool_use_id: "y",
+			tool_error: "ENOENT",
+		},
 		PostToolBatch: {},
 		PermissionRequest: { tool_name: "Bash", tool_input: { command: "rm" } },
 		PermissionDenied: { tool_name: "Bash", tool_use_id: "z" },
@@ -476,7 +518,10 @@ describe("event coverage", () => {
 		Notification: { notification_type: "permission_prompt", message: "m" },
 		PreCompact: { trigger: "auto" },
 		PostCompact: { trigger: "auto" },
-		InstructionsLoaded: { file_path: "/p/CLAUDE.md", load_reason: "session_start" },
+		InstructionsLoaded: {
+			file_path: "/p/CLAUDE.md",
+			load_reason: "session_start",
+		},
 		ConfigChange: { source: "user_settings" },
 		CwdChanged: { cwd: "/p/other" },
 		DirectoryAdded: { add_reason: "slash_command" },
@@ -529,26 +574,104 @@ describe("event coverage", () => {
 			assert.match(p.timestamp, /\.\d{3}Z$/, "millisecond resolution");
 			assert.equal(p.sessionId, "cov");
 			assert.equal(p.prompt_id, "turn-1");
-			assert.ok(typeof p.message === "string" && p.message.length > 0,
-				"must carry a human-readable message");
-			assert.ok(["info", "warn", "error", "blocked"].includes(p.level),
-				`level must be valid, got ${p.level}`);
+			assert.ok(
+				typeof p.message === "string" && p.message.length > 0,
+				"must carry a human-readable message",
+			);
+			assert.ok(
+				["info", "warn", "error", "blocked"].includes(p.level),
+				`level must be valid, got ${p.level}`,
+			);
 		});
 	}
 
 	it("derives error and blocked levels on the events that warrant them", () => {
-		assert.equal(runHook({ hook_event_name: "PostToolUseFailure", session_id: "c", tool_error: "boom" }).level, "error");
-		assert.equal(runHook({ hook_event_name: "StopFailure", session_id: "c", error: "rate_limit" }).level, "error");
-		assert.equal(runHook({ hook_event_name: "PermissionDenied", session_id: "c" }).level, "blocked");
+		assert.equal(
+			runHook({
+				hook_event_name: "PostToolUseFailure",
+				session_id: "c",
+				tool_error: "boom",
+			}).level,
+			"error",
+		);
+		assert.equal(
+			runHook({
+				hook_event_name: "StopFailure",
+				session_id: "c",
+				error: "rate_limit",
+			}).level,
+			"error",
+		);
+		assert.equal(
+			runHook({ hook_event_name: "PermissionDenied", session_id: "c" }).level,
+			"blocked",
+		);
 	});
 
 	it("keeps StopFailure on a different event type from Stop", () => {
 		// StopFailure reuses last_assistant_message for the error string, so
 		// sharing an event type would render an API error as Claude's reply.
-		const stop = runHook({ hook_event_name: "Stop", session_id: "c", last_assistant_message: "hi" });
-		const fail = runHook({ hook_event_name: "StopFailure", session_id: "c", error: "overloaded" });
+		const stop = runHook({
+			hook_event_name: "Stop",
+			session_id: "c",
+			last_assistant_message: "hi",
+		});
+		const fail = runHook({
+			hook_event_name: "StopFailure",
+			session_id: "c",
+			error: "overloaded",
+		});
 		assert.notEqual(stop.event, fail.event);
 		assert.equal(stop.event, "ai.response");
 		assert.equal(fail.event, "ai.error");
+	});
+});
+
+describe("installer: every script it can add, it can remove", () => {
+	it("REGRESSION: the uninstall list covers every registered script", async () => {
+		// install.sh registers by variable and uninstalls by an EXPLICIT list of
+		// those variables. Adding a script to one and not the other leaves it
+		// behind after --uninstall, which is the install/uninstall drift the file
+		// says it was rewritten to stop. It happened again the moment a fourth
+		// script was added.
+		const { readFile } = await import("node:fs/promises");
+		const { dirname, join } = await import("node:path");
+		const { fileURLToPath } = await import("node:url");
+
+		const repoRoot = join(
+			dirname(fileURLToPath(import.meta.url)),
+			"..",
+			"..",
+			"..",
+		);
+		const src = await readFile(
+			join(repoRoot, "packages", "hooks", "scripts", "install.sh"),
+			"utf8",
+		);
+
+		// Variables assigned a path under packages/hooks/claude/.
+		const declared = [
+			...src.matchAll(
+				/^([A-Z_]+)="\$\(cd "\$SCRIPT_DIR\/\.\.\/claude".*\)\/[\w.-]+\.sh"/gm,
+			),
+		].map((m) => m[1]);
+		assert.ok(
+			declared.length >= 4,
+			`expected the hook scripts, found ${declared}`,
+		);
+
+		// The list build_uninstall filters on.
+		const uninstallLine = src.match(/jq --argjson cmds "\[([^\]]*)\]"/);
+		assert.ok(uninstallLine, "the uninstall command list must be findable");
+		const covered = [...uninstallLine[1].matchAll(/\$([A-Z_]+)/g)].map(
+			(m) => m[1],
+		);
+
+		const missing = declared.filter((name) => !covered.includes(name));
+		assert.deepEqual(
+			missing,
+			[],
+			`registered but never uninstalled: ${missing.join(", ")}`,
+		);
 	});
 });

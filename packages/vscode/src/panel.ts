@@ -15,6 +15,8 @@ import { handleDiffCommand } from "./messages/diff-handlers.js";
 import { handleMemoryCommand } from "./messages/memory-handlers.js";
 import { handleResearchCommand } from "./messages/research-handlers.js";
 import { handleGraphifyCommand } from "./messages/graphify-handlers.js";
+import { handleAgentsCommand } from "./messages/agents-handlers.js";
+import { handleFindCommand } from "./messages/find-handlers.js";
 import { buildWebviewHtml } from "./webview-html.js";
 
 export class InspectorPanel {
@@ -175,6 +177,8 @@ export class InspectorPanel {
 		if (await handleDiffCommand(message.command, message.params, ctx)) return;
 		if (await handleResearchCommand(message.command, message.params, ctx)) return;
 		if (await handleGraphifyCommand(message.command, message.params, ctx)) return;
+		if (await handleAgentsCommand(message.command, message.params, ctx)) return;
+		if (await handleFindCommand(message.command, message.params, ctx)) return;
 
 		switch (message.command) {
 			case "webview-ready": {
@@ -333,24 +337,40 @@ export class InspectorPanel {
 				break;
 			}
 
-			case "keep-hunk": {
-				// Per-hunk operations - for now, keep the whole change
-				// Future: implement per-hunk backend support
-				const result = await this._coreBridge.keepChange(
-					(message.params as any).changeId,
-				);
-				this._sendMessage({ type: "keep-hunk-result", payload: result });
-				this.refresh();
-				break;
-			}
-
+			// Per-hunk operations now resolve ONE hunk.
+			//
+			// These two cases called keepChange / revertChange -- the WHOLE
+			// change, every hunk of it -- and reported the outcome as
+			// `keep-hunk-result`. Clicking "revert this hunk" reverted the entire
+			// file. The core implements resolveHunk properly now, and refuses
+			// when the file on disk has moved on rather than splicing blind.
+			case "keep-hunk":
 			case "revert-hunk": {
-				// Per-hunk operations - for now, revert the whole change
-				// Future: implement per-hunk backend support
-				const result = await this._coreBridge.revertChange(
-					(message.params as any).changeId,
+				const params = message.params as {
+					changeId?: string;
+					hunkIndex?: number;
+				};
+				const action = message.command === "keep-hunk" ? "keep" : "revert";
+				const type =
+					action === "keep" ? "keep-hunk-result" : "revert-hunk-result";
+
+				if (!params?.changeId || typeof params.hunkIndex !== "number") {
+					this._sendMessage({
+						type,
+						payload: {
+							success: false,
+							reason: "changeId and hunkIndex are required",
+						},
+					});
+					break;
+				}
+
+				const result = await this._coreBridge.resolveHunk(
+					params.changeId,
+					params.hunkIndex,
+					action,
 				);
-				this._sendMessage({ type: "revert-hunk-result", payload: result });
+				this._sendMessage({ type, payload: result });
 				this.refresh();
 				break;
 			}

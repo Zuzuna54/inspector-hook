@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CoreInitParams } from "@inspector-hook/protocol";
 import { InspectorCore } from "./core.js";
+import { startMcpServer, TOOLS } from "./mcp/mcp-server.js";
 
 // Default configuration (can be overridden via environment variables)
 const DEFAULT_CONFIG = {
@@ -29,7 +30,10 @@ const DEFAULT_CONFIG = {
 	// The mechanism stays: `enforceRetention` treats <= 0 as disabled, so this
 	// is a policy change, not a removal, and anyone whose store grows can set
 	// INSPECTOR_HOOK_RETENTION_DAYS and get it straight back.
-	logRetentionDays: parseInt(process.env.INSPECTOR_HOOK_RETENTION_DAYS || "0", 10),
+	logRetentionDays: parseInt(
+		process.env.INSPECTOR_HOOK_RETENTION_DAYS || "0",
+		10,
+	),
 	// Opt-in. Writing into ~/.claude/projects/<p>/memory changes what every
 	// future Claude session in that project is told, so it is not something to
 	// switch on by default on the user's behalf.
@@ -151,6 +155,19 @@ async function main(): Promise<void> {
 	};
 
 	const core = new InspectorCore(params);
+
+	// `--mcp` replaces the IPC protocol on stdio with MCP, so later agents can
+	// query prior findings (M5). The core still loads everything -- the research
+	// index, the agent backfill, graphify -- because that IS the data being
+	// exposed; only the transport differs.
+	if (process.argv.includes("--mcp")) {
+		await core.start({ ipc: false });
+		process.stderr.write(
+			`[Inspector Hook] MCP server ready on stdio (${TOOLS.length} tools)\n`,
+		);
+		startMcpServer(core);
+		return;
+	}
 
 	try {
 		await core.start();
