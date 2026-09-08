@@ -27,6 +27,13 @@ const AgentsView = {
 	_unsubscribers: [],
 
 	init() {
+		// Build the shell FIRST. The router calls init() and nothing else -- it
+		// never calls render() -- so a view that only subscribes here leaves the
+		// panel showing its static "Loading agents…" fallback forever, and every
+		// targeted render below then finds no element and returns early. That is
+		// exactly what shipped.
+		this.render();
+
 		this._unsubscribers.push(
 			State.subscribe("agentsView", (next, prev) => {
 				const p = prev || {};

@@ -66,6 +66,11 @@ const ResearchView = {
 	 * once, at a moment when there are no results, and never again.
 	 */
 	init() {
+		// Build the shell FIRST -- the router calls init() and never render(),
+		// so without this the panel keeps its static "Loading research history…"
+		// fallback and every region render finds no element.
+		this.render();
+
 		this._unsubscribers.push(
 			State.subscribe("researchView", (next, prev) => {
 				const p = prev || {};
@@ -235,7 +240,10 @@ const ResearchView = {
 		const enable = document.getElementById("rs-enable-embed");
 		if (enable) {
 			enable.addEventListener("click", () => {
-				State.update("researchView", { ...State.researchView, embedding: true });
+				State.update("researchView", {
+					...State.researchView,
+					embedding: true,
+				});
 				API.researchEnableEmbeddings();
 			});
 		}
