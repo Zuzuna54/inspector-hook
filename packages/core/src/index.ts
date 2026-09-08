@@ -159,6 +159,22 @@ export {
 	type ArmedContext,
 	type ArmedTier,
 } from "./context/armed-store.js";
+export { listProjects } from "./projects/project-registry.js";
+export type { ProjectSources } from "./projects/project-registry.js";
+export {
+	buildProjects,
+	findProject,
+	matches,
+	slugForPath,
+	total,
+} from "./projects/project-identity.js";
+export type {
+	ProjectCandidate,
+	ProjectCounts,
+	ProjectIdentity,
+	ProjectMatch,
+	ProjectObservation,
+} from "./projects/project-identity.js";
 export { ContextIndex, findResult } from "./context/context-index.js";
 export { ContextFindService, STALE_AFTER_MS } from "./context/find-service.js";
 export type { FindOptions, FindSources } from "./context/find-service.js";
@@ -200,6 +216,19 @@ export {
 	type Briefing,
 	type BriefingSection,
 } from "./research/briefing.js";
+
+// Export code quality analysis (Milestone 7)
+export {
+	GOD_NODE_FLOOR,
+	GOD_NODE_PERCENTILE,
+	TOP_N,
+	analyseGraph,
+	type CouplingReport,
+	type GodNode,
+	type GraphAnalysis,
+	type OrphanNode,
+	type RotReport,
+} from "./quality/graph-analysis.js";
 
 // Export agent tracking (Milestone 5)
 export {
