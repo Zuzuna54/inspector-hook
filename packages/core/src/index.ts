@@ -219,6 +219,30 @@ export {
 
 // Export code quality analysis (Milestone 7)
 export {
+	groundTruthsFor,
+	rankFindings,
+	toRelative,
+	webviewManifestTruth,
+	type Confidence,
+	type DeadCodeFinding,
+	type GroundTruth,
+	type SignalInput,
+	type SignalName,
+} from "./quality/confidence.js";
+
+export {
+	CWD_PROBE_BYTES,
+	TRANSCRIPT_ROOT,
+	cwdFromTranscript,
+	discoverProjects,
+	pathFromDashedName,
+	summarise,
+	type ProjectTools,
+	type RegistrySummary,
+	type ScannableProject,
+} from "./quality/project-registry.js";
+
+export {
 	GOD_NODE_FLOOR,
 	GOD_NODE_PERCENTILE,
 	TOP_N,
