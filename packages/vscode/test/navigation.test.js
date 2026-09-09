@@ -32,8 +32,17 @@ const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
  * `vscode.Uri.joinPath`, so a small stub renders the real template.
  */
 function renderHtml() {
+	// The asset manifests live in webview-assets.ts now. Its source is inlined
+	// ahead of the shell and its own `export` keywords stripped, so the eval
+	// still renders the REAL template against the REAL manifests rather than a
+	// stub — which is the only reason this test says anything about what ships.
+	const assets = readFileSync(join(srcDir, "webview-assets.ts"), "utf8")
+		.replace(/^export const /gm, "const ")
+		.replace(/:\s*string\[\]\[\]/g, "");
+
 	const source = readFileSync(join(srcDir, "webview-html.ts"), "utf8")
 		.replace(/^import \* as vscode from "vscode";$/m, "")
+		.replace(/^import \{[^}]*\} from "\.\/webview-assets\.js";$/m, "")
 		.replace(/:\s*string\[\]\[\]/g, "")
 		.replace(/export function buildWebviewHtml\([\s\S]*?\): string \{/, "function buildWebviewHtml(webview, extensionUri) {")
 		.replace(/function getNonce\(\): string \{/, "function getNonce() {")
@@ -47,7 +56,7 @@ function renderHtml() {
 	};
 	void vscode;
 	// biome-ignore lint/security/noGlobalEval: renders the real template with a stub
-	return eval(`${source}; buildWebviewHtml`)(
+	return eval(`${assets}; ${source}; buildWebviewHtml`)(
 		{ asWebviewUri: (p) => `vscode-resource:/${p}`, cspSource: "vscode-resource:" },
 		"/ext",
 	);
@@ -128,7 +137,10 @@ describe("navigation styles", () => {
 	const nav = readMedia("styles/components/nav.css");
 
 	it("is loaded from the manifest", () => {
-		const manifest = readFileSync(join(srcDir, "webview-html.ts"), "utf8");
+		// The manifests moved to webview-assets.ts. Reading only the shell would
+		// have made this assertion vacuous rather than failing — it asserts a
+		// path is PRESENT, so an empty haystack is the dangerous case.
+		const manifest = readFileSync(join(srcDir, "webview-assets.ts"), "utf8");
 		assert.match(manifest, /\["styles", "components", "nav\.css"\]/);
 	});
 

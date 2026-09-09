@@ -17,6 +17,17 @@ const InjectionsApiMixin = {
 	getInjectionCounts() {
 		this.send("context-injection-counts", {});
 	},
+
+	/**
+	 * Put this session's digest into the tray, from the session itself.
+	 *
+	 * The Sessions view could add individual TURNS through the transcript
+	 * composer, and nothing else. Adding what the session as a whole did meant
+	 * leaving it and finding the same session in the Context view.
+	 */
+	addSessionToTray(sessionId) {
+		this.send("context-add-session-digest", { sessionId });
+	},
 };
 
 window.InjectionsApiMixin = InjectionsApiMixin;

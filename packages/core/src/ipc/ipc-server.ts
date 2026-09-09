@@ -1692,6 +1692,45 @@ export class IpcServer {
 		 * file, which is the class of quiet wrongness this project keeps
 		 * finding rather than a rounding error.
 		 */
+		/**
+		 * Add a session's digest to the tray (P10).
+		 *
+		 * The Sessions view had no way to do this. The Context view could,
+		 * through its injection pane, and the transcript composer could add
+		 * individual turns — but "put what this session did into the tray" from
+		 * the session itself required leaving it, finding the same session in
+		 * another view, and previewing it there.
+		 *
+		 * Refuses a digest not worth keeping, with the reason, rather than
+		 * adding an item whose body says nothing happened.
+		 */
+		this.methods.set("context.addSessionDigest", async (params) => {
+			const sessionId = asStr(asRec(params)?.sessionId) ?? "";
+			const session = await this.sessionManager.getSession(sessionId);
+			if (!session) {
+				return { ok: false, reason: `No session ${sessionId}.` };
+			}
+			const digest = await this.digestFor(session);
+			if (!digest.worthKeeping) {
+				return { ok: false, reason: digest.skipReason };
+			}
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: "session_digest",
+				title: digest.title || digest.name,
+				text: digest.body,
+				source: { sessionId },
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return {
+				ok: true,
+				tray: saved,
+				item: result.item,
+				preview: renderTray(saved),
+			};
+		});
+
 		this.methods.set("context.addFromFind", async (params) => {
 			const id = asStr(asRec(params)?.id) ?? "";
 			const resolved = await this.core.getContextFind().resolveHit(id);

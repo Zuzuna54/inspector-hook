@@ -63,10 +63,6 @@ const OVER_LIMIT = {
 	// positives. Moving the manifest out would break M7's suppression to buy a
 	// line count. panel.ts crossed the limit in the same commit and was split
 	// instead (messages/dispatch.ts), because nothing reads it by path.
-	"src/webview-html.ts": {
-		lines: 601,
-		why: "the manifest is ground truth for M7; splitting it breaks seven readers",
-	},
 };
 
 const ROOTS = ["media", "src"];

@@ -25,7 +25,17 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const htmlSource = readFileSync(join(packageRoot, "src", "webview-html.ts"), "utf8");
+/**
+ * The shell AND the asset manifests.
+ *
+ * The manifests moved to webview-assets.ts when webview-html.ts crossed the
+ * size limit. Reading only the shell would have made every assertion here
+ * vacuous the moment that happened — the same drift `message-contract.test.js`
+ * guards against by reading panel.ts plus its handler modules.
+ */
+const htmlSource = ["webview-html.ts", "webview-assets.ts"]
+	.map((f) => readFileSync(join(packageRoot, "src", f), "utf8"))
+	.join("\n");
 
 /**
  * Assets deliberately named before they are written, each with the reason.
@@ -56,8 +66,12 @@ const UNLOADED = [];
  * textually.
  */
 function manifest(name) {
+	// Matches the manifests wherever they live: they were `const styles` inside
+	// buildWebviewHtml (indented, closed by "\t];") and are now `export const
+	// STYLES` at module scope (closed by "];"). Both forms are accepted so this
+	// guard survived the split instead of quietly matching nothing.
 	const block = new RegExp(
-		`const ${name}: string\\[\\]\\[\\] = \\[([\\s\\S]*?)\\n\\t\\];`,
+		`(?:const ${name}|export const ${name.toUpperCase()}): string\\[\\]\\[\\] = \\[([\\s\\S]*?)\\n\\t?\\];`,
 	).exec(htmlSource);
 	assert.ok(block, `could not find the ${name} manifest`);
 

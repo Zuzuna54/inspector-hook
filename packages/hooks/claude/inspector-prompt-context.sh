@@ -46,7 +46,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 STORAGE="${INSPECTOR_HOOK_STORAGE:-$HOME/.inspector-hook}"
 
 # Read the payload once. Without stdin there is no session to target.
-PAYLOAD="$(cat 2>/dev/null || true)"
+#
+# Bounded, never a bare `cat`. UserPromptSubmit always supplies stdin, so this
+# has not bitten here — but it is the identical failure to the one the
+# SessionStart hook shipped: an open pipe with no data and no EOF blocks
+# forever, and a hook that blocks holds up the prompt it is attached to. The
+# timeout is an INTEGER because macOS ships bash 3.2, which rejects a
+# fractional one outright and would silently read nothing.
+PAYLOAD=""
+IFS= read -r -d '' -t 1 PAYLOAD 2>/dev/null || true
 [ -n "$PAYLOAD" ] || exit 0
 
 SESSION_ID="$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)"

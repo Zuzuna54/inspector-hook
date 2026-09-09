@@ -95,6 +95,10 @@ const SessionDetailMixin = {
         Logs
       </button>
       <div class="sv-tab-actions">
+        <button class="btn btn-xs sv-add-session-tray"
+                title="Add what this session did to the context tray">
+          Add to tray
+        </button>
         <label class="sv-auto-scroll">
           <input type="checkbox" id="sv-auto-scroll-toggle" ${State.sessionView.autoScroll ? "checked" : ""}>
           Auto-scroll
@@ -109,6 +113,19 @@ const SessionDetailMixin = {
 				this.switchTab(tabName);
 			});
 		});
+
+		// Add this session's digest to the tray.
+		//
+		// Bound here rather than in setupActivityHandlers, which delegates on
+		// #sv-detail-content — this button lives in the tabs row, so a click
+		// would never have reached that listener.
+		const addToTray = tabsEl.querySelector(".sv-add-session-tray");
+		if (addToTray) {
+			addToTray.addEventListener("click", () => {
+				const current = this.getSelectedSession();
+				if (current) API.addSessionToTray(current.id);
+			});
+		}
 
 		// Add auto-scroll toggle handler
 		const autoScrollToggle = document.getElementById("sv-auto-scroll-toggle");

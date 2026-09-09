@@ -54,6 +54,30 @@ export async function handleInjectionsCommand(
 			return true;
 		}
 
+		case "context-add-session-digest": {
+			// Answers on the tray's own message type, so the tray updates
+			// through the path it already has. A refusal comes back as
+			// `{ok:false, reason}`, which the tray's inbound handler branches on
+			// — treating it as a tray is the bug the staging path shipped.
+			try {
+				ctx.send({
+					type: "context-tray",
+					payload: await rpc.sendRequest("context.addSessionDigest", {
+						sessionId: (params as { sessionId?: string })?.sessionId,
+					}),
+				});
+			} catch (error) {
+				ctx.send({
+					type: "context-tray",
+					payload: {
+						ok: false,
+						reason: error instanceof Error ? error.message : String(error),
+					},
+				});
+			}
+			return true;
+		}
+
 		case "context-injection-counts": {
 			try {
 				ctx.send({
