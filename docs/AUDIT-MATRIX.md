@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 50 rows for Milestones 3, 4 and 5**, tallied separately at the end.
+status with evidence — **plus 71 rows for Milestones 3, 4, 5 and 8**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -747,20 +747,23 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 50 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
-from `docs/phases/*.md`; M3 and M4 were added by the plan and have no phase document, which is
-why this matrix covered neither of the two milestones the branch actually shipped. A backlog
+**These 71 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+from `docs/phases/*.md`; M3 onward were added by the plan and have no phase document, which is
+why this matrix covered none of the milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
 
 Criteria are taken from the plan's Milestone 3 (five numbered deliverables), Milestone 4
-(capture, per-project index, hybrid retrieval, storage tiering, graphify) and Milestone 5
-(agent capture, the live tree, MCP exposure).
+(capture, per-project index, hybrid retrieval, storage tiering, graphify), Milestone 5
+(agent capture, the live tree, MCP exposure) and Milestone 8 (skill inventory, utilization
+from transcripts, the Skills and Tools views). **M6 is deferred and M7 has no rows yet** — its
+criteria were verified against live scans but never written down here, which is the same gap
+this section exists to close and is therefore owed.
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 46 | 92% |
-| **untested** | 3 | 6% |
-| **not-impl** | 1 | 2% |
+| **verified** | 66 | 93% |
+| **untested** | 3 | 4% |
+| **not-impl** | 2 | 3% |
 
 Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
@@ -833,6 +836,32 @@ produced it. No status outside the five defined above is used here.
 | M5.10 | Expose prior findings over MCP | verified | live · `--mcp`, real handshake: initialize / tools/list / tools/call, 3 tools, `-32601` on unknown |
 | M5.11 | MCP results never misdescribe themselves | verified | test · a spawn acknowledgement renders as "NEVER REPORTED"; the graph reports current / out-of-date / unknown age · `mcp-server.test.js` |
 | M5.12 | `--mcp` does not share stdio with IPC | verified | live · was **broken**: notifications were interleaved into the MCP stream. Observed before/after on the binary; an end-to-end test spawns `--mcp` and asserts zero unsolicited notifications |
+
+### Milestone 8 — skills and MCP tools: inventory against utilization
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M8.1 | Discover global `~/.claude/skills` | verified | live · 22 found · `skills-registry.test.js` |
+| M8.2 | Discover project `<root>/.claude/skills` | verified | test · no project on this machine has one, so the path is covered by fixture only and says so |
+| M8.3 | Discover plugin skills via `enabledPlugins` | verified | live · resolved through `installed_plugins.json` → `installPath`. 3 plugins enabled, **1 skill** (`frontend-design`); `typescript-lsp` and `pyright-lsp` ship none. The cache holds 5 versions of that plugin and the marketplace holds skills for 4 never-installed plugins — walking either would report skills that cannot fire |
+| M8.4 | Report `frontmatterValid` as a defect, not skip it | verified | live · 8 of 22 have no `name`; they sort to the top of the list and the detail says "can never be chosen" · `skills-view.test.js` |
+| M8.5 | Handle a skill as a directory tree | verified | live · `bytes` covers the tree, `subdirectories` and `extraFiles` are separate; archive/restore moves the whole tree and the test asserts a `references/` file survives the round trip |
+| M8.6 | Count utilization from transcripts, not our pruned logs | verified | live · 121 transcripts in 1.9s → **13 Skill invocations across 7 skills**. The logs showed 1 skill; the plan's "1 of 22" headline came from them and was wrong |
+| M8.7 | Count nested subagent transcripts | verified | live · 83 of the 121 files are `<session>/subagents/agent-*.jsonl`; a flat readdir sees 31% of the corpus. Their calls go to the PARENT session, verified disjoint (0 overlapping `tool_use` ids on a sampled session). Both tests fail against the flat version |
+| M8.8 | Do not credit a built-in skill to the installed set | verified | live · 4 of the 7 that fired ship with Claude Code; they carry `source: "builtin"` and are counted apart, so the headline is **3 of 22** and not 7 of 22 · `skills-registry.test.js` |
+| M8.9 | Per item: invocations, last used, distinct sessions, distinct projects | verified | live · `artifact-design` 5× / 5 sessions / 4 projects. `lastUsed` is a max, not a last-write, because a scan visits files in directory order |
+| M8.10 | MCP servers from `~/.claude.json`, incl. per-project | verified | live · 4 global, 0 per-project across 33 projects; the per-project key is read anyway |
+| M8.11 | Never render `env` | verified | live · dropped at the reader, so it never enters a record. Checked by key, not substring — the first check matched `.venv/bin/python` and was a false positive · `skills-registry.test.js` |
+| M8.12 | Observed-but-unconfigured servers are first-class | verified | live · `claude-in-chrome` is **548 of 684** calls and is in no config file; `claude_ai_Google_Drive` (16) likewise. A config-driven list would omit the busiest server on the machine · `skills-view.test.js` |
+| M8.13 | A configured server never called is reported as such | verified | live · 3 of 4 configured servers have 0 calls; only playwright (120) has any |
+| M8.14 | Server reachability | not-impl | read · nothing here starts or pings a server. Reporting "reachable" without connecting would be the false claim this project treats as its priority bug; the view shows configured-vs-observed instead, which is measured |
+| M8.15 | Every count states its source | verified | test · the footer names the transcript count and scan time; 0 transcripts renders "Not measured — unknown, not zero" rather than a confident zero · `skills-view.test.js` |
+| M8.16 | Filter unused / used / invalid | verified | test · `skills-view.test.js` |
+| M8.17 | Detail: rendered SKILL.md, path, open-in-editor, supporting tree | verified | test · read in the core so the byte cap and the containment check have one implementation; the path is resolved by looking the id up in the discovered set, so a traversal fails as "unknown skill" |
+| M8.18 | Archive instead of a disable toggle | verified | live · `settings.json` has no skills key (12 top-level keys, none for skills). The button says Archive, the tooltip says outright it is not a disable switch, and plugin/built-in skills are read-only · `skills-view.test.js` |
+| M8.19 | Archive is reversible and refuses to overwrite | verified | test · restore uses the recorded `originalPath`, not `SKILLS_ROOT` + id, so a project skill goes back where it came from. Refuses when something else has taken the path, when already archived, and on a traversal id |
+| M8.20 | The read path modifies nothing under `~/.claude/` | verified | live · 584 files under `skills/`, `settings.json` and `plugins/` compared by path, mtime and size before and after a full scan: **0 differences**. Archive is the one write and no scan calls it |
+| M8.21 | The view builds itself from `init()` alone | verified | test · `view-bootstrap.test.js`, the guard added after Agents and Search both shipped stuck on their static fallback |
 
 ## Method, and what it does not claim
 
