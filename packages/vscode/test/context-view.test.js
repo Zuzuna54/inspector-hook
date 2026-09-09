@@ -576,6 +576,48 @@ describe("context: digest preview", () => {
 		);
 	});
 
+	it("offers a summary, as its own control", () => {
+		// The prose costs a model call, so it is a button rather than something
+		// the preview does on its own.
+		const html = view.renderDigest(PAYLOADS.digestPayload);
+		assert.match(html, /ctx-narrate-digest/, "no way to ask for a summary");
+	});
+
+	it("says WHY there is no summary when a gate is closed", () => {
+		// A closed gate returns a reason. Showing it is the difference between
+		// "Summarise did nothing" and "narratives are off, here is the variable
+		// to set" — a silent no-op on a button is what this view was rebuilt to
+		// remove.
+		const html = view.renderDigest({
+			...PAYLOADS.digestPayload,
+			narrative: { reason: "Narratives are off on this machine.", gate: "env" },
+		});
+		// Asserted against the NOTE, not the page. The Summarise button's own
+		// tooltip names the environment variable too, so matching that string
+		// anywhere in the html passed whether or not the note rendered at all —
+		// the assertion was green against a function that returned "".
+		assert.match(html, /ctx-narrative-note/, "the reason was not rendered");
+		assert.match(html, /Narratives are off on this machine\./);
+	});
+
+	it("says nothing when no summary was asked for", () => {
+		// `gate: "call"` is the normal state, not a failure, and reporting it
+		// would put a notice under every preview.
+		const html = view.renderDigest({
+			...PAYLOADS.digestPayload,
+			narrative: { reason: "Not requested for this session.", gate: "call" },
+		});
+		assert.ok(!/ctx-narrative-note/.test(html));
+	});
+
+	it("shows no note once a summary exists", () => {
+		const html = view.renderDigest({
+			...PAYLOADS.digestPayload,
+			narrative: { text: "It worked." },
+		});
+		assert.ok(!/ctx-narrative-note/.test(html));
+	});
+
 	it("offers no write for a digest not worth keeping", () => {
 		// Writing "nothing happened" into a project's memory is worse than
 		// writing nothing at all: every future session would load it.

@@ -141,10 +141,15 @@ export async function handleMemoryCommand(
 			// `write` IS forwarded now. It used to be dropped here, which left
 			// the core's write path with no caller anywhere — the capability
 			// existed, was tested, and could not be reached.
-			const p = (params ?? {}) as { sessionId: string; write?: boolean };
+			const p = (params ?? {}) as {
+				sessionId: string;
+				write?: boolean;
+				narrative?: boolean;
+			};
 			const { digest, ...outcome } = ((await ctx.coreBridge.buildSessionDigest(
 				p.sessionId,
 				p.write === true,
+				p.narrative === true,
 			)) ?? {}) as { digest?: Record<string, unknown> };
 			ctx.send({
 				type: "memory-digest",

@@ -88,6 +88,18 @@ const MemoryApiMixin = {
 	memoryWriteDigest(sessionId) {
 		this.send("memory-build-digest", { sessionId, write: true });
 	},
+
+	/**
+	 * Preview the digest WITH a generated prose summary (P11).
+	 *
+	 * Separate from the plain preview because it costs a model call. Two more
+	 * gates sit behind it in the core — INSPECTOR_HOOK_NARRATIVE=1 and `claude`
+	 * on PATH — and a refusal comes back with the reason rather than silently
+	 * producing the same digest.
+	 */
+	memoryNarrateDigest(sessionId) {
+		this.send("memory-build-digest", { sessionId, narrative: true });
+	},
 };
 
 window.MemoryApiMixin = MemoryApiMixin;

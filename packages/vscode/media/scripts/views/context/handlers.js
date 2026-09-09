@@ -124,6 +124,19 @@ const ContextHandlersMixin = {
 
 			// Add to the tray rather than replacing whatever is staged. The tray
 			// is the composition surface; staging is the one-shot delivery.
+			// Ask for a prose summary over the facts.
+			//
+			// Not confirmed, unlike the write: this changes nothing on disk and
+			// nothing outside the preview. It does cost a model call, which is
+			// why it is a button rather than something the preview does on its
+			// own — and why the core refuses with a reason rather than quietly
+			// returning the same digest when a gate is closed.
+			if (e.target.closest(".ctx-narrate-digest")) {
+				const { digest } = State.contextView;
+				if (digest?.sessionId) API.memoryNarrateDigest(digest.sessionId);
+				return;
+			}
+
 			// Write the digest into native memory.
 			//
 			// Confirmed first: this writes a file OUTSIDE the workspace that

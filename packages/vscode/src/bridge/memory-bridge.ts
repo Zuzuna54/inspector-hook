@@ -246,8 +246,9 @@ export function createMemoryBridge(send: SendRequest) {
 		async buildSessionDigest(
 			sessionId: string,
 			write = false,
+			narrative = false,
 		): Promise<unknown> {
-			return send("memory.buildDigest", { sessionId, write });
+			return send("memory.buildDigest", { sessionId, write, narrative });
 		},
 	};
 }
