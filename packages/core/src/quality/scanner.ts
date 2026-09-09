@@ -43,6 +43,14 @@ import type {
 } from "@inspector-hook/protocol";
 
 import { GraphifyReader } from "../research/graphify.js";
+import {
+	ANALYZERS,
+	type Analyzer,
+	type AnalyzerContext,
+	analyzersFor,
+	detectLanguages,
+	findJsRoot,
+} from "./analyzers.js";
 import { groundTruthsFor, rankFindings, toRelative } from "./confidence.js";
 import { analyseGraph } from "./graph-analysis.js";
 import type { ScannableProject } from "./project-registry.js";
@@ -217,12 +225,12 @@ export interface ScanOptions {
 	/** Rebuild the graph before analysing it. Slow; off by default. */
 	buildGraph?: boolean;
 	timeoutMs?: number;
-	/** Override the tool commands, so tests need none of them installed. */
-	commands?: {
-		knip?: [string, string[]];
-		madge?: [string, string[]];
-		sonar?: [string, string[]];
-	};
+	/**
+	 * Override an analyser's command by id, so tests need none of the tools
+	 * installed. Keyed by analyser id: knip, madge, vulture, ruff,
+	 * go-deadcode, clippy, sonar-secrets.
+	 */
+	commands?: Record<string, [string, string[]]>;
 }
 
 /**
@@ -245,8 +253,8 @@ export async function scanProject(
 		graphOrphans?: string[];
 		graphConnected?: Map<string, number>;
 	} = {};
-	let circular: CircularDependency[] = [];
-	let secrets: SecretFinding[] = [];
+	const circular: CircularDependency[] = [];
+	const secrets: SecretFinding[] = [];
 	let graph: QualityReport["graph"];
 
 	if (!project.exists) {
@@ -255,16 +263,15 @@ export async function scanProject(
 			projectName: project.name,
 			scannedAt: new Date().toISOString(),
 			durationMs: Date.now() - started,
-			tools: (["knip", "madge", "sonar-secrets", "graphify"] as const).map(
-				(tool) => ({
-					tool,
-					status: "not-applicable" as const,
-					reason: "the project directory no longer exists",
-				}),
-			),
+			tools: [...ANALYZERS.map((a) => a.id), "graphify"].map((tool) => ({
+				tool,
+				status: "not-applicable" as const,
+				reason: "the project directory no longer exists",
+			})),
 			findings: [],
 			circular: [],
 			secrets: [],
+			deadSymbols: [],
 			summary: {
 				high: 0,
 				medium: 0,
@@ -272,77 +279,91 @@ export async function scanProject(
 				suppressed: 0,
 				circular: 0,
 				secrets: 0,
+				deadSymbols: 0,
 				measured: [],
-				unmeasured: ["knip", "madge", "sonar-secrets", "graphify"],
+				unmeasured: [...ANALYZERS.map((a) => a.id), "graphify"],
 			},
 		};
 	}
 
-	// --- knip -------------------------------------------------------------
-	if (!project.tools.knip) {
-		tools.push({
-			tool: "knip",
-			status: "not-applicable",
-			reason: "no package.json; knip has no entry points to trace",
-		});
-	} else {
-		const [cmd, args] = options.commands?.knip ?? [
-			"npx",
-			["--yes", "knip", "--no-progress", "--reporter", "json"],
-		];
-		const result = await run(cmd, args, root, timeout);
-		tools.push({
-			tool: "knip",
-			status: result.status,
-			durationMs: result.durationMs,
-			error: result.error,
-		});
-		if (result.status === "ok") {
-			findingsInput.knip = parseKnipFiles(result.stdout).map((f) =>
-				toRelative(root, f),
-			);
+	// --- every applicable analyser, from the registry ----------------------
+	//
+	// One loop, not four hardcoded blocks. Adding a language is a registry
+	// entry: the original M7 named only knip, and a scanner edited per language
+	// is a scanner that only ever covers one.
+	const languages = detectLanguages(root);
+	// The JS manifest is not always at the root: five observed projects hold
+	// their package.json one level down. See findJsRoot.
+	const js = findJsRoot(root);
+	const ctx: AnalyzerContext = {
+		root,
+		languages,
+		hasPackageJson: js.dir.length > 0,
+	};
+	const deadSymbols: QualityReport["deadSymbols"] = [];
+
+	for (const analyzer of ANALYZERS) {
+		if (!analyzer.applies(ctx)) {
+			tools.push({
+				tool: analyzer.id,
+				language: analyzer.language,
+				label: analyzer.label,
+				status: "not-applicable",
+				reason:
+					analyzer.language === "ts-js" && !ctx.hasPackageJson
+						? js.nested.length > 1
+							? `no package.json at the root; ${js.nested.length} nested packages found (${js.nested
+									.map((d) => d.slice(root.length + 1))
+									.join(", ")}) — each is scanned as its own project`
+							: "no package.json; there are no entry points to trace"
+						: `the project has no ${analyzer.language} files`,
+			});
+			continue;
 		}
-	}
 
-	// --- madge -------------------------------------------------------------
-	if (!project.tools.madge) {
+		const [cmd, args] =
+			options.commands?.[analyzer.id] ?? analyzer.command(ctx);
+		// A JS analyser runs where the manifest is, which may be a subdirectory.
+		const cwd = analyzer.language === "ts-js" && js.dir ? js.dir : root;
+		const result = await run(cmd, args, cwd, timeout);
 		tools.push({
-			tool: "madge",
-			status: "not-applicable",
-			reason: "no JavaScript or TypeScript sources to walk",
-		});
-	} else {
-		const [cmd, args] = options.commands?.madge ?? [
-			"npx",
-			["--yes", "madge", "--circular", "--json", "--extensions", "ts,js", "."],
-		];
-		const result = await run(cmd, args, root, timeout);
-		tools.push({
-			tool: "madge",
-			status: result.status,
-			durationMs: result.durationMs,
-			error: result.error,
-		});
-		if (result.status === "ok") circular = parseMadgeCycles(result.stdout);
-	}
-
-	// --- sonar (local tier only) -------------------------------------------
-	{
-		const [cmd, args] = options.commands?.sonar ?? [
-			"sonar",
-			["analyze", "secrets", "."],
-		];
-		const result = await run(cmd, args, root, timeout);
-		tools.push({
-			tool: "sonar-secrets",
+			tool: analyzer.id,
+			language: analyzer.language,
+			label: analyzer.label,
 			status: result.status,
 			durationMs: result.durationMs,
 			error:
-				result.status === "unavailable"
-					? "the sonar CLI is not installed (see docs.sonarsource.com/sonarqube-cli)"
+				result.status === "unavailable" && analyzer.needsInstall
+					? analyzer.needsInstall
 					: result.error,
 		});
-		if (result.status === "ok") secrets = parseSonarSecrets(result.stdout);
+		if (result.status !== "ok") continue;
+
+		for (const finding of analyzer.parse(result.stdout, ctx)) {
+			switch (finding.kind) {
+				case "dead-file":
+					(findingsInput.knip ??= []).push(finding.file);
+					break;
+				case "dead-symbol":
+					deadSymbols.push({
+						file: finding.file,
+						line: finding.line,
+						detail: finding.detail,
+						tool: analyzer.id,
+					});
+					break;
+				case "cycle":
+					circular.push({ cycle: finding.cycle ?? [finding.file] });
+					break;
+				case "secret":
+					secrets.push({
+						file: finding.file,
+						rule: finding.detail,
+						line: finding.line,
+					});
+					break;
+			}
+		}
 	}
 
 	// --- graphify -----------------------------------------------------------
@@ -419,6 +440,8 @@ export async function scanProject(
 		findings,
 		circular,
 		secrets,
+		deadSymbols,
+		languages,
 		graph,
 		summary: {
 			high: count("high"),
@@ -427,6 +450,7 @@ export async function scanProject(
 			suppressed: count("suppressed"),
 			circular: circular.length,
 			secrets: secrets.length,
+			deadSymbols: deadSymbols.length,
 			measured,
 			unmeasured,
 		},

@@ -31,11 +31,29 @@ after(async () => {
 	await Promise.all(dirs.map(cleanup));
 });
 
-/** A project on disk, optionally with a package.json. */
-async function makeProject({ pkg = true } = {}) {
+/**
+ * A project on disk, optionally with a package.json.
+ *
+ * Real source files are written because applicability is now LANGUAGE-driven:
+ * a package.json with no JavaScript in it correctly gets `not-applicable` for
+ * knip, which is stricter than the old package.json-only check.
+ */
+async function makeProject({ pkg = true, languages = ["ts-js"] } = {}) {
 	const root = await makeTempStore();
 	dirs.push(root);
 	if (pkg) await writeFile(join(root, "package.json"), "{}", "utf-8");
+	await mkdir(join(root, "src"), { recursive: true });
+	const files = {
+		"ts-js": ["a.ts", "b.ts", "c.ts"],
+		python: ["a.py", "b.py", "c.py"],
+		go: ["a.go", "b.go", "c.go"],
+		rust: ["a.rs", "b.rs", "c.rs"],
+	};
+	for (const language of languages) {
+		for (const name of files[language] ?? []) {
+			await writeFile(join(root, "src", name), "// x\n", "utf-8");
+		}
+	}
 	return {
 		root,
 		name: "fixture",
@@ -129,7 +147,7 @@ describe("quality: a tool that did not run never reports zero", () => {
 	it("REGRESSION: a missing tool is `unavailable`, not `ok` with no findings", async () => {
 		const project = await makeProject();
 		const report = await scanProject(project, {
-			commands: { knip: missing, madge: missing, sonar: missing },
+			commands: { knip: missing, madge: missing, "sonar-secrets": missing },
 			timeoutMs: 20_000,
 		});
 
@@ -147,7 +165,7 @@ describe("quality: a tool that did not run never reports zero", () => {
 	it("a tool that ran and broke is `failed`, distinct from unavailable", async () => {
 		const project = await makeProject();
 		const report = await scanProject(project, {
-			commands: { knip: broken, madge: missing, sonar: missing },
+			commands: { knip: broken, madge: missing, "sonar-secrets": missing },
 			timeoutMs: 20_000,
 		});
 		assert.equal(report.tools.find((t) => t.tool === "knip").status, "failed");
@@ -158,7 +176,7 @@ describe("quality: a tool that did not run never reports zero", () => {
 		// unused, so not running it is correct and must be distinguishable.
 		const project = await makeProject({ pkg: false });
 		const report = await scanProject(project, {
-			commands: { sonar: missing },
+			commands: { "sonar-secrets": missing },
 			timeoutMs: 20_000,
 		});
 		const knip = report.tools.find((t) => t.tool === "knip");
@@ -184,7 +202,9 @@ describe("quality: a tool that did not run never reports zero", () => {
 			},
 			rootSource: "transcript",
 		});
-		assert.equal(report.tools.length, 4);
+		// One per registry analyser plus graphify. A hardcoded 4 was the old
+		// shape; the point of the registry is that this grows with languages.
+		assert.ok(report.tools.length >= 7, `got ${report.tools.length} tools`);
 		assert.ok(report.tools.every((t) => t.status === "not-applicable"));
 		assert.deepEqual(report.summary.measured, []);
 	});
@@ -204,7 +224,7 @@ describe("quality: a tool that did not run never reports zero", () => {
 					],
 				],
 				madge: missing,
-				sonar: missing,
+				"sonar-secrets": missing,
 			},
 			timeoutMs: 20_000,
 		});
@@ -220,7 +240,7 @@ describe("quality: findings and the graph", () => {
 			commands: {
 				knip: emits(JSON.stringify({ issues: [{ file: "src/dead.ts" }] })),
 				madge: missing,
-				sonar: missing,
+				"sonar-secrets": missing,
 			},
 			timeoutMs: 20_000,
 		});
@@ -235,7 +255,7 @@ describe("quality: findings and the graph", () => {
 			commands: {
 				knip: missing,
 				madge: emits(JSON.stringify([["a.ts", "b.ts", "a.ts"]])),
-				sonar: missing,
+				"sonar-secrets": missing,
 			},
 			timeoutMs: 20_000,
 		});
@@ -246,7 +266,7 @@ describe("quality: findings and the graph", () => {
 	it("graphify is `unavailable` with a remedy when no graph exists", async () => {
 		const project = await makeProject();
 		const report = await scanProject(project, {
-			commands: { knip: missing, madge: missing, sonar: missing },
+			commands: { knip: missing, madge: missing, "sonar-secrets": missing },
 			timeoutMs: 20_000,
 		});
 		const g = report.tools.find((t) => t.tool === "graphify");
@@ -302,7 +322,7 @@ describe("quality: findings and the graph", () => {
 			"utf-8",
 		);
 		const report = await scanProject(project, {
-			commands: { knip: missing, madge: missing, sonar: missing },
+			commands: { knip: missing, madge: missing, "sonar-secrets": missing },
 			timeoutMs: 20_000,
 		});
 		assert.equal(report.tools.find((t) => t.tool === "graphify").status, "ok");

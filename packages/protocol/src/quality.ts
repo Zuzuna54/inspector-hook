@@ -25,7 +25,16 @@ export type ToolStatus =
 	| "timeout";
 
 export interface ToolResult {
-	tool: "knip" | "madge" | "sonar-secrets" | "graphify";
+	/**
+	 * Analyser id from the registry — knip, madge, vulture, ruff, go-deadcode,
+	 * clippy, sonar-secrets, graphify. A string rather than a union because
+	 * adding a language must be one registry entry, not a protocol change.
+	 */
+	tool: string;
+	/** Language key this analyser covers, or "any". */
+	language?: string;
+	/** What a human should call it. */
+	label?: string;
 	status: ToolStatus;
 	/** Milliseconds the tool actually ran. */
 	durationMs?: number;
@@ -90,6 +99,23 @@ export interface QualityReport {
 	findings: QualityFinding[];
 	circular: CircularDependency[];
 	secrets: SecretFinding[];
+	/**
+	 * Unused symbols inside files that ARE used — an unreferenced Python
+	 * function, an unreachable Go func, a `dead_code` lint.
+	 *
+	 * Kept apart from `findings` on purpose: those are whole dead FILES and go
+	 * through confidence tiering, while a dead symbol is a local fact one tool
+	 * saw and no second signal can corroborate. Merging them would give a
+	 * symbol the same weight as a file two tools agreed on.
+	 */
+	deadSymbols: {
+		file: string;
+		line?: number;
+		detail: string;
+		tool: string;
+	}[];
+	/** Files per language, so a reader knows why an analyser did or did not run. */
+	languages?: Record<string, number>;
 	graph?: GraphHealth;
 	/**
 	 * Headline counts, each derived only from tools whose status is `ok`.
@@ -104,6 +130,7 @@ export interface QualityReport {
 		suppressed: number;
 		circular: number;
 		secrets: number;
+		deadSymbols: number;
 		measured: string[];
 		unmeasured: string[];
 	};

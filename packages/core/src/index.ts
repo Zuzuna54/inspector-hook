@@ -225,6 +225,23 @@ export {
 
 // Export code quality analysis (Milestone 7)
 export {
+	ANALYZERS,
+	DETECT_DEPTH,
+	LANGUAGE_FLOOR,
+	VENDOR_DIRS,
+	analyzersFor,
+	detectLanguages,
+	estimateSeconds,
+	findJsRoot,
+	hasManifest,
+	type Analyzer,
+	type AnalyzerContext,
+	type FindingKind,
+	type LanguageCounts,
+	type ParsedFinding,
+} from "./quality/analyzers.js";
+
+export {
 	MAX_HISTORY,
 	QUALITY_CATEGORY,
 	QualityStore,
