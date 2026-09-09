@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 92 rows for Milestones 3, 4, 5, 7 and 8**, tallied separately at the end.
+status with evidence — **plus 115 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -747,25 +747,28 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 92 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+**These 115 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
 from `docs/phases/*.md`; M3 onward were added by the plan and have no phase document, which is
 why this matrix covered none of the milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
 
-Criteria are taken from the plan's Milestone 3 (five numbered deliverables), Milestone 4
+Criteria are taken from the plan's Milestone 2 (transport, event coverage, the installer),
+Milestone 3 (five numbered deliverables), Milestone 4
 (capture, per-project index, hybrid retrieval, storage tiering, graphify), Milestone 5
 (agent capture, the live tree, MCP exposure), Milestone 7 (per-project scans, confidence
 tiering, graph analysis) and Milestone 8 (skill inventory, utilization from transcripts, the
 Skills and Tools views). **M6 is deferred** and has no rows; every other shipped milestone now
 does. M7's were owed for a cycle — it shipped against live scans that were never written down
 here — and were added from one fresh scan rather than from recollection, which is how two of
-them came back `broken` rather than `verified`.
+them came back `broken` rather than `verified`. M2's were added the same way, from a live
+measurement of 17,192 log rows plus one end-to-end run, and turned up a third: a second
+`install.sh --http` emptied the settings file.
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 85 | 92% |
-| **untested** | 3 | 3% |
-| **not-impl** | 4 | 4% |
+| **verified** | 107 | 93% |
+| **untested** | 4 | 3% |
+| **not-impl** | 4 | 3% |
 
 Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
@@ -839,6 +842,35 @@ produced it. No status outside the five defined above is used here.
 | M5.11 | MCP results never misdescribe themselves | verified | test · a spawn acknowledgement renders as "NEVER REPORTED"; the graph reports current / out-of-date / unknown age · `mcp-server.test.js` |
 | M5.12 | `--mcp` does not share stdio with IPC | verified | live · was **broken**: notifications were interleaved into the MCP stream. Observed before/after on the binary; an end-to-end test spawns `--mcp` and asserts zero unsolicited notifications |
 
+### Milestone 2 — transport and event coverage
+
+Measured 2026-09-09 over 17,192 live log rows and 11,172 tool events, plus one end-to-end
+`claude -p` run wired with HTTP-only hooks.
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M2.1 | Register every event the core can attribute | verified | live · 30 of 33 in settings.json. The 3 excluded are deliberate: `MessageDisplay` fires per streamed chunk, and the `Elicitation` pair adds nothing a dashboard shows |
+| M2.2 | `PostToolUseFailure` can actually fire | verified | live · was **inert**: handled in the core and registered by no installer. **57 captured** in the store now |
+| M2.3 | `StopFailure` can actually fire | untested | live · registered, and `ai.error` has 5 rows — but no turn has failed in a way that proves the StopFailure path specifically. Registered and unobserved, not handled and unregistered |
+| M2.4 | Events registered but never observed are not counted as working | verified | live · 23 of 30 event types have fired; the other 7 (worktrees, model switches, tasks) have never happened on this machine and are reported as unobserved rather than broken |
+| M2.5 | `tool_use_id` forwarded, so executions pair | verified | live · 86% overall, and the shortfall is entirely historical — **51% on 2026-09-03 before the hook fix, 100% every day since**. This is B2's real fix: the earlier one was correct, tested, and inert |
+| M2.6 | `prompt_id` forwarded for turn grouping | verified | live · 85%, same historical split |
+| M2.7 | `permission_mode` and `effort` forwarded | verified | live · 72% each, and `effort` is unwrapped from `.effort.level` |
+| M2.8 | Real duration, not a derived one | verified | live · `durationMs` on 42% of tool events, which is ~85% of PostToolUse; anything computed from our own timestamps would be a multiple of 1000ms or 0 |
+| M2.9 | Subagent identity forwarded | verified | live · `agentId` 34%, `agentType` 33% — only events fired inside a subagent carry them, and that is what makes M5's tree buildable from tool events alone |
+| M2.10 | `last_assistant_message` — Claude's actual replies | verified | live · present on **90%** of response events. Capturable for the first time |
+| M2.11 | Level is derived, not hardcoded | verified | live+test · was `"info"` always, so Errors/Warnings/Blocked could never populate. A tool error naming a denial becomes `blocked`, not `error` · `hooks.test.js`, `hook-payload.test.js` |
+| M2.12 | The installer is additive, not destructive | verified | test · was `jq '.hooks = $hooks'`, a full replace that deleted any co-installed tool's hooks. Now merges per event; a fixture with 3 foreign hooks keeps all 3 · `hooks.test.js` |
+| M2.13 | Install is idempotent | verified | test · three consecutive runs produce one entry per event |
+| M2.14 | Uninstall is symmetric | verified | test · `uninstall.sh` delegates to `install.sh --uninstall` so one file owns both directions, and the test DERIVES the uninstall list from the install source — the drift it was written after left one of four scripts behind |
+| M2.15 | The modern nested schema | verified | test · `{matcher, hooks:[{type, command}]}`; the legacy flat shape Claude Code no longer accepts is stripped on upgrade |
+| M2.16 | An HTTP hook does not stall a dead core | verified | live · the M2 blocker, measured: 17.1s for one turn against a closed port, vs 19.6s with no hook and 15.9s with a live listener. 600s is the RESPONSE timeout; connection refused returns at once. A control run against a recording listener proved the hook fires |
+| M2.17 | The core can BE the hook handler | verified | live · `/api/hook` takes the native payload. One `claude -p` run with four HTTP-only hooks and no shell script captured all four events, correct levels, matching `tool_use_id` across the Pre/Post pair, 1733ms real duration, `tool_result` and `last_assistant_message` present |
+| M2.18 | Both transports produce the same record | verified | test · one shared `ingestLog`, and a drift test that derives the event-rename and level tables FROM the shell source rather than restating them · `hook-payload.test.js` |
+| M2.19 | `--http` installs and uninstalls cleanly | verified | test · was **broken**: two jq filters called `test()` on `.command`, null for an http entry, so a second install emptied the settings file — reachable by anyone with an http hook from any tool. Uninstall matches the `/api/hook` path, not the URL, since the port can change between install and uninstall · `hooks.test.js` |
+| M2.20 | HTTP hooks as the DEFAULT transport | not-impl | live · by decision, not omission. An HTTP hook URL is static and the core's port is not — it scans upward when 52376 is taken, and the live core is on 52377. The shell hook re-reads the port file every event. Also, only a command hook can inject context: an HTTP response body cannot write to stdout, so the two context scripts stay command hooks even under `--http` |
+| M2.21 | A hook response never alters the session | verified | read+live · `/api/hook` always answers `{}` with 200, including on malformed input. Claude Code reads the response as hook output, so an error body could surface to the user and a `decision` field could block a tool call |
+
 ### Milestone 7 — code quality across every observed project
 
 Measured by one live scan of this repository on 2026-09-09: 12.0s, 8 analysers,
@@ -885,7 +917,9 @@ Measured by one live scan of this repository on 2026-09-09: 12.0s, 8 analysers,
 | M8.11 | Never render `env` | verified | live · dropped at the reader, so it never enters a record. Checked by key, not substring — the first check matched `.venv/bin/python` and was a false positive · `skills-registry.test.js` |
 | M8.12 | Observed-but-unconfigured servers are first-class | verified | live · `claude-in-chrome` is **548 of 684** calls and is in no config file; `claude_ai_Google_Drive` (16) likewise. A config-driven list would omit the busiest server on the machine · `skills-view.test.js` |
 | M8.13 | A configured server never called is reported as such | verified | live · 3 of 4 configured servers have 0 calls; only playwright (120) has any |
-| M8.14 | Server reachability | not-impl | read · nothing here starts or pings a server. Reporting "reachable" without connecting would be the false claim this project treats as its priority bug; the view shows configured-vs-observed instead, which is measured |
+| M8.14 | Server reachability | verified | live · a real handshake — initialize / notifications/initialized / tools/list — against each configured server. Found `memory` **cannot start** (its venv interpreter was deleted) in 9ms, and that `fetcher` answers as `browser-mcp` and `mcp-ical` as `Calendar`, neither matching its config key. Advertised tools are kept apart from observed: playwright advertises 24 and 9 were ever called · `mcp-probe.test.js` |
+| M8.22 | Reachability never runs itself | verified | test · it spawns a process per server, one of them a browser, so it is a button. An unchecked server renders as "not checked" — never as reachable, never as broken · `skills-view.test.js` |
+| M8.23 | A probe never handles secrets to succeed | verified | test · the probe's targets come from `readConfiguredServers`, which is asserted to carry no `env` key and not to leak a configured `sk-secret` value; the probe therefore inherits only the ambient environment, and a server needing a key fails its handshake rather than being worked around · `skills-registry.test.js` |
 | M8.15 | Every count states its source | verified | test · the footer names the transcript count and scan time; 0 transcripts renders "Not measured — unknown, not zero" rather than a confident zero · `skills-view.test.js` |
 | M8.16 | Filter unused / used / invalid | verified | test · `skills-view.test.js` |
 | M8.17 | Detail: rendered SKILL.md, path, open-in-editor, supporting tree | verified | test · read in the core so the byte cap and the containment check have one implementation; the path is resolved by looking the id up in the discovered set, so a traversal fails as "unknown skill" |
