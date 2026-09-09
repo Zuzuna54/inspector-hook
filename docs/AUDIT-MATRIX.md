@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 71 rows for Milestones 3, 4, 5 and 8**, tallied separately at the end.
+status with evidence — **plus 92 rows for Milestones 3, 4, 5, 7 and 8**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -747,23 +747,25 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 71 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+**These 92 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
 from `docs/phases/*.md`; M3 onward were added by the plan and have no phase document, which is
 why this matrix covered none of the milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
 
 Criteria are taken from the plan's Milestone 3 (five numbered deliverables), Milestone 4
 (capture, per-project index, hybrid retrieval, storage tiering, graphify), Milestone 5
-(agent capture, the live tree, MCP exposure) and Milestone 8 (skill inventory, utilization
-from transcripts, the Skills and Tools views). **M6 is deferred and M7 has no rows yet** — its
-criteria were verified against live scans but never written down here, which is the same gap
-this section exists to close and is therefore owed.
+(agent capture, the live tree, MCP exposure), Milestone 7 (per-project scans, confidence
+tiering, graph analysis) and Milestone 8 (skill inventory, utilization from transcripts, the
+Skills and Tools views). **M6 is deferred** and has no rows; every other shipped milestone now
+does. M7's were owed for a cycle — it shipped against live scans that were never written down
+here — and were added from one fresh scan rather than from recollection, which is how two of
+them came back `broken` rather than `verified`.
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 66 | 93% |
-| **untested** | 3 | 4% |
-| **not-impl** | 2 | 3% |
+| **verified** | 85 | 92% |
+| **untested** | 3 | 3% |
+| **not-impl** | 4 | 4% |
 
 Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
@@ -836,6 +838,35 @@ produced it. No status outside the five defined above is used here.
 | M5.10 | Expose prior findings over MCP | verified | live · `--mcp`, real handshake: initialize / tools/list / tools/call, 3 tools, `-32601` on unknown |
 | M5.11 | MCP results never misdescribe themselves | verified | test · a spawn acknowledgement renders as "NEVER REPORTED"; the graph reports current / out-of-date / unknown age · `mcp-server.test.js` |
 | M5.12 | `--mcp` does not share stdio with IPC | verified | live · was **broken**: notifications were interleaved into the MCP stream. Observed before/after on the binary; an end-to-end test spawns `--mcp` and asserts zero unsolicited notifications |
+
+### Milestone 7 — code quality across every observed project
+
+Measured by one live scan of this repository on 2026-09-09: 12.0s, 8 analysers,
+`high 1 · medium 1 · low 1 · suppressed 80 · circular 3 · secrets 0 · deadSymbols 16`.
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M7.1 | Scan across observed projects, not this repo | verified | live · 32 discovered, 18 on disk, 14 moved away. `quality.getProjects` returns the missing ones with `exists: false` rather than dropping them |
+| M7.2 | knip, and its false-positive rate | verified | live · knip flags 83 files here; **80 are suppressed** as webview scripts the manifest loads. A Quality view built on raw knip would be 96% noise · `quality-scanner.test.js` |
+| M7.3 | The manifest is ground truth and suppresses | verified | live · 118 paths parsed from `webview-assets.ts`; every suppressed finding names it in `suppressedBy` |
+| M7.4 | A missing ground truth is reported, not silent | verified | test · was **broken**: the manifest moved to `webview-assets.ts`, the reader looked only at `webview-html.ts`, returned null, and null reads as "suppress nothing" — 80 false positives promoted to real with nothing on screen. `groundTruth.problems` now carries the reason · `confidence.test.js` |
+| M7.5 | The graph ranks confidence and never suppresses alone | verified | live · `persistence/index.ts` is knip-flagged with 6 graph edges and lands **low**, not suppressed — the graph's `contains`/`imports` edges are not reachability |
+| M7.6 | Two agreeing signals give high confidence | verified | live · `scripts/debug-webview.js` — `agreed=[graph-orphan, knip]` → **high**, the plan's named case |
+| M7.7 | The graph reaches what knip cannot | verified | live · `config/claude-hooks/lib/http_logger.py` is Python, invisible to knip, and surfaces from the graph alone. **It lands `medium`, not `high` as plan §7.6 predicted** — one signal cannot corroborate itself, and the tiering is right where the plan's acceptance line was optimistic |
+| M7.8 | Manifest-loaded scripts never appear as dead | verified | live · 15 `api/inbound-*.js` findings, **all 15 suppressed**, none at high/medium/low |
+| M7.9 | Four languages, not one | verified | live · registry of 7 analysers: knip, madge (ts-js) · vulture, ruff (python) · go-deadcode (go) · clippy (rust) · sonar-secrets (any). This repo detects `ts-js 189, python 10` and runs 5 |
+| M7.10 | An analyser needs no install | verified | live · `npx --yes`, `uvx`, `go run …@latest`, `cargo clippy`. vulture and ruff both ran here (682ms, 218ms) with neither installed |
+| M7.11 | vulture does not drown in vendored code | verified | live · unfiltered it reports 66 findings, 62 inside `.venv`/site-packages. **0 of the 16 dead symbols in this scan are in either** |
+| M7.12 | "not applicable" ≠ "clean" | verified | live · go-deadcode and clippy report `not-applicable` with a reason ("the project has no go files"); sonar-secrets reports `unavailable` with the install command. None is counted as a measurement |
+| M7.13 | Sonar's local tier only | verified | read+live · only `sonar analyze secrets` is used; the issue and quality-gate commands are server-bound and not invoked. Not installed here, so it degrades to `unavailable` rather than failing the scan |
+| M7.14 | Every count states which tools produced it | verified | live · `summary.measured = [knip, madge, vulture, ruff, graphify]`, `unmeasured = [go-deadcode, clippy, sonar-secrets]`; the view refuses to render "clean" when `measured` is empty · `quality-view.test.js` |
+| M7.15 | Circular dependencies | verified | live · was **wrong**: madge walked build output and reported 6 cycles, 3 of them `packages/core/dist/*.d.ts` restating the other 3. Excluding VENDOR_DIRS gives **3 real cycles**, all `core.ts → index.ts` — the barrel import the god-node analysis independently implicates |
+| M7.16 | Dead symbols are kept apart from dead files | verified | live · 16 dead symbols (knip 11, ruff 5) in `deadSymbols`, never merged into `findings`: a symbol is one tool's local observation that no second signal can corroborate |
+| M7.17 | Graph analysis: orphans, god nodes, coupling, rot | verified | live · 4095 nodes / 4922 edges · 9 orphans · god node `index.ts` at **149 edges** · 339 communities at **12% crossing** · rot reported with `checked` so an unverifiable count is not shown as zero |
+| M7.18 | A stale graph is labelled, never trusted silently | verified | live · this repo's graph reports `stale: true` against HEAD, and `stale` is three-valued — `null` means unknown, which is not the same as current |
+| M7.19 | Scans are persisted with history, and trend | verified | test · `MAX_HISTORY = 30`; `highDelta` compares only scans whose `measured` tool sets match, so a trend never compares a 5-tool scan with a 2-tool one · `quality-store.test.js` |
+| M7.20 | graphify builds graphs for every project | **not-impl** | live · **1 of 18 projects on disk has a graph** — this one. `ScanOptions.buildGraph` is declared and read nowhere, and no UI triggers a build. The scan reads graphs; it does not create them, so 17 projects get the narrow signal only |
+| M7.21 | Gating a build on a scan | not-impl | read · deferred with M6 by decision. No project on this machine has run Forge, so the gate has nothing to attach to |
 
 ### Milestone 8 — skills and MCP tools: inventory against utilization
 

@@ -256,9 +256,25 @@ export const ANALYZERS: Analyzer[] = [
 		label: "madge (circular dependencies)",
 		typicalSeconds: 5,
 		applies: (c) => c.hasPackageJson && (c.languages["ts-js"] ?? 0) > 0,
+		// `--exclude` matters: without it madge walks build output and reports
+		// every cycle TWICE -- once in src/ and once in the .d.ts files
+		// generated from it. Measured on this repository: 6 cycles, of which 3
+		// were `packages/core/dist/*.d.ts` restating the 3 real ones. A
+		// duplicate finding in generated code is not a second defect, and
+		// `dist` was already in VENDOR_DIRS; only detectLanguages was using it.
 		command: () => [
 			"npx",
-			["--yes", "madge", "--circular", "--json", "--extensions", "ts,js", "."],
+			[
+				"--yes",
+				"madge",
+				"--circular",
+				"--json",
+				"--extensions",
+				"ts,js",
+				"--exclude",
+				`(^|/)(${VENDOR_DIRS.join("|")})/`,
+				".",
+			],
 		],
 		parse(stdout) {
 			const doc = jsonOrNull(stdout);
