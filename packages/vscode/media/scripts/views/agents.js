@@ -27,6 +27,22 @@ const AgentsView = {
 	_unsubscribers: [],
 
 	init() {
+
+		// The global project filter scopes the tree, so a change redraws it.
+
+		if (typeof State !== 'undefined' && State.subscribe) {
+
+			const off = State.subscribe('projectFilter', (next, prev) => {
+
+				if (prev && next.selectedId === prev.selectedId) return;
+
+				this.renderList();
+
+			});
+
+			if (this._unsubscribers) this._unsubscribers.push(off);
+
+		}
 		// Build the shell FIRST. The router calls init() and nothing else -- it
 		// never calls render() -- so a view that only subscribes here leaves the
 		// panel showing its static "Loading agents…" fallback forever, and every
@@ -138,10 +154,18 @@ const AgentsView = {
 			}`;
 	},
 
-	/** Agents after the active filter. */
+	/**
+	 * Agents in this project, after the active filter.
+	 *
+	 * An agent carries a session id, not a path, so the project has to come
+	 * from the session that spawned it. An agent whose session is no longer in
+	 * the store is KEPT and counted as unattributed rather than dropped —
+	 * retention outlives sessions, so "we cannot tell" is a common and real
+	 * answer here, and hiding those agents would silently shorten the tree.
+	 */
 	visible() {
 		const v = State.agentsView || {};
-		const agents = v.agents || [];
+		const agents = this.inProject(v.agents || []);
 		switch (v.filter) {
 			case "running":
 				return agents.filter((a) => a.status === "running");
@@ -152,6 +176,24 @@ const AgentsView = {
 			default:
 				return agents;
 		}
+	},
+
+	/** The global project filter, resolved through each agent's session. */
+	inProject(agents) {
+		const identity =
+			typeof ProjectFilter !== "undefined" ? ProjectFilter.selected() : null;
+		if (!identity) {
+			this._unattributedAgents = 0;
+			return agents;
+		}
+		const sessions = new Map(
+			(State.sessions || []).map((s) => [s.id, s.metadata?.workingDirectory]),
+		);
+		const split = ProjectFilter.split(identity, agents, (agent) => ({
+			path: agent.sessionId ? sessions.get(agent.sessionId) : undefined,
+		}));
+		this._unattributedAgents = split.unknown.length;
+		return [...split.included, ...split.unknown];
 	},
 
 	renderList() {

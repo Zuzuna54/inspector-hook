@@ -22,6 +22,12 @@ const ContextView = {
 	 * Initialize the view.
 	 */
 	init() {
+		// The global project filter scopes the project list. Pushed first so a
+		// failure to subscribe is visible as an unscoped list rather than as a
+		// list that quietly never updates.
+		const offFilter = this._subscribeProjectFilter();
+		if (offFilter) this._unsubscribers.push(offFilter);
+
 		this._unsubscribers.push(
 			State.subscribe("contextView", (newVal, oldVal) => {
 				if (newVal.projects !== oldVal?.projects) {
@@ -99,6 +105,16 @@ const ContextView = {
 		this.renderDetail();
 	},
 
+	/** The global filter scopes the project list, so a change has to redraw it. */
+	_subscribeProjectFilter() {
+		if (typeof State === "undefined" || !State.subscribe) return;
+		return State.subscribe("projectFilter", (next, prev) => {
+			if (prev && next.selectedId === prev.selectedId) return;
+			this.renderProjects();
+			this.renderStatus();
+		});
+	},
+
 	/**
 	 * The view does two jobs — browsing/curating the corpus, and staging context
 	 * for the next session — so it has two modes rather than one crowded pane.
@@ -173,7 +189,22 @@ const ContextView = {
 		if (!el) return;
 
 		const { projects, selectedProject, showEmpty } = State.contextView;
-		const all = projects || [];
+		// The global project filter, matched on the SLUG — which is the only
+		// key native memory has. Three-valued: a memory project whose slug the
+		// core could not link to a path is kept and shown, because its slug
+		// cannot be turned back into a directory and hiding it would lose the
+		// only record of that project's memory.
+		const identity =
+			typeof ProjectFilter !== "undefined" ? ProjectFilter.selected() : null;
+		const source = projects || [];
+		const all = identity
+			? (() => {
+					const split = ProjectFilter.split(identity, source, (p) => ({
+						slug: p.slug,
+					}));
+					return [...split.included, ...split.unknown];
+				})()
+			: source;
 		// Eight of eighteen projects in a real corpus hold nothing. Listing them
 		// by default buries the ones that matter, so they collapse behind a count.
 		const withFiles = all.filter((p) => (p.files || []).length > 0);

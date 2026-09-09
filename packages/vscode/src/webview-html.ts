@@ -94,9 +94,11 @@ export function buildWebviewHtml(
 		["styles", "views", "archived", "accordion.css"],
 		["styles", "views", "archived", "preview.css"],
 		["styles", "views", "context.css"],
+		["styles", "views", "quality.css"],
 		["styles", "views", "agents.css"],
 		["styles", "views", "research.css"],
 		["styles", "views", "tray.css"],
+		["styles", "views", "find.css"],
 	];
 
 	const scripts: string[][] = [
@@ -106,11 +108,15 @@ export function buildWebviewHtml(
 		["scripts", "shared", "activity-merge.js"],
 		// The index load budget, before every surface that reports against it.
 		["scripts", "shared", "budget.js"],
+		["scripts", "shared", "project-filter.js"],
+		["scripts", "shared", "project-picker.js"],
 		// Sender mixins load before api.js, which composes them onto API at
 		// its own load time.
 		["scripts", "api", "memory-senders.js"],
 		["scripts", "api", "history-senders.js"],
 		["scripts", "api", "tray-senders.js"],
+		["scripts", "api", "find-senders.js"],
+		["scripts", "api", "projects-senders.js"],
 		["scripts", "api", "transcript-senders.js"],
 		["scripts", "api.js"],
 		// Inbound handlers register onto API, so they load after it. Each
@@ -122,11 +128,15 @@ export function buildWebviewHtml(
 		["scripts", "api", "inbound-context.js"],
 		["scripts", "api", "research-senders.js"],
 		["scripts", "api", "inbound-research.js"],
+		["scripts", "api", "quality-senders.js"],
+		["scripts", "api", "inbound-quality.js"],
 		["scripts", "api", "agents-senders.js"],
 		["scripts", "api", "inbound-agents.js"],
 		["scripts", "api", "graphify-senders.js"],
 		["scripts", "api", "inbound-graphify.js"],
 		["scripts", "api", "inbound-tray.js"],
+		["scripts", "api", "inbound-find.js"],
+		["scripts", "api", "inbound-projects.js"],
 		["scripts", "api", "inbound-transcript.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
@@ -156,6 +166,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "history", "virtual-scroll.js"],
 		["scripts", "views", "history", "restore.js"],
 		["scripts", "views", "history.js"],
+		["scripts", "views", "archived", "archived-render.js"],
 		["scripts", "views", "archived.js"],
 		// Context modules load before context.js.
 		["scripts", "views", "context", "memory-render.js"],
@@ -164,14 +175,18 @@ export function buildWebviewHtml(
 		["scripts", "views", "context", "curation.js"],
 		["scripts", "views", "context.js"],
 		["scripts", "views", "agents.js"],
+		["scripts", "views", "quality.js"],
 		["scripts", "views", "research", "graph-render.js"],
 		["scripts", "views", "research.js"],
 		// The tray: renderers before the controller that composes them.
+		["scripts", "views", "find", "find-render.js"],
+		["scripts", "views", "find.js"],
 		["scripts", "tray", "tray-render.js"],
 		["scripts", "tray", "tray-preview.js"],
 		["scripts", "tray", "tray-bundles.js"],
 		["scripts", "tray", "tray-host.js"],
 		// main.js wires everything up and must be last.
+		["scripts", "header.js"],
 		["scripts", "main.js"],
 	];
 
@@ -207,7 +222,13 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         </div>
       </div>
       <div class="header-right">
-        <input type="text" id="search" placeholder="Search logs..." class="input search-input" aria-label="Search logs">
+        <!-- The global project filter (P9). In the header rather than per view
+             because it scopes every view: a filter you have to re-apply in each
+             one is a filter you will forget you applied. -->
+        <select id="project-filter" class="input project-filter" aria-label="Filter by project">
+          <option value="">All projects</option>
+        </select>
+        <input type="search" id="search" placeholder="Search everything…" class="input search-input" aria-label="Search memory, digests, changes, prompts and events">
         <button id="clear-btn" class="btn btn-secondary">Clear</button>
       </div>
     </header>
@@ -235,6 +256,9 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         <button class="tab" data-view="agents" role="tab" aria-selected="false" tabindex="-1">
           Agents
         </button>
+        <button class="tab" data-view="quality" role="tab" aria-selected="false" tabindex="-1">
+          Quality
+        </button>
       </div>
       <div class="nav-group">
         <div class="nav-group-label" id="nav-group-knowledge">Knowledge</div>
@@ -243,6 +267,9 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         </button>
         <button class="tab" data-view="research" role="tab" aria-selected="false" tabindex="-1">
           Search
+        </button>
+        <button class="tab" data-view="find" role="tab" aria-selected="false" tabindex="-1">
+          Find
         </button>
         <button class="tab" data-view="tray" role="tab" aria-selected="false" tabindex="-1">
           Tray
@@ -355,6 +382,12 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
       <!-- Research View: search the indexed research history (M4).
            The shell is static for the same reason the context chrome is: a view
            whose init never runs must still show something, not a blank pane. -->
+      <div id="view-quality" class="view hidden" role="tabpanel" aria-labelledby="nav-group-monitor">
+        <div id="quality-view" class="ql-root">
+          <div class="ql-empty">Loading projects…</div>
+        </div>
+      </div>
+
       <div id="view-agents" class="view hidden" role="tabpanel" aria-labelledby="nav-group-monitor">
         <div id="agents-view" class="ag-root">
           <div class="ag-empty">Loading agents…</div>
@@ -406,6 +439,12 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
            Markup is static for the same reason every other view's is: a pane
            whose existence depends on a render function running cannot report
            why it is empty. -->
+      <div id="view-find" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
+        <div id="find-view" class="fd-root">
+          <div class="loading">Loading search…</div>
+        </div>
+      </div>
+
       <div id="view-tray" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
         <div class="ctx-bar">
           <h3>Context tray</h3>

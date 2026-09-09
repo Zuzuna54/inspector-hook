@@ -36,8 +36,25 @@ const SessionListMixin = {
 		const { sessions } = State;
 		const { searchQuery } = State.sessionView;
 
-		// Filter by search query (searches display name AND project/directory metadata)
+		// The global project filter, applied first.
+		//
+		// Three-valued: a session whose working directory the core could not
+		// place is KEPT, not dropped. Dropping it would make a scoped list
+		// silently shorter than the truth, which reads as "this project has
+		// fewer sessions" rather than "some could not be attributed".
 		let filtered = sessions;
+		const identity =
+			typeof ProjectFilter !== "undefined" ? ProjectFilter.selected() : null;
+		if (identity) {
+			const split = ProjectFilter.split(identity, sessions, (session) => ({
+				path: session.metadata?.workingDirectory,
+			}));
+			this._unattributedSessions = split.unknown.length;
+			filtered = [...split.included, ...split.unknown];
+		} else {
+			this._unattributedSessions = 0;
+		}
+
 		if (searchQuery) {
 			filtered = sessions.filter((session) => {
 				const displayName = this.getSessionDisplayName(session).toLowerCase();
@@ -99,7 +116,15 @@ const SessionListMixin = {
 
 		// Update count
 		if (countEl) {
-			countEl.textContent = `${sessions.length} session${sessions.length !== 1 ? "s" : ""}`;
+			const scope =
+				typeof ProjectFilter !== "undefined" && ProjectFilter.selected()
+					? ` in ${ProjectFilter.selected().name}`
+					: "";
+			const unknown = this._unattributedSessions
+				? ` · ${this._unattributedSessions} unattributed`
+				: "";
+			countEl.textContent =
+				`${sessions.length} session${sessions.length !== 1 ? "s" : ""}${scope}${unknown}`;
 		}
 
 		if (sessions.length === 0) {

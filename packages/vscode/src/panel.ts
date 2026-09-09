@@ -16,7 +16,9 @@ import { handleMemoryCommand } from "./messages/memory-handlers.js";
 import { handleResearchCommand } from "./messages/research-handlers.js";
 import { handleGraphifyCommand } from "./messages/graphify-handlers.js";
 import { handleAgentsCommand } from "./messages/agents-handlers.js";
+import { handleQualityCommand } from "./messages/quality-handlers.js";
 import { handleFindCommand } from "./messages/find-handlers.js";
+import { handleProjectsCommand } from "./messages/projects-handlers.js";
 import { buildWebviewHtml } from "./webview-html.js";
 
 export class InspectorPanel {
@@ -178,7 +180,9 @@ export class InspectorPanel {
 		if (await handleResearchCommand(message.command, message.params, ctx)) return;
 		if (await handleGraphifyCommand(message.command, message.params, ctx)) return;
 		if (await handleAgentsCommand(message.command, message.params, ctx)) return;
+		if (await handleQualityCommand(message.command, message.params, ctx)) return;
 		if (await handleFindCommand(message.command, message.params, ctx)) return;
+		if (await handleProjectsCommand(message.command, message.params, ctx)) return;
 
 		switch (message.command) {
 			case "webview-ready": {

@@ -32,7 +32,19 @@ const HistoryFileListMixin = {
 	 */
 	_getTrackedFiles() {
 		if (typeof State !== "undefined" && State.trackedFiles) {
-			return State.trackedFiles;
+			// The global project filter, three-valued: a tracked file the core
+			// could not place stays in the list rather than vanishing from it.
+			const identity =
+				typeof ProjectFilter !== "undefined" ? ProjectFilter.selected() : null;
+			if (!identity) {
+				this._unattributed = 0;
+				return State.trackedFiles;
+			}
+			const split = ProjectFilter.split(identity, State.trackedFiles, (f) => ({
+				path: f.filePath || f.path,
+			}));
+			this._unattributed = split.unknown.length;
+			return [...split.included, ...split.unknown];
 		}
 		return [];
 	},

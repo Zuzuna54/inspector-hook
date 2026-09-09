@@ -25,6 +25,10 @@ const EXPECTED_TYPES = [
 	// Another session is building the Research view; its handlers ship in the
 	// tree already. Recorded rather than exempted, so the inventory keeps
 	// describing what actually registers.
+	// Code quality across observed projects (M7).
+	"quality-projects",
+	"quality-report",
+	"quality-trend",
 	// Agent tree (M5).
 	"agents-tree",
 	"agents-stats",
@@ -44,6 +48,12 @@ const EXPECTED_TYPES = [
 	"transcript-page",
 	"transcript-stats",
 	"context-armed",
+	// P9: the global project list, reconciled across three identity spaces.
+	"projects",
+	// P8: the four-corpus search. Results and corpus sizes arrive separately
+	// because a rebuild changes the sizes without changing the last result.
+	"context-find-results",
+	"context-find-stats",
 	"context-bundles",
 	"context-targets",
 	"context-tray",

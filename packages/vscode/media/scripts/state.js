@@ -78,6 +78,21 @@ const State = {
 	// ==========================================================================
 	// Agent tree (M5). `filter` is a UI choice; the tree itself is whatever the
 	// core has seen, including agents whose spawn call was never captured.
+	// Code quality across observed projects (M7). `selected` is a project root.
+	// Scans are slow and explicit, so `scanning` is separate from `loading`.
+	qualityView: {
+		projects: [],
+		discovered: 0,
+		existing: 0,
+		scannedCount: 0,
+		selected: null,
+		report: null,
+		trend: null,
+		loading: false,
+		scanning: false,
+		error: null,
+	},
+
 	agentsView: {
 		agents: [],
 		stats: null,
@@ -147,6 +162,36 @@ const State = {
 	// are per top-level key, so folding it in would re-run the memory view's
 	// five render branches on every keystroke in a tray editor.
 	// ==========================================================================
+	projectFilter: {
+		/** Every project the core can see, reconciled across three identity spaces. */
+		projects: [],
+		/** The chosen project id, or null for every project. */
+		selectedId: null,
+		/** Why the list could not be loaded, in the core's own words. */
+		error: null,
+		/**
+		 * Whether views show records the filter could not attribute.
+		 *
+		 * On by default. A filter that silently drops what it cannot decide
+		 * hides data — measured: 0 of 17 memory files and 0 of 238 file changes
+		 * carry any project key at all.
+		 */
+		showUnattributed: true,
+	},
+	contextFind: {
+		/** What was typed. Echoed back by the core so a stale reply is visible. */
+		query: "",
+		/** The four groups, exactly as the core returned them. */
+		groups: [],
+		/** Per-corpus sizes and what the store costs on disk. */
+		stats: null,
+		/** True between sending a search and its reply. */
+		searching: false,
+		/** Corpora the user has collapsed, by name. */
+		collapsed: [],
+		/** Scope, when a project is selected. Null searches every project. */
+		projectKey: null,
+	},
 	contextTray: {
 		/** The tray as the core holds it: { version, items, updatedAt }. */
 		tray: null,
@@ -330,6 +375,8 @@ const State = {
 			searchQuery: this.searchQuery,
 			filters: { ...this.filters },
 			stats: { ...this.stats },
+			projectFilter: this.projectFilter,
+			contextFind: this.contextFind,
 			contextTray: this.contextTray,
 			transcriptView: this.transcriptView,
 			config: { ...this.config },
@@ -376,6 +423,18 @@ const State = {
 			activityAvailableLogs: null,
 			activitySince: null,
 			activityHasMore: false,
+		};
+		this.qualityView = {
+			projects: [],
+			discovered: 0,
+			existing: 0,
+			scannedCount: 0,
+			selected: null,
+			report: null,
+			trend: null,
+			loading: false,
+			scanning: false,
+			error: null,
 		};
 		this.agentsView = {
 			agents: [],
@@ -424,6 +483,20 @@ const State = {
 			hasMore: false,
 			reason: null,
 			selected: new Set(),
+		};
+		this.projectFilter = {
+			projects: [],
+			selectedId: null,
+			error: null,
+			showUnattributed: true,
+		};
+		this.contextFind = {
+			query: "",
+			groups: [],
+			stats: null,
+			searching: false,
+			collapsed: [],
+			projectKey: null,
 		};
 		this.contextTray = {
 			tray: null,
