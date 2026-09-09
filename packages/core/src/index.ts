@@ -176,7 +176,12 @@ export type {
 	ProjectObservation,
 } from "./projects/project-identity.js";
 export { ContextIndex, findResult } from "./context/context-index.js";
-export { ContextFindService, STALE_AFTER_MS } from "./context/find-service.js";
+export {
+	CHANGE_SCAN_LIMIT,
+	ContextFindService,
+	LOG_SCAN_LIMIT,
+	STALE_AFTER_MS,
+} from "./context/find-service.js";
 export type { FindOptions, FindSources } from "./context/find-service.js";
 export type { ContextSearchOptions } from "./context/context-index.js";
 export {
@@ -184,6 +189,7 @@ export {
 	digestDoc,
 	fileChangeDoc,
 	LOCAL_CORPORA,
+	logDoc,
 	memoryDoc,
 	snippetOf,
 	summaryDoc,
@@ -218,6 +224,25 @@ export {
 } from "./research/briefing.js";
 
 // Export code quality analysis (Milestone 7)
+export {
+	MAX_HISTORY,
+	QUALITY_CATEGORY,
+	QualityStore,
+	projectStoreId,
+} from "./quality/quality-store.js";
+
+export {
+	MAX_OUTPUT_BYTES,
+	TOOL_TIMEOUT_MS,
+	hasGraph,
+	packageName,
+	parseKnipFiles,
+	parseMadgeCycles,
+	parseSonarSecrets,
+	scanProject,
+	type ScanOptions,
+} from "./quality/scanner.js";
+
 export {
 	groundTruthsFor,
 	rankFindings,

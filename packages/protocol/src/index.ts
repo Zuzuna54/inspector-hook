@@ -18,4 +18,6 @@ export * from "./ipc.js";
 export * from "./memory.js";
 export * from "./context.js";
 export * from "./agent.js";
+export * from "./quality.js";
 export * from "./research.js";
+export * from "./find.js";
