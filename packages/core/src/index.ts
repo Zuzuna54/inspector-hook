@@ -274,10 +274,14 @@ export {
 } from "./quality/scanner.js";
 
 export {
+	groundTruthReport,
 	groundTruthsFor,
+	MANIFEST_SOURCES,
 	rankFindings,
 	toRelative,
+	webviewManifestStatus,
 	webviewManifestTruth,
+	type ManifestStatus,
 	type Confidence,
 	type DeadCodeFinding,
 	type GroundTruth,

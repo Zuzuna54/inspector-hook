@@ -56,13 +56,17 @@ const OVER_LIMIT = {
 		// file when asked for one hunk.
 		why: "one method per IPC call; more domains to split out",
 	},
-	// 601 at M8, from the Skills view's nav entry, static shell and three
-	// manifest lines. Recorded rather than split because seven files read this
-	// one BY PATH -- five tests plus core/src/quality/confidence.ts, which uses
-	// the script manifest as the ground truth that suppresses knip's false
-	// positives. Moving the manifest out would break M7's suppression to buy a
-	// line count. panel.ts crossed the limit in the same commit and was split
-	// instead (messages/dispatch.ts), because nothing reads it by path.
+	// webview-html.ts was here at 601 and is GONE from the list, at 456: the
+	// asset manifests moved to src/webview-assets.ts. It is off rather than
+	// raised because this list's rule is that an exemption cannot outlive its
+	// reason. The split was the awkward one -- five tests and
+	// core/src/quality/confidence.ts read that file BY PATH, and confidence.ts
+	// uses the manifest as the ground truth that suppresses 64 of knip's 66
+	// findings here. Moving it silently returned null from
+	// webviewManifestTruth, which reads as "suppress nothing"; a scan then
+	// reports every webview script as dead code. Only a test caught it, so the
+	// reader now tries both locations and a manifest that is expected and
+	// missing is reported on the scan instead of vanishing.
 };
 
 const ROOTS = ["media", "src"];

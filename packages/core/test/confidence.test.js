@@ -17,13 +17,16 @@
 
 import { strict as assert } from "node:assert";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
+	groundTruthReport,
 	groundTruthsFor,
 	rankFindings,
 	toRelative,
+	webviewManifestStatus,
 	webviewManifestTruth,
 } from "../dist/index.js";
 import { cleanup, makeTempStore } from "./helpers.js";
@@ -141,7 +144,49 @@ describe("confidence: the manifest is read from its source", () => {
 			!t.used.has("packages/vscode/media/not-a-script/ignored.txt"),
 			"only scripts and styles",
 		);
-		assert.match(t.name, /webview-html\.ts/, "it names itself");
+		assert.match(t.name, /webview-html\.ts/, "it names the file it read");
+	});
+
+	it("reads the manifest after it moved to webview-assets.ts", async () => {
+		// The arrays were split out of webview-html.ts when that file crossed
+		// the package's 600-line limit. Both locations are read, so a checkout
+		// from either side of the split resolves.
+		const root = await makeTempStore();
+		await mkdir(join(root, "packages", "vscode", "src"), { recursive: true });
+		await writeFile(
+			join(root, "packages", "vscode", "src", "webview-assets.ts"),
+			`export const SCRIPTS = [["scripts", "views", "skills.js"]];`,
+			"utf-8",
+		);
+		const t = webviewManifestTruth(root);
+		assert.ok(t);
+		assert.ok(t.used.has("packages/vscode/media/scripts/views/skills.js"));
+		assert.match(t.name, /webview-assets\.ts/);
+	});
+
+	it("REGRESSION: a MISSING manifest is reported, not silently ignored", async () => {
+		// This is the failure the split actually caused. webviewManifestTruth
+		// returns null for "no manifest", which the ranker reads as "suppress
+		// nothing" -- so 64 of this repo's 66 knip findings went from
+		// suppressed to high and nothing on screen said the suppressor had
+		// moved. Only a test caught it, so now the scan carries the reason.
+		const root = await makeTempStore();
+		// A webview exists...
+		await mkdir(join(root, "packages", "vscode", "media", "scripts"), {
+			recursive: true,
+		});
+		// ...but no manifest names its files.
+		await mkdir(join(root, "packages", "vscode", "src"), { recursive: true });
+
+		const status = webviewManifestStatus(root);
+		assert.equal(status.expected, true, "this project has a webview");
+		assert.equal(status.files, 0);
+		assert.match(status.error, /no asset manifest was found/);
+		assert.match(status.error, /reported as real/);
+
+		const report = groundTruthReport(root);
+		assert.deepEqual(report.available, []);
+		assert.equal(report.problems.length, 1, "the absence reaches the caller");
 	});
 
 	it("REGRESSION: a project with no webview gets NO suppression, not an empty one", () => {
@@ -149,15 +194,27 @@ describe("confidence: the manifest is read from its source", () => {
 		// while implying it had checked. Returning null says "not applicable".
 		assert.equal(webviewManifestTruth("/nonexistent/project"), null);
 		assert.deepEqual(groundTruthsFor("/nonexistent/project"), []);
+		// And it is not reported as a problem: there was nothing to vouch for.
+		const status = webviewManifestStatus("/nonexistent/project");
+		assert.equal(status.expected, false);
+		assert.equal(status.error, undefined);
 	});
 
-	it("reads the REAL manifest of this repository", () => {
-		const t = webviewManifestTruth(
-			"/Users/giorgobg/Desktop/inspector_hook/inspector-hook",
+	it("reads the REAL manifest of this repository, wherever it now lives", () => {
+		// Resolved from the repo root rather than a hardcoded absolute path, so
+		// this runs on CI and on another machine.
+		const repo = join(
+			dirname(fileURLToPath(import.meta.url)),
+			"..",
+			"..",
+			"..",
 		);
+		const t = webviewManifestTruth(repo);
 		assert.ok(t, "this repo has a webview");
 		assert.ok(t.used.size > 80, `manifest lists ${t.used.size} files`);
 		assert.ok(t.used.has("packages/vscode/media/scripts/views/research.js"));
+		// And nothing is reported missing, which is what the split broke.
+		assert.deepEqual(groundTruthReport(repo).problems, []);
 	});
 });
 

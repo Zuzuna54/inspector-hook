@@ -51,7 +51,7 @@ import {
 	detectLanguages,
 	findJsRoot,
 } from "./analyzers.js";
-import { groundTruthsFor, rankFindings, toRelative } from "./confidence.js";
+import { groundTruthReport, rankFindings, toRelative } from "./confidence.js";
 import { analyseGraph } from "./graph-analysis.js";
 import type { ScannableProject } from "./project-registry.js";
 
@@ -421,10 +421,10 @@ export async function scanProject(
 		}
 	}
 
-	const findings: QualityFinding[] = rankFindings(
-		findingsInput,
-		groundTruthsFor(root),
-	);
+	// Both halves matter: the truths suppress, and a truth that should exist
+	// and does not has to reach the report. See groundTruthReport.
+	const truth = groundTruthReport(root);
+	const findings: QualityFinding[] = rankFindings(findingsInput, truth.truths);
 
 	const count = (c: string) =>
 		findings.filter((f) => f.confidence === c).length;
@@ -443,6 +443,7 @@ export async function scanProject(
 		deadSymbols,
 		languages,
 		graph,
+		groundTruth: { available: truth.available, problems: truth.problems },
 		summary: {
 			high: count("high"),
 			medium: count("medium"),
