@@ -11,15 +11,7 @@ import type {
 } from "@inspector-hook/protocol";
 import * as vscode from "vscode";
 import type { CoreBridge } from "./core-bridge.js";
-import { handleDiffCommand } from "./messages/diff-handlers.js";
-import { handleMemoryCommand } from "./messages/memory-handlers.js";
-import { handleResearchCommand } from "./messages/research-handlers.js";
-import { handleGraphifyCommand } from "./messages/graphify-handlers.js";
-import { handleAgentsCommand } from "./messages/agents-handlers.js";
-import { handleQualityCommand } from "./messages/quality-handlers.js";
-import { handleFindCommand } from "./messages/find-handlers.js";
-import { handleProjectsCommand } from "./messages/projects-handlers.js";
-import { handleInjectionsCommand } from "./messages/injections-handlers.js";
+import { dispatchDomainCommand } from "./messages/dispatch.js";
 import { buildWebviewHtml } from "./webview-html.js";
 
 export class InspectorPanel {
@@ -170,21 +162,14 @@ export class InspectorPanel {
 	 * Handle messages from webview
 	 */
 	private async _handleMessage(message: WebviewCommand): Promise<void> {
-		// Memory/context commands live in ./messages/; it reports whether it
-		// took the command, so anything else falls through to the switch below.
-		const ctx = {
+		// Domain commands live in ./messages/; each reports whether it took the
+		// command, so anything no domain claims falls through to the switch
+		// below. See messages/dispatch.ts for the order and why it matters.
+		const claimed = await dispatchDomainCommand(message, {
 			coreBridge: this._coreBridge,
 			send: (payload: WebviewMessage) => this._sendMessage(payload),
-		};
-		if (await handleMemoryCommand(message.command, message.params, ctx)) return;
-		if (await handleDiffCommand(message.command, message.params, ctx)) return;
-		if (await handleResearchCommand(message.command, message.params, ctx)) return;
-		if (await handleGraphifyCommand(message.command, message.params, ctx)) return;
-		if (await handleAgentsCommand(message.command, message.params, ctx)) return;
-		if (await handleQualityCommand(message.command, message.params, ctx)) return;
-		if (await handleFindCommand(message.command, message.params, ctx)) return;
-		if (await handleProjectsCommand(message.command, message.params, ctx)) return;
-		if (await handleInjectionsCommand(message.command, message.params, ctx)) return;
+		});
+		if (claimed) return;
 
 		switch (message.command) {
 			case "webview-ready": {

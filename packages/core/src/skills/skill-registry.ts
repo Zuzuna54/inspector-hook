@@ -31,11 +31,11 @@
  */
 
 import {
+	type Dirent,
 	existsSync,
 	readdirSync,
 	readFileSync,
 	statSync,
-	type Dirent,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

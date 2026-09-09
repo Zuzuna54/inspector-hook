@@ -93,6 +93,26 @@ const State = {
 		error: null,
 	},
 
+	// Skills and MCP tools (M8). `filter` is a UI choice; the counts come from
+	// the transcript corpus, and `source` says how many files produced them --
+	// "0 scanned" and "never used" are different claims.
+	skillsView: {
+		skills: [],
+		servers: [],
+		archived: [],
+		summary: null,
+		source: null,
+		selected: null,
+		file: null,
+		filter: "all",   // all | unused | used | invalid
+		tab: "skills",   // skills | tools
+		loading: false,
+		fileLoading: false,
+		busyId: null,
+		error: null,
+		actionError: null,
+	},
+
 	agentsView: {
 		agents: [],
 		stats: null,
@@ -447,6 +467,22 @@ const State = {
 			loading: false,
 			scanning: false,
 			error: null,
+		};
+		this.skillsView = {
+			skills: [],
+			servers: [],
+			archived: [],
+			summary: null,
+			source: null,
+			selected: null,
+			file: null,
+			filter: "all",
+			tab: "skills",
+			loading: false,
+			fileLoading: false,
+			busyId: null,
+			error: null,
+			actionError: null,
 		};
 		this.agentsView = {
 			agents: [],

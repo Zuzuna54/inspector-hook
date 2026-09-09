@@ -842,6 +842,53 @@ export class IpcServer {
 		});
 
 		// ---------------------------------------------------------------------
+		// Skills and MCP tools (M8)
+		//
+		// Inventory joined to utilization. Both directions are reported: a
+		// skill installed and never chosen, and a skill that fired without
+		// being installed (Claude Code's own). Counting only the first would
+		// have kept the plan's wrong "1 of 22" headline.
+		// ---------------------------------------------------------------------
+
+		/** Everything installed, everything that fired, and the MCP servers. */
+		this.methods.set("skills.getOverview", async (params) => {
+			const p = asRec(params) ?? {};
+			const overview = await this.core.getSkillsOverview({
+				refresh: asBool(p.refresh) === true,
+			});
+			return {
+				...overview,
+				archived: await this.core.listArchivedSkills(),
+			};
+		});
+
+		/**
+		 * One skill's SKILL.md, for the detail pane.
+		 *
+		 * Read here rather than in the extension host so the byte cap and the
+		 * containment check have exactly one implementation.
+		 */
+		this.methods.set("skills.readSkillFile", async (params) => {
+			const id = asStr(asRec(params)?.id);
+			if (!id) return { error: "a skill id is required" };
+			return this.core.readSkillFile(id);
+		});
+
+		/**
+		 * Archive or restore one skill.
+		 *
+		 * `settings.json` has no skills key, so there is nothing to toggle --
+		 * moving the directory is the only lever that works, and the method is
+		 * named for what it does rather than for what a toggle would imply.
+		 */
+		this.methods.set("skills.setArchived", async (params) => {
+			const p = asRec(params) ?? {};
+			const id = asStr(p.id);
+			if (!id) return { ok: false, error: "a skill id is required" };
+			return this.core.setSkillArchived(id, asBool(p.archived) !== false);
+		});
+
+		// ---------------------------------------------------------------------
 		// Agents and subagents (M5)
 		//
 		// The tree is built from the ordinary log stream: `agentId` rides on

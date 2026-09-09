@@ -95,6 +95,7 @@ export function buildWebviewHtml(
 		["styles", "views", "archived", "preview.css"],
 		["styles", "views", "context.css"],
 		["styles", "views", "quality.css"],
+		["styles", "views", "skills.css"],
 		["styles", "views", "agents.css"],
 		["styles", "views", "research.css"],
 		["styles", "views", "tray.css"],
@@ -131,6 +132,8 @@ export function buildWebviewHtml(
 		["scripts", "api", "inbound-research.js"],
 		["scripts", "api", "quality-senders.js"],
 		["scripts", "api", "inbound-quality.js"],
+		["scripts", "api", "skills-senders.js"],
+		["scripts", "api", "inbound-skills.js"],
 		["scripts", "api", "agents-senders.js"],
 		["scripts", "api", "inbound-agents.js"],
 		["scripts", "api", "graphify-senders.js"],
@@ -179,6 +182,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "context.js"],
 		["scripts", "views", "agents.js"],
 		["scripts", "views", "quality.js"],
+		["scripts", "views", "skills.js"],
 		["scripts", "views", "research", "graph-render.js"],
 		["scripts", "views", "research.js"],
 		// The tray: renderers before the controller that composes them.
@@ -273,6 +277,9 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         </button>
         <button class="tab" data-view="find" role="tab" aria-selected="false" tabindex="-1">
           Find
+        </button>
+        <button class="tab" data-view="skills" role="tab" aria-selected="false" tabindex="-1">
+          Skills
         </button>
         <button class="tab" data-view="tray" role="tab" aria-selected="false" tabindex="-1">
           Tray
@@ -388,6 +395,16 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
       <div id="view-quality" class="view hidden" role="tabpanel" aria-labelledby="nav-group-monitor">
         <div id="quality-view" class="ql-root">
           <div class="ql-empty">Loading projects…</div>
+        </div>
+      </div>
+
+      <!-- Skills View: installed skills against what actually fires (M8).
+           The static shell matters here: this view's first paint waits on a
+           scan of every transcript, and a blank pane during that is the bug
+           the Agents view shipped with. -->
+      <div id="view-skills" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
+        <div id="skills-view" class="sk-root">
+          <div class="sk-dim sk-pad">Loading skills…</div>
         </div>
       </div>
 

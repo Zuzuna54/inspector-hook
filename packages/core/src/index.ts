@@ -387,5 +387,43 @@ export {
 	type ProjectInfo,
 } from "./managers/project-resolver.js";
 
+// Export skills and MCP tool utilization (Milestone 8)
+export {
+	INSTALLED_PLUGINS_PATH,
+	MAX_SKILL_BYTES,
+	PROJECT_SKILLS_DIR,
+	SETTINGS_PATH,
+	SKILLS_ROOT,
+	discoverPluginSkills,
+	discoverSkills,
+	parseSkillFrontmatter,
+} from "./skills/skill-registry.js";
+export {
+	ARCHIVE_DIR,
+	ARCHIVE_MANIFEST,
+	archiveSkill,
+	listArchivedSkills,
+	restoreSkill,
+	type ArchivedSkill,
+	type ArchiveResult,
+} from "./skills/skill-archive.js";
+export {
+	buildSkillsOverview,
+	type OverviewOptions,
+} from "./skills/skills-overview.js";
+export {
+	CLAUDE_CONFIG,
+	findTranscripts,
+	mergeServers,
+	noUsage,
+	readConfiguredServers,
+	scanUtilization,
+	skillFromToolInput,
+	splitMcpTool,
+	type ScanOptions as UtilizationScanOptions,
+	type TranscriptRef,
+	type UtilizationResult,
+} from "./skills/utilization.js";
+
 // Export version
 export const VERSION = "0.1.0";

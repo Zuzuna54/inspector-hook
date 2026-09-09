@@ -29,7 +29,7 @@
  * Nothing here writes. The whole milestone is inventory and measurement.
  */
 
-import { readFileSync, type Dirent } from "node:fs";
+import { type Dirent, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -339,7 +339,9 @@ export function readConfiguredServers(
 
 	const collect = (value: unknown): void => {
 		if (!value || typeof value !== "object") return;
-		for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+		for (const [name, raw] of Object.entries(
+			value as Record<string, unknown>,
+		)) {
 			if (!raw || typeof raw !== "object" || out.has(name)) continue;
 			const entry = raw as Record<string, unknown>;
 			out.set(name, {
@@ -348,7 +350,11 @@ export function readConfiguredServers(
 					? { command: entry.command }
 					: {}),
 				...(Array.isArray(entry.args)
-					? { args: entry.args.filter((a): a is string => typeof a === "string") }
+					? {
+							args: entry.args.filter(
+								(a): a is string => typeof a === "string",
+							),
+						}
 					: {}),
 			});
 		}
