@@ -42,6 +42,11 @@ import {
 	MAX_SKILL_BYTES,
 } from "./skills/skill-registry.js";
 import {
+	probeMcpServers,
+	type ProbeResult,
+} from "./skills/mcp-probe.js";
+import { readConfiguredServers } from "./skills/utilization.js";
+import {
 	buildSkillsOverview,
 	type OverviewOptions,
 } from "./skills/skills-overview.js";
@@ -105,6 +110,14 @@ export class InspectorCore {
 	 * it watches, not its own repository.
 	 */
 	private readonly qualityStore: QualityStore;
+	/**
+	 * The last probe of each MCP server.
+	 *
+	 * Kept in memory rather than persisted: reachability is a fact about right
+	 * now, and a stored "reachable" that survives a restart would be a claim
+	 * nobody checked. `checkedAt` on each result lets a view age it.
+	 */
+	private readonly mcpProbes = new Map<string, ProbeResult>();
 	private skillsCache?: {
 		at: number;
 		overview: Awaited<ReturnType<typeof buildSkillsOverview>>;
@@ -945,6 +958,38 @@ export class InspectorCore {
 				error: `could not read ${record.skillFile}: ${(error as Error).message}`,
 			};
 		}
+	}
+
+	/**
+	 * Handshake with each configured MCP server (M8).
+	 *
+	 * NEVER called by `getSkillsOverview`. This spawns real processes — one of
+	 * them starts a browser, and two fetch a package on first run — so it
+	 * happens only when a caller asks. The overview stays a pure read.
+	 *
+	 * `readConfiguredServers` drops `env` before this sees a target, so the
+	 * probe inherits the ambient environment and a server needing a key fails
+	 * its handshake. That failure is reported rather than worked around: this
+	 * is a diagnostic, and a diagnostic that handles secrets to make itself
+	 * succeed is a worse trade than one that says "it did not answer".
+	 */
+	async probeMcpServers(names?: string[]): Promise<ProbeResult[]> {
+		const wanted = names && names.length > 0 ? new Set(names) : undefined;
+		const targets = [...readConfiguredServers()]
+			.filter(([name]) => !wanted || wanted.has(name))
+			.map(([name, config]) => ({
+				name,
+				command: config.command,
+				args: config.args,
+			}));
+		const results = await probeMcpServers(targets);
+		for (const result of results) this.mcpProbes.set(result.server, result);
+		return results;
+	}
+
+	/** The most recent probe of each server, if any has been run. */
+	getMcpProbes(): ProbeResult[] {
+		return [...this.mcpProbes.values()];
 	}
 
 	/** Skills currently archived, newest first. */

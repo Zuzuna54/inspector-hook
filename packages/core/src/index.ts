@@ -412,6 +412,15 @@ export {
 	type ArchiveResult,
 } from "./skills/skill-archive.js";
 export {
+	MCP_PROTOCOL_VERSION,
+	PROBE_TIMEOUT_MS,
+	probeMcpServer,
+	probeMcpServers,
+	type ProbeResult,
+	type ProbeStatus,
+	type ProbeTarget,
+} from "./skills/mcp-probe.js";
+export {
 	buildSkillsOverview,
 	type OverviewOptions,
 } from "./skills/skills-overview.js";

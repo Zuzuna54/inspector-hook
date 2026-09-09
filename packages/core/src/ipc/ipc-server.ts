@@ -875,6 +875,27 @@ export class IpcServer {
 		});
 
 		/**
+		 * Handshake with the configured MCP servers.
+		 *
+		 * Separate from `skills.getOverview` because it SPAWNS PROCESSES. The
+		 * overview is a pure read and must stay one; reachability is a
+		 * diagnostic a user asks for. Sequential and timeout-bounded — four
+		 * MCP servers starting at once includes a browser.
+		 */
+		this.methods.set("skills.probeServers", async (params) => {
+			const p = asRec(params) ?? {};
+			const names = Array.isArray(p.servers)
+				? p.servers.filter((n): n is string => typeof n === "string")
+				: undefined;
+			return { probes: await this.core.probeMcpServers(names) };
+		});
+
+		/** The last probe of each server, without probing again. */
+		this.methods.set("skills.getProbes", async () => ({
+			probes: this.core.getMcpProbes(),
+		}));
+
+		/**
 		 * Archive or restore one skill.
 		 *
 		 * `settings.json` has no skills key, so there is nothing to toggle --

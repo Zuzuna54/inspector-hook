@@ -90,6 +90,56 @@ export interface McpToolUsage extends UsageStats {
 	server: string;
 }
 
+/**
+ * Whether a configured server actually answers.
+ *
+ * `cannot-start` is the value that justified building this at all: on the
+ * machine this was written for, `memory` is configured, has never been called,
+ * and its interpreter no longer exists. From `~/.claude.json` alone that is
+ * indistinguishable from a server you simply have not used yet.
+ */
+export type McpProbeStatus =
+	/** Handshook and listed its tools. */
+	| "reachable"
+	/** The configured command could not be spawned at all. */
+	| "cannot-start"
+	/** Started, but did not finish the handshake in time. */
+	| "timeout"
+	/** Started, then exited or answered with an error. */
+	| "failed"
+	/** Not attempted: nothing configured to spawn. */
+	| "not-configured";
+
+export interface McpProbe {
+	/** The key it is configured under. */
+	server: string;
+	status: McpProbeStatus;
+	/** Milliseconds from spawn to the tool list. */
+	durationMs: number;
+	/**
+	 * The name the server calls ITSELF.
+	 *
+	 * Worth reporting because it frequently disagrees with the config key: of
+	 * the three reachable servers here, `fetcher` answers as `browser-mcp` and
+	 * `mcp-ical` answers as `Calendar`.
+	 */
+	serverName?: string;
+	serverVersion?: string;
+	protocolVersion?: string;
+	/**
+	 * Tools the server ADVERTISES.
+	 *
+	 * Deliberately not merged with the observed counts. Playwright advertises
+	 * 24 tools and 9 have ever been called here; "advertised but never used" is
+	 * a finding, and merging the two lists would erase it.
+	 */
+	advertisedTools?: string[];
+	/** Why it is not reachable. Safe to show verbatim. */
+	error?: string;
+	/** ISO timestamp, so a stale probe can be labelled as one. */
+	checkedAt: string;
+}
+
 export interface McpServerRecord {
 	name: string;
 	/** Present in ~/.claude.json. False for a server seen only in transcripts. */
