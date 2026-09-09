@@ -150,6 +150,8 @@ export const SCRIPTS: string[][] = [
 	["scripts", "views", "context.js"],
 	["scripts", "views", "agents.js"],
 	["scripts", "views", "quality.js"],
+	// The Tools pane mixin must load before the view that composes it.
+	["scripts", "views", "skills", "tools-render.js"],
 	["scripts", "views", "skills.js"],
 	["scripts", "views", "research", "graph-render.js"],
 	["scripts", "views", "research.js"],

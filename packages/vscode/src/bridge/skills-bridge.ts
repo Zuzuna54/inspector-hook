@@ -7,7 +7,7 @@
  * trigger by accident on every open.
  */
 
-import type { SkillsOverview } from "@inspector-hook/protocol";
+import type { McpProbe, SkillsOverview } from "@inspector-hook/protocol";
 
 export interface SkillsRpc {
 	sendRequest<T>(method: string, params?: unknown): Promise<T>;
@@ -51,6 +51,29 @@ export async function readSkillFile(
 	id: string,
 ): Promise<SkillFileResponse> {
 	return rpc.sendRequest<SkillFileResponse>("skills.readSkillFile", { id });
+}
+
+/**
+ * Handshake with the configured MCP servers.
+ *
+ * Slow and side-effecting: it spawns each server, and one of them starts a
+ * browser. Kept out of the overview call for exactly that reason — the
+ * overview is a pure read and must stay one.
+ */
+export async function probeMcpServers(
+	rpc: SkillsRpc,
+	servers?: string[],
+): Promise<{ probes: McpProbe[] }> {
+	return rpc.sendRequest<{ probes: McpProbe[] }>("skills.probeServers", {
+		...(servers ? { servers } : {}),
+	});
+}
+
+/** The last probe of each server, without probing again. */
+export async function getMcpProbes(
+	rpc: SkillsRpc,
+): Promise<{ probes: McpProbe[] }> {
+	return rpc.sendRequest<{ probes: McpProbe[] }>("skills.getProbes", {});
 }
 
 export interface ArchiveResponse {

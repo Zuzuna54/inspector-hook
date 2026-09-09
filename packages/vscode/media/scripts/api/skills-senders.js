@@ -18,6 +18,21 @@ const SkillsApiMixin = {
 	},
 
 	/**
+	 * Handshake with the configured MCP servers.
+	 *
+	 * Spawns real processes and takes seconds. Never called on view open —
+	 * a diagnostic that runs itself is a side effect nobody asked for.
+	 */
+	skillsProbeServers(servers) {
+		this.send("skills-probe-servers", servers ? { servers } : {});
+	},
+
+	/** The last probe result, without probing again. */
+	skillsGetProbes() {
+		this.send("skills-get-probes", {});
+	},
+
+	/**
 	 * Archive a skill, or restore one.
 	 *
 	 * Deliberately not named `skillsToggle`: settings.json has no skills key,

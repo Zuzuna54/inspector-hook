@@ -33,6 +33,20 @@
 		});
 	});
 
+	API.on(["skills-probes"], (payload) => {
+		const result = payload || {};
+		const probes = {};
+		for (const probe of result.probes || []) probes[probe.server] = probe;
+		State.update("skillsView", {
+			...(State.skillsView || {}),
+			probes,
+			// Cleared unconditionally: a probe that failed must stop the
+			// spinner and show why, not leave the row pending.
+			probing: false,
+			probeError: result.error || null,
+		});
+	});
+
 	API.on(["skills-archived"], (payload) => {
 		const result = payload || {};
 		State.update("skillsView", {

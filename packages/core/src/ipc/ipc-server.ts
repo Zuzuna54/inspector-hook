@@ -51,6 +51,10 @@ import {
 	injectionCounts,
 	readInjections,
 } from "../context/injections.js";
+import {
+	buildNarrative,
+	withNarrative,
+} from "../memory/narrative.js";
 import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
@@ -1821,14 +1825,32 @@ export class IpcServer {
 
 			const digest = await this.digestFor(session);
 
-			if (!asBool(rec.write)) return { digest, written: false };
+			// The optional prose narrative (P11).
+			//
+			// Requested per call and nowhere else. `core.ts` builds digests on
+			// `session:ended` and during retention collapse, and NEITHER passes
+			// this — a model call per session end is a cost that accrues with
+			// nobody watching. Two further gates live in buildNarrative itself.
+			//
+			// A refused or failed narrative returns its reason and the digest is
+			// unchanged: the facts were always the deliverable.
+			const narrative = await buildNarrative(digest.body, {
+				narrative: asBool(rec.narrative),
+			});
+			const narrated = narrative.text
+				? { ...digest, body: withNarrative(digest.body, narrative) }
+				: digest;
+
+			if (!asBool(rec.write)) {
+				return { digest: narrated, written: false, narrative };
+			}
 			if (!digest.worthKeeping) {
-				return { digest, written: false, reason: digest.skipReason };
+				return { digest: narrated, written: false, reason: digest.skipReason };
 			}
 			const dir = resolveMemoryDir(
 				(session.metadata as Record<string, unknown> | undefined)?.transcriptPath,
 			);
-			const result = await writeMemoryFile(dir, digest);
+			const result = await writeMemoryFile(dir, narrated);
 			return { digest, ...result };
 		});
 	}

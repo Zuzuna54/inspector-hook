@@ -89,6 +89,11 @@ function loadSkills(stateOverrides = {}) {
 		...stateOverrides,
 	};
 
+	// Both files, in manifest order: the Tools pane is a mixin composed onto
+	// the view, so loading only skills.js leaves this.toolsHtml undefined --
+	// which is exactly the "not composed on" failure the split can cause.
+	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
+	eval(readMedia("scripts/views/skills/tools-render.js"));
 	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 	eval(readMedia("scripts/views/skills.js"));
 	const view = globalThis.window.SkillsView;
@@ -346,6 +351,150 @@ describe("the Skills view", () => {
 		// The core drops env before it reaches here; this pins that the view
 		// does not reintroduce it by rendering the raw record.
 		assert.equal(made.get("sk-list").innerHTML.includes("env"), false);
+	});
+
+	it("composes the Tools mixin onto the view", () => {
+		// The split's own failure mode. If the manifest loads skills.js without
+		// skills/tools-render.js, every Tools method is undefined and the pane
+		// throws at render time -- silently, since render() is called from a
+		// subscriber.
+		const { view } = loadSkills();
+		for (const method of [
+			"toolsHtml",
+			"serverRow",
+			"probeBadge",
+			"probeDetailHtml",
+			"serverDetailHtml",
+		]) {
+			assert.equal(
+				typeof view[method],
+				"function",
+				`${method} not composed on`,
+			);
+		}
+	});
+
+	it("renders an unchecked server as 'not checked', never as reachable", () => {
+		// Reachability spawns a process per server, so nothing probes on open.
+		// Drawing an unchecked server as either reachable or broken would be a
+		// claim nobody made.
+		const { view, made, State } = loadSkills({ tab: "tools" });
+		view.init();
+		State.update("skillsView", {
+			...State.skillsView,
+			loading: false,
+			summary: summary(),
+			source: { transcriptsScanned: 121, scanMs: 1800 },
+			servers: [
+				{
+					name: "memory",
+					configured: true,
+					type: "stdio",
+					command: "python",
+					tools: [],
+					usage: { invocations: 0, distinctSessions: 0, distinctProjects: 0 },
+				},
+			],
+		});
+		const html = made.get("sk-list").innerHTML;
+		assert.match(html, /not checked/);
+		assert.equal(/>reachable</.test(html), false);
+	});
+
+	it("REGRESSION: a configured server that cannot start says so", () => {
+		// The finding that justified building the probe. `memory` on the real
+		// machine is configured, never called, and its interpreter is gone --
+		// which the config file cannot tell you, and "never used" implies is
+		// the user's choice.
+		const { view, made, State } = loadSkills({
+			tab: "tools",
+			selected: "memory",
+		});
+		view.init();
+		State.update("skillsView", {
+			...State.skillsView,
+			loading: false,
+			summary: summary(),
+			source: { transcriptsScanned: 121, scanMs: 1800 },
+			servers: [
+				{
+					name: "memory",
+					configured: true,
+					type: "stdio",
+					command: "/gone/.venv/bin/python",
+					tools: [],
+					usage: { invocations: 0, distinctSessions: 0, distinctProjects: 0 },
+				},
+			],
+			probes: {
+				memory: {
+					server: "memory",
+					status: "cannot-start",
+					durationMs: 9,
+					error:
+						"the configured command does not exist: /gone/.venv/bin/python",
+					checkedAt: "2026-09-09T12:00:00.000Z",
+				},
+			},
+		});
+		assert.match(made.get("sk-list").innerHTML, /cannot-start/);
+		const detail = made.get("sk-detail").innerHTML;
+		assert.match(detail, /cannot-start/);
+		assert.match(detail, /does not exist/);
+	});
+
+	it("reports the name a server calls itself when it disagrees", () => {
+		// Two of the three reachable servers here do disagree: `fetcher`
+		// answers as `browser-mcp`, `mcp-ical` answers as `Calendar`.
+		const { view, made, State } = loadSkills({
+			tab: "tools",
+			selected: "fetcher",
+		});
+		view.init();
+		State.update("skillsView", {
+			...State.skillsView,
+			loading: false,
+			summary: summary(),
+			source: { transcriptsScanned: 121, scanMs: 1800 },
+			servers: [
+				{
+					name: "fetcher",
+					configured: true,
+					type: "stdio",
+					command: "npx",
+					args: ["-y", "fetcher-mcp"],
+					tools: [
+						{
+							tool: "mcp__fetcher__fetch_url",
+							server: "fetcher",
+							invocations: 2,
+							distinctSessions: 1,
+							distinctProjects: 1,
+						},
+					],
+					usage: { invocations: 2, distinctSessions: 1, distinctProjects: 1 },
+				},
+			],
+			probes: {
+				fetcher: {
+					server: "fetcher",
+					status: "reachable",
+					durationMs: 3375,
+					serverName: "browser-mcp",
+					serverVersion: "0.1.0",
+					protocolVersion: "2024-11-05",
+					advertisedTools: ["fetch_url", "fetch_urls", "browser_install"],
+					checkedAt: "2026-09-09T12:00:00.000Z",
+				},
+			},
+		});
+		const detail = made.get("sk-detail").innerHTML;
+		assert.match(detail, /browser-mcp/);
+		assert.match(detail, /not the name it is configured under/);
+		// Advertised and called are kept apart: 2 of the 3 were never used.
+		assert.match(detail, /Advertises/);
+		assert.match(detail, /2 of 3/);
+		assert.match(detail, /fetch_urls/);
 	});
 
 	it("shows the failure instead of an empty list", () => {

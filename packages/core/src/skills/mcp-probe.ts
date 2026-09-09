@@ -189,7 +189,9 @@ export function probeMcpServer(
 			}
 
 			if (message.id === 2) {
-				const result = (message.result ?? {}) as { tools?: { name?: string }[] };
+				const result = (message.result ?? {}) as {
+					tools?: { name?: string }[];
+				};
 				const serverInfo = (info?.serverInfo ?? {}) as {
 					name?: string;
 					version?: string;

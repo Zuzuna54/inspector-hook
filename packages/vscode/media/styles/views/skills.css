@@ -230,3 +230,5 @@
 	font-size: 11px;
 	margin: 8px 0;
 }
+
+.sk-bad { color: var(--vscode-errorForeground); }

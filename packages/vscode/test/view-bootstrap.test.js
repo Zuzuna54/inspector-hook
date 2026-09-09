@@ -139,7 +139,10 @@ describe("view bootstrap: the router calls init() and nothing else", () => {
 
 	it("the Skills view builds its shell from init() alone", () => {
 		const dom = loadView({
-			scripts: ["scripts/views/skills.js"],
+			scripts: [
+				"scripts/views/skills/tools-render.js",
+				"scripts/views/skills.js",
+			],
 			sliceName: "skillsView",
 			slice: {
 				skills: [],

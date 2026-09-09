@@ -84,6 +84,7 @@ const EXPECTED_TYPES = [
 	"skills-archived",
 	"skills-file",
 	"skills-overview",
+	"skills-probes",
 	"session-logs",
 	"sessions",
 	"stats",

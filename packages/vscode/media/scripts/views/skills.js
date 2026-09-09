@@ -47,7 +47,10 @@ const SkillsView = {
 					next.tab !== p.tab ||
 					next.selected !== p.selected ||
 					next.busyId !== p.busyId ||
-					next.actionError !== p.actionError
+					next.actionError !== p.actionError ||
+					next.probes !== p.probes ||
+					next.probing !== p.probing ||
+					next.probeError !== p.probeError
 				) {
 					this.renderList();
 				}
@@ -55,7 +58,8 @@ const SkillsView = {
 					next.file !== p.file ||
 					next.fileLoading !== p.fileLoading ||
 					next.selected !== p.selected ||
-					next.tab !== p.tab
+					next.tab !== p.tab ||
+					next.probes !== p.probes
 				) {
 					this.renderDetail();
 				}
@@ -85,7 +89,8 @@ const SkillsView = {
 							<button class="sk-tab" data-tab="skills" role="tab">Skills</button>
 							<button class="sk-tab" data-tab="tools" role="tab">Tools</button>
 						</div>
-						<button id="sk-refresh" class="sk-link" title="Recount across every transcript">recount</button>
+						<button id="sk-probe" class="sk-link" title="Start each configured MCP server and complete a real handshake. Slow — these are real processes, one of them a browser.">check reachability</button>
+					<button id="sk-refresh" class="sk-link" title="Recount across every transcript">recount</button>
 					</div>
 					<div id="sk-summary" class="sk-summary"></div>
 					<div id="sk-filters" class="sk-filters"></div>
@@ -95,6 +100,18 @@ const SkillsView = {
 				<div id="sk-detail" class="sk-detail"></div>
 			</div>
 		`;
+
+		const probe = document.getElementById("sk-probe");
+		if (probe) {
+			probe.addEventListener("click", () => {
+				State.update("skillsView", {
+					...State.skillsView,
+					probing: true,
+					probeError: null,
+				});
+				API.skillsProbeServers();
+			});
+		}
 
 		const refresh = document.getElementById("sk-refresh");
 		if (refresh) {
@@ -130,6 +147,12 @@ const SkillsView = {
 				"aria-selected",
 				el.dataset.tab === (v.tab || "skills") ? "true" : "false",
 			);
+		}
+		const probeButton = document.getElementById("sk-probe");
+		if (probeButton) {
+			// Reachability is a Tools concept. A skill has nothing to connect to.
+			probeButton.hidden = (v.tab || "skills") !== "tools";
+			probeButton.textContent = v.probing ? "checking…" : "check reachability";
 		}
 		this.renderSummary();
 		this.renderFilters();
@@ -207,48 +230,6 @@ const SkillsView = {
 					${where}
 					${archived.has(s.id) ? `<span class="sk-dim">archived</span>` : ""}
 				</div>
-			</div>`;
-	},
-
-	toolsHtml(v) {
-		const servers = v.servers || [];
-		if (servers.length === 0) {
-			return `<div class="sk-dim">No MCP servers configured or observed.</div>`;
-		}
-		return servers.map((s) => this.serverRow(s, v)).join("");
-	},
-
-	serverRow(s, v) {
-		// Both directions are findings. A configured server that never fired is
-		// the same as an unused skill; an observed server that is not configured
-		// means ~/.claude.json is not the inventory it looks like.
-		const badge = s.usage.invocations
-			? `<span class="sk-ok">${s.usage.invocations} call${s.usage.invocations === 1 ? "" : "s"}</span>`
-			: `<span class="sk-dim" title="Configured but never called in any transcript we can read">never called</span>`;
-		const config = s.configured
-			? `<span class="sk-dim">${Utils.escapeHtml(s.type || "stdio")}</span>`
-			: `<span class="sk-warn" title="Observed in the transcripts but absent from ~/.claude.json">not in config</span>`;
-		const tools = (s.tools || [])
-			.slice(0, 6)
-			.map(
-				(t) =>
-					`<span class="sk-tool">${Utils.escapeHtml(t.tool.split("__").slice(2).join("__"))} <em>${t.invocations}</em></span>`,
-			)
-			.join("");
-		const more =
-			(s.tools || []).length > 6
-				? `<span class="sk-dim">+${s.tools.length - 6} more</span>`
-				: "";
-
-		return `
-			<div class="sk-row${v.selected === s.name ? " selected" : ""}" data-server="${Utils.escapeHtml(s.name)}">
-				<div class="sk-row-top">
-					<span class="sk-name">${Utils.escapeHtml(s.name)}</span>
-					${config}
-					${badge}
-				</div>
-				${s.command ? `<div class="sk-desc sk-mono">${Utils.escapeHtml([s.command, ...(s.args || [])].join(" "))}</div>` : ""}
-				<div class="sk-tools">${tools}${more}</div>
 			</div>`;
 	},
 
@@ -482,32 +463,13 @@ const SkillsView = {
 				: ""
 		}`;
 	},
-
-	serverDetailHtml(v) {
-		const server = (v.servers || []).find((s) => s.name === v.selected);
-		if (!server) {
-			return `<div class="sk-dim sk-pad">Select a server to see its tools.</div>`;
-		}
-		const tools = (server.tools || []).length
-			? `<table class="sk-table"><thead><tr><th>Tool</th><th>Calls</th><th>Sessions</th><th>Last used</th></tr></thead><tbody>${server.tools
-					.map(
-						(t) =>
-							`<tr><td class="sk-mono">${Utils.escapeHtml(t.tool.split("__").slice(2).join("__"))}</td><td>${t.invocations}</td><td>${t.distinctSessions}</td><td>${Utils.escapeHtml((t.lastUsed || "").slice(0, 10))}</td></tr>`,
-					)
-					.join("")}</tbody></table>`
-			: `<div class="sk-dim">No call to this server appears in any transcript we read.</div>`;
-
-		return `
-			<div class="sk-detail-head">
-				<div>
-					<div class="sk-detail-name">${Utils.escapeHtml(server.name)}</div>
-					<div class="sk-dim">${server.configured ? "configured in ~/.claude.json" : "observed only — absent from ~/.claude.json"}</div>
-				</div>
-			</div>
-			${server.command ? `<div class="sk-desc sk-mono sk-pad">${Utils.escapeHtml([server.command, ...(server.args || [])].join(" "))}</div>` : ""}
-			${tools}`;
-	},
 };
+
+// The Tools pane lives in ./skills/tools-render.js, which the manifest loads
+// first. Composed rather than inherited, matching FindView and ResearchView.
+if (typeof window !== "undefined" && window.SkillsToolsMixin) {
+	Object.assign(SkillsView, window.SkillsToolsMixin);
+}
 
 if (typeof window !== "undefined") window.SkillsView = SkillsView;
 

@@ -176,6 +176,23 @@ export type {
 	ProjectObservation,
 } from "./projects/project-identity.js";
 export {
+	buildNarrative,
+	childEnv,
+	claudeOnPath,
+	DEFAULT_TIMEOUT_MS,
+	defaultRunner,
+	MAX_NARRATIVE_CHARS,
+	MAX_PROMPT_CHARS,
+	narrativePrompt,
+	withNarrative,
+} from "./memory/narrative.js";
+export type {
+	NarrativeOptions,
+	NarrativeResult,
+	NarrativeRunner,
+	RunResult,
+} from "./memory/narrative.js";
+export {
 	INJECTIONS_FILE,
 	injectionCounts,
 	injectionsPath,

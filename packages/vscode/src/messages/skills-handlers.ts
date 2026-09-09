@@ -9,7 +9,9 @@
 
 import type { WebviewMessage } from "@inspector-hook/protocol";
 import {
+	getMcpProbes,
 	getSkillsOverview,
+	probeMcpServers,
 	readSkillFile,
 	setSkillArchived,
 } from "../bridge/skills-bridge.js";
@@ -61,6 +63,7 @@ export async function handleSkillsCommand(
 		id?: string;
 		refresh?: boolean;
 		archived?: boolean;
+		servers?: string[];
 	};
 
 	switch (command) {
@@ -93,6 +96,34 @@ export async function handleSkillsCommand(
 				ctx.send({
 					type: "skills-file",
 					payload: { id: p.id, error: reason(error) },
+				});
+			}
+			return true;
+		}
+
+		case "skills-probe-servers": {
+			try {
+				const { probes } = await probeMcpServers(rpc, p.servers);
+				ctx.send({ type: "skills-probes", payload: { probes } });
+			} catch (error) {
+				// A probe that dies must stop the spinner and say why. It runs
+				// external processes for tens of seconds, so there is no timeout
+				// a user could infer from.
+				ctx.send({
+					type: "skills-probes",
+					payload: { probes: [], error: reason(error) },
+				});
+			}
+			return true;
+		}
+
+		case "skills-get-probes": {
+			try {
+				ctx.send({ type: "skills-probes", payload: await getMcpProbes(rpc) });
+			} catch (error) {
+				ctx.send({
+					type: "skills-probes",
+					payload: { probes: [], error: reason(error) },
 				});
 			}
 			return true;
