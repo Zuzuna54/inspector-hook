@@ -117,6 +117,7 @@ export function buildWebviewHtml(
 		["scripts", "api", "tray-senders.js"],
 		["scripts", "api", "find-senders.js"],
 		["scripts", "api", "projects-senders.js"],
+		["scripts", "api", "injections-senders.js"],
 		["scripts", "api", "transcript-senders.js"],
 		["scripts", "api.js"],
 		// Inbound handlers register onto API, so they load after it. Each
@@ -137,6 +138,7 @@ export function buildWebviewHtml(
 		["scripts", "api", "inbound-tray.js"],
 		["scripts", "api", "inbound-find.js"],
 		["scripts", "api", "inbound-projects.js"],
+		["scripts", "api", "inbound-injections.js"],
 		["scripts", "api", "inbound-transcript.js"],
 		// Shared helpers, before every view that uses them.
 		["scripts", "session-utils.js"],
@@ -150,6 +152,7 @@ export function buildWebviewHtml(
 		["scripts", "views", "sessions", "tool-detail.js"],
 		["scripts", "views", "sessions", "session-detail.js"],
 		["scripts", "views", "sessions", "transcript-render.js"],
+		["scripts", "views", "sessions", "injected-render.js"],
 		["scripts", "views", "sessions.js"],
 		// File-changes modules load before file-changes.js.
 		["scripts", "views", "file-changes", "fc-session-list.js"],

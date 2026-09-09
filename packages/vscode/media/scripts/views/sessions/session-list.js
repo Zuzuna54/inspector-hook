@@ -169,6 +169,8 @@ const SessionListMixin = {
             <span class="sv-stat"><strong>${toolCount}</strong> tools</span>
             <span class="sv-stat"><strong>${fileCount}</strong> files</span>
             ${hasErrors ? `<span class="sv-stat error"><strong>${errorCount}</strong> errors</span>` : ""}
+            ${this.injectedMarker ? this.injectedMarker(session.id) : ""}
+            ${this.memoryMarker ? this.memoryMarker(session) : ""}
           </div>
         </div>
       `;

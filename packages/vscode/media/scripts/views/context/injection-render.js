@@ -141,6 +141,10 @@ const ContextInjectionMixin = {
           <strong>Digest preview</strong>
           <button class="btn btn-xs ctx-tray-digest">Add to tray</button>
           <button class="btn btn-xs btn-success ctx-stage-digest">Stage this</button>
+          <button class="btn btn-xs ctx-write-digest"
+                  title="Write this digest into Claude Code's own memory for the project, where every future session loads it">
+            Save to memory
+          </button>
         </div>
         <pre class="ctx-digest-text">${Utils.escapeHtml(text)}</pre>
       </div>

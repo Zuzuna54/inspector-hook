@@ -19,6 +19,7 @@ import { handleAgentsCommand } from "./messages/agents-handlers.js";
 import { handleQualityCommand } from "./messages/quality-handlers.js";
 import { handleFindCommand } from "./messages/find-handlers.js";
 import { handleProjectsCommand } from "./messages/projects-handlers.js";
+import { handleInjectionsCommand } from "./messages/injections-handlers.js";
 import { buildWebviewHtml } from "./webview-html.js";
 
 export class InspectorPanel {
@@ -183,6 +184,7 @@ export class InspectorPanel {
 		if (await handleQualityCommand(message.command, message.params, ctx)) return;
 		if (await handleFindCommand(message.command, message.params, ctx)) return;
 		if (await handleProjectsCommand(message.command, message.params, ctx)) return;
+		if (await handleInjectionsCommand(message.command, message.params, ctx)) return;
 
 		switch (message.command) {
 			case "webview-ready": {

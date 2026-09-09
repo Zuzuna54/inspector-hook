@@ -132,13 +132,19 @@ export async function handleMemoryCommand(
 		}
 
 		case "memory-build-digest": {
-			// Only the sessionId is forwarded; a `write` flag is ignored. The
-			// core replies with an ENVELOPE `{ digest, written }`, and sending
-			// it whole meant the view read worthKeeping, body and sessionId off
-			// the wrapper — undefined for all three, so Preview drew an empty
-			// box and Stage was a no-op. An {error} reply passes through.
+			// The core replies with an ENVELOPE `{ digest, written }`, and
+			// sending it whole meant the view read worthKeeping, body and
+			// sessionId off the wrapper — undefined for all three, so Preview
+			// drew an empty box and Stage was a no-op. An {error} reply passes
+			// through.
+			//
+			// `write` IS forwarded now. It used to be dropped here, which left
+			// the core's write path with no caller anywhere — the capability
+			// existed, was tested, and could not be reached.
+			const p = (params ?? {}) as { sessionId: string; write?: boolean };
 			const { digest, ...outcome } = ((await ctx.coreBridge.buildSessionDigest(
-				(params as { sessionId: string }).sessionId,
+				p.sessionId,
+				p.write === true,
 			)) ?? {}) as { digest?: Record<string, unknown> };
 			ctx.send({
 				type: "memory-digest",

@@ -77,6 +77,17 @@ const MemoryApiMixin = {
 	memoryBuildDigest(sessionId) {
 		this.send("memory-build-digest", { sessionId });
 	},
+
+	/**
+	 * Build the digest AND write it into Claude Code's own auto memory.
+	 *
+	 * A separate sender from the preview on purpose: this writes a file that
+	 * changes what every future session in that project is told, so it cannot
+	 * be something a preview does as a side effect.
+	 */
+	memoryWriteDigest(sessionId) {
+		this.send("memory-build-digest", { sessionId, write: true });
+	},
 };
 
 window.MemoryApiMixin = MemoryApiMixin;

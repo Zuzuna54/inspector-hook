@@ -47,6 +47,10 @@ import {
 	readBundle,
 	saveBundle,
 } from "../context/bundle-store.js";
+import {
+	injectionCounts,
+	readInjections,
+} from "../context/injections.js";
 import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
@@ -1601,6 +1605,26 @@ export class IpcServer {
 		// identity spaces, so every view can scope on the same handle.
 		this.methods.set("projects.list", async () => ({
 			projects: await this.core.listProjects(),
+		}));
+
+		/**
+		 * What was injected INTO a session (P10).
+		 *
+		 * Read from the append-only log the HOOKS write, never derived from
+		 * `StagedContext.sourceSessionId` — that field records where text came
+		 * from, which is usually a different session, so reading it as a
+		 * delivery record answers the question backwards and confidently.
+		 */
+		this.methods.set("context.getInjections", async (params) => {
+			const rec = asRec(params) ?? {};
+			return readInjections(this.storagePath, {
+				sessionId: asStr(rec.sessionId),
+				limit: asNum(rec.limit),
+			});
+		});
+
+		this.methods.set("context.injectionCounts", async () => ({
+			counts: Object.fromEntries(await injectionCounts(this.storagePath)),
 		}));
 
 		this.methods.set("context.findStats", async () =>

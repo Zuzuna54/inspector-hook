@@ -124,6 +124,27 @@ const ContextHandlersMixin = {
 
 			// Add to the tray rather than replacing whatever is staged. The tray
 			// is the composition surface; staging is the one-shot delivery.
+			// Write the digest into native memory.
+			//
+			// Confirmed first: this writes a file OUTSIDE the workspace that
+			// changes what every future Claude session in the project is told.
+			// The same reasoning put `writeSessionMemory` behind a setting that
+			// defaults to off — a one-click version of it needs the same pause.
+			if (e.target.closest(".ctx-write-digest")) {
+				const { digest } = State.contextView;
+				if (digest?.sessionId) {
+					const ok =
+						typeof confirm !== "function" ||
+						confirm(
+							"Write this digest into Claude Code's memory for this project?\n\n" +
+								"It lives outside your workspace and every future session in " +
+								"this project will load it.",
+						);
+					if (ok) API.memoryWriteDigest(digest.sessionId);
+				}
+				return;
+			}
+
 			if (e.target.closest(".ctx-tray-digest")) {
 				const { digest } = State.contextView;
 				if (digest?.body) {

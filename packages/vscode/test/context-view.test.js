@@ -557,10 +557,35 @@ describe("context: digest preview", () => {
 		assert.ok(!html.includes("ctx-stage-digest"), "offered to stage nothing");
 	});
 
-	it("has no write control anywhere in the preview", () => {
-		// v1 previews only; the client cannot even express a write.
+	it("offers a write, and only as a separate deliberate control", () => {
+		// This guard used to assert the OPPOSITE — "the client cannot even
+		// express a write" — which described a v1 limitation, not a decision:
+		// the bridge silently dropped the flag, so the core's write path had no
+		// caller anywhere. P10 wires it, and the plan is explicit that the
+		// digest write is "off by default, one click from the UI".
+		//
+		// What matters now is that it stays a SEPARATE control. Previewing must
+		// never write, because the file it writes lives outside the workspace
+		// and changes what every future session in the project is told.
 		const html = view.renderDigest(PAYLOADS.digestPayload);
-		assert.ok(!/write/i.test(html), "a write affordance appeared in the preview");
+		assert.match(html, /ctx-write-digest/, "no way to save the digest to memory");
+		assert.match(html, /ctx-stage-digest/, "staging and writing must both exist");
+		assert.ok(
+			!/ctx-write-digest[^>]*\bdisabled\b/.test(html),
+			"the control is present but dead",
+		);
+	});
+
+	it("offers no write for a digest not worth keeping", () => {
+		// Writing "nothing happened" into a project's memory is worse than
+		// writing nothing at all: every future session would load it.
+		const html = view.renderDigest(PAYLOADS.emptyDigestPayload);
+		assert.ok(!html.includes("ctx-write-digest"), "offered to memorialise nothing");
+	});
+
+	it("offers no write when the digest could not be built", () => {
+		const html = view.renderDigest(PAYLOADS.digestError);
+		assert.ok(!html.includes("ctx-write-digest"));
 	});
 });
 

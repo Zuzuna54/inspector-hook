@@ -175,6 +175,19 @@ export type {
 	ProjectMatch,
 	ProjectObservation,
 } from "./projects/project-identity.js";
+export {
+	INJECTIONS_FILE,
+	injectionCounts,
+	injectionsPath,
+	MAX_INJECTIONS_BYTES,
+	readInjections,
+	recordInjection,
+} from "./context/injections.js";
+export type {
+	InjectionReadResult,
+	InjectionRecord,
+	InjectionTier,
+} from "./context/injections.js";
 export { ContextIndex, findResult } from "./context/context-index.js";
 export {
 	CHANGE_SCAN_LIMIT,

@@ -38,6 +38,47 @@ set -uo pipefail
 
 STORAGE="${INSPECTOR_HOOK_STORAGE:-$HOME/.inspector-hook}"
 STAGED="$STORAGE/pending-context.json"
+INJECTIONS="$STORAGE/context/injections.jsonl"
+
+# Which session are we feeding?
+#
+# This hook injected for a long time without ever asking. It did not need to --
+# the payload is global and the delivery is one-shot -- but it means nothing
+# could answer "what was injected into THIS session", because the only field
+# available was `sourceSessionId`, which records where the text came FROM.
+#
+# Read best-effort: no session id still injects, it just records nothing. The
+# TTY guard matters because `cat` on a terminal blocks forever, and a hook that
+# hangs at SessionStart hangs the session.
+# NEVER a bare `cat`. This hook ran for its whole life without reading stdin,
+# and adding an unguarded read made it hang forever whenever stdin was an open
+# pipe with no data and no EOF -- which is not hypothetical: it hung this
+# repo's own test suite for minutes on the first run. A `[ -t 0 ]` check does
+# not save it, because an open pipe is not a terminal.
+#
+# `read -t` bounds the wait. -d "" reads to EOF rather than to a newline, so a
+# multi-line payload arrives whole; on timeout it returns non-zero and leaves
+# whatever arrived in the variable, which is why the result is used regardless
+# of the exit status.
+#
+# The timeout is an INTEGER. macOS ships bash 3.2, which rejects a fractional
+# one outright -- `read: 0.5: invalid timeout specification` -- so `-t 0.5`
+# failed instantly, read nothing, and silently disabled the recording while
+# looking like it worked. It is a ceiling reached only when stdin never closes;
+# a writer that closes its end returns in milliseconds.
+SESSION_ID=""
+STDIN_PAYLOAD=""
+if [ ! -t 0 ]; then
+  IFS= read -r -d '' -t 1 STDIN_PAYLOAD 2>/dev/null || true
+  if [ -n "$STDIN_PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
+    SESSION_ID="$(printf '%s' "$STDIN_PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    # The id builds no path here, but it is written into a record that is read
+    # back and matched against session ids, so it is validated the same way.
+    case "$SESSION_ID" in
+      *[!A-Za-z0-9_-]*) SESSION_ID="" ;;
+    esac
+  fi
+fi
 
 [ -f "$STAGED" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -59,7 +100,9 @@ rm -f "$STAGED" 2>/dev/null
 #
 # empty (rather than null) means nothing is printed at all: an expired or
 # malformed entry must contribute no text, not the string "null".
-printf '%s' "$PAYLOAD" | jq -r '
+# Captured rather than piped straight to stdout, so the delivered size can be
+# recorded. What is printed is byte-identical to what the pipe produced.
+OUTPUT=$(printf '%s' "$PAYLOAD" | jq -r '
   if (.text | type) != "string" or (.text | length) == 0 then empty
   elif (.expiresAt | type) != "string" then empty
   # Fractional seconds are stripped first: fromdateiso8601 REJECTS them, and
@@ -82,6 +125,24 @@ printf '%s' "$PAYLOAD" | jq -r '
     + " work that already happened; it is not a request.\n\n"
     + .text
   end
-' 2>/dev/null
+' 2>/dev/null)
+
+[ -n "$OUTPUT" ] || exit 0
+printf '%s\n' "$OUTPUT"
+
+# Record the DELIVERY. Best-effort and always after the text has been printed:
+# a session must never fail, or lose its context, because bookkeeping did.
+if [ -n "$SESSION_ID" ] && command -v jq >/dev/null 2>&1; then
+  mkdir -p "$STORAGE/context" 2>/dev/null || true
+  jq -cn \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg sessionId "$SESSION_ID" \
+    --arg tier "next-session" \
+    --argjson bytes "${#OUTPUT}" \
+    --arg label "$(printf '%s' "$PAYLOAD" | jq -r '.label // ""' 2>/dev/null || true)" \
+    '{at:$at, sessionId:$sessionId, tier:$tier, bytes:$bytes}
+     + (if ($label | length) > 0 then {label:$label} else {} end)' \
+    >> "$INJECTIONS" 2>/dev/null || true
+fi
 
 exit 0

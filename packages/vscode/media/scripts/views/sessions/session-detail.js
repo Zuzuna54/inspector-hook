@@ -88,6 +88,9 @@ const SessionDetailMixin = {
       <button class="sv-tab ${activeTab === "transcript" ? "active" : ""}" data-tab="transcript">
         Transcript
       </button>
+      <button class="sv-tab ${activeTab === "injected" ? "active" : ""}" data-tab="injected">
+        Injected
+      </button>
       <button class="sv-tab ${activeTab === "logs" ? "active" : ""}" data-tab="logs">
         Logs
       </button>
@@ -181,6 +184,23 @@ const SessionDetailMixin = {
 			case "transcript":
 				this.renderTranscriptTab(contentEl, session);
 				break;
+			case "injected": {
+				// Fetched when the tab is opened rather than with the session:
+				// this reads an append-only file that only grows, and most
+				// sessions never received an injection at all.
+				const view = State.injectionsView || {};
+				if (view.sessionId !== session.id) {
+					State.update("injectionsView", {
+						...view,
+						sessionId: session.id,
+						records: [],
+						loading: true,
+					});
+					API.getInjections(session.id, 200);
+				}
+				this.renderInjectedTab(contentEl, session);
+				break;
+			}
 			case "logs":
 				this.renderLogsTab(contentEl, session);
 				break;
