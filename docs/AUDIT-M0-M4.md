@@ -2,10 +2,12 @@
 
 **Auditor:** a separate Claude Code session (`inspector-hook-bb`), report-only, no code changes.
 **Subject:** branch `milestone-0-harden`, audited across pins `eb2073d` → `a66b43f` → `1a5ab2a` →
-`8ee6c0c` → `e9fbb94`. The branch moved five times during the audit; every finding below carries the
-state it was measured in.
-**Scope:** all 268 rows of `docs/AUDIT-MATRIX.md`, re-derived independently, plus **62 new M3/M4
+`8ee6c0c` → `e9fbb94` → `d2ae369` → `01a6ea1`. The branch moved nine times during the audit; every
+finding below carries the state it was measured in.
+**Scope:** all 268 rows of `docs/AUDIT-MATRIX.md`, re-derived independently, plus **84 new M3/M4
 criteria** that no document in this repo had ever written down.
+**Outcome:** 10 defects confirmed and reported; **8 fixed while the audit ran**, each re-verified
+independently against a running core rather than accepted on the author's word (§0).
 
 ---
 
@@ -43,12 +45,44 @@ asserts only that the method and the case exist. Nothing makes the call. It pass
 | **M0 Harden** | complete | **Complete in substance.** B1–B5 verified, several at L4 against the shipped bundle. Two defects of the same class were found live *during* the audit and fixed; see §1. |
 | **M1 Verify** | complete | **Not complete.** The matrix it rests on is self-graded, and re-derivation moved a large number of rows. The suite is green while ~20 features cannot run. |
 | **M2 Transport** | "complete except the headline" | **Accurate, and the deferral is honest.** HTTP hooks were never done and the author says so. Event registration is real. One silent regression (§4) and one config contradiction, both since fixed. |
-| **M3 Context** | "complete, one clause skipped" | **Not complete.** The headline feature has never written a file, and until this audit could not have — it failed with `ENOENT` for any project without an existing `memory/` directory. The picker is inert, and the in-flight fix does not close it. |
-| **M4 Research** | "built, three deviations" | **Half true, precisely.** Ingest is genuinely live and correct — 346+ real items across 7 kinds. **The entire retrieval surface is unreachable from the UI.** BM25 is honest about being lexical-only. |
+| **M3 Context** | "complete, one clause skipped" | **Was not complete; substantially closed during the audit.** The headline feature had never written a file and *could not have* — `ENOENT` for any project without an existing `memory/` directory. The picker was a permanent no-op. Curation edited a different file than the one opened and reported success. All three are now fixed and verified at L4. Still open: automatic writing remains behind an undocumented env var with no UI affordance, and "cross-project search" is whole-phrase substring matching. |
+| **M4 Research** | "built, three deviations" | **Half true, precisely.** Capture and storage are real and durable — 410 live items across 7 kinds, and the durability claim was tested by deleting every log file and restarting. **The entire retrieval surface is unreachable from the UI** — three links missing per method, so this is not a view that was nearly finished. BM25 is honest about being lexical-only. |
 
 **M0–M4 cannot be signed off as a set.** Not because the work is bad — much of it is verified below and
 some is excellent — but because the document that would certify it, `AUDIT-MATRIX.md`, does not measure
 reachability at all, and reachability is where this project fails.
+
+---
+
+## §0 — What changed while the audit ran
+
+Findings were routed to the owning sessions as they were confirmed rather than held back for a report, so
+eight landed as fixes before this was written. **Every one was re-verified independently against a running
+core — none is recorded here on the author's word.** The state each defect was broken in is preserved in
+the sections that follow, because a fix does not retire the evidence that produced it.
+
+| Commit | What it closed | How it was verified |
+| --- | --- | --- |
+| `eb2073d` | Reaped tool calls reported `failed`; `ExecutionStatus` gained `unknown` | L4 — 3h-old unpaired call reaped to `unknown` in the shipped bundle |
+| `a66b43f` | The `5f6d917` metadata regression, via a new in-core `project-resolver`; and the `tool:failed`→`tool:unknown` emit | L3/L4 — replaying 6,776 real records collapsed one repo's five `projectKey`s into one |
+| `1a5ab2a` | The memory-directory `ENOENT`; late-completion reconciliation | L4 — digest written with no directory pre-created; reconciliation confirmed **with its negative case** (a stranger's `tool_use_id` leaves a reaped execution untouched) |
+| `8ee6c0c` | Unregistered `MessageDisplay` + the Elicitation pair, restoring the 30-event set the installer's own comment specified | L4 — live `settings.json` back to 30/30 |
+| `e9fbb94` | Matrix: three `untested` packaging rows corrected to `broken` | — (documentation) |
+| `8209091` | One digest collector, so the retention path stops writing the weakest digest | L3 |
+| `d2ae369` | The picker: envelope unwrapped in `panel.ts`, repairing all three readers | L4 — staged text **byte-identical** to the previewed body; barren session now refuses with its reason |
+| `01a6ea1` | Curation edits landing on a different file and reporting success | L4 — edit lands in the opened file, no stray file, one index line |
+
+**One fix was caught before it landed.** The first attempt at the picker added `sessionId` to the inner
+`SessionDigest` while the webview reads it off the `{digest, written}` envelope — it would have shipped
+looking fixed and changed nothing. Flagged pre-commit; the author moved the unwrap to `panel.ts`, which
+repairs `sessionId`, `worthKeeping` and `body` in one change instead of one of the three.
+
+**Two findings were declined for scope, and surfaced to the user rather than buried** —
+`defaultProjectKey()` returning a stale key, and the unbounded session load. That is the right call and
+worth recording as such.
+
+**What this says about the process, not the code:** every one of these was found by reading the live
+store or driving a running core, and none by reading source. The suite was green throughout.
 
 ---
 
@@ -145,7 +179,7 @@ targeted transcript resolution and shipped the actual bug intact.
 
 ---
 
-## §3 — M3's picker is inert, and the in-flight fix does not close it
+## §3 — M3's picker was a permanent no-op, and the first fix would not have closed it
 
     ipc-server.ts     return { digest, written: false }     <- envelope
     core-bridge.ts:519  passes the envelope through verbatim
@@ -326,7 +360,17 @@ Executed against a real memory file on this machine:
 `core.ts:434`: *"This is the part of the system most able to make a false claim ('saved to memory' when
 nothing was written), so it reports what actually happened."* It reports what happened to a file the user
 did not open. **6 of the 33 memory files on this machine have a `name` that does not match their
-filename**, so this is not an edge case.
+filename**, so this is not an edge case. Claude Code's own writer sets a descriptive `name:` independent
+of the filename, which is why the mismatch is normal rather than rare.
+
+**Fixed (`01a6ea1`) and verified at L4.** Reconstructed the exact real-corpus case — a file named
+`feedback_no_shortcuts.md` whose frontmatter `name` is `no-shortcuts-or-corner-cutting` — and saved an
+edit through `memory.write`:
+
+    opened file contains the edit : YES
+    opened file still original    : no
+    files in the directory        : MEMORY.md, feedback_no_shortcuts.md   (no stray second file)
+    MEMORY.md index lines         : 1                                     (was 2)
 
 ---
 
@@ -360,13 +404,15 @@ does not match the legacy bare name, so **one repository goes from five keys to 
 ## §7 — The inert register
 
 Features that exist, are often tested, and cannot run. This is the real backlog: **the matrix has no
-column for it, which is why none of these appear as defects there.**
+column for it, which is why none of these appear as defects there.** Rows marked **[closed]** were fixed
+during the audit and re-verified; they are kept in the register because the register's purpose is to show
+how much of a green suite can sit over unreachable code.
 
 | # | Feature | Why it cannot run | Tests passing over it |
 | --- | --- | --- | --- |
 | 1 | **All M4 retrieval** — `research.search/get/getStats` | Zero callers; `grep -ri research packages/vscode/` returns nothing; no research view exists. The core indexes and flushes on every log, so the data accumulates unreachable | **`research.test.js` — 41 tests** |
-| 2 | **M3 auto-digest** | `INSPECTOR_HOOK_SESSION_MEMORY` gate; set by nothing in the extension, exposed by no setting. Reachable only by exporting the var before launching VS Code — undocumented | 152 memory tests |
-| 3 | **"Stage this" + digest preview** | §3 — envelope/inner shape mismatch | `context-view.test.js:471/:477/:486` |
+| 2 | **M3 auto-digest** | **[partly closed]** The `ENOENT` beneath the gate is fixed, so the code now works when reached. Still gated by `INSPECTOR_HOOK_SESSION_MEMORY`, which nothing in the extension sets and no setting exposes — reachable only by exporting the var before launching VS Code, undocumented | 152 memory tests |
+| 3 | ~~**"Stage this" + digest preview**~~ | **[closed]** `d2ae369` — envelope unwrapped in `panel.ts`; verified L4, staged text byte-identical to the preview | `context-view.test.js:471/:477/:486`, now regenerated from the real builders |
 | 4 | **The entire `tool:*` event family** | 5 names, 8 emit sites, **zero listeners**. `tool:unknown` was born inert | — |
 | 5 | **History's lazy version-content stack** | `requestVersionContent`, `isVersionContentLoaded`, `isVersionContentLoading`, `_getUniqueFiles` each defined once, called nowhere. `API.getVersionContent`'s only call site is *inside* `requestVersionContent` | **8 tests**, incl. `archived-view.test.js:140` |
 | 6 | **`renderIndex` / `renderIndexBudget`** | Transitively dead — `renderIndexBudget`'s only caller is inside `renderIndex`, which has no caller. `MEMORY.md` is never displayed | **5 tests** |
@@ -382,6 +428,12 @@ column for it, which is why none of these appear as defects there.**
 | 16 | **Digest "What was asked"** | `prompts` never supplied by any of the four call sites | — |
 | 17 | **Zero-consumer protocol exports** | `automation.ts` (14 types incl. an undocumented `AnalyticsSummary`), `INDEX_LOAD_LINES`/`BYTES`, `RESEARCH_KINDS`, `MemoryProject.workspacePath`, + 9 more | — |
 | 18 | **`project-resolver`** | Correct and unit-tested, but the running core predates it and `dist/managers/project-resolver.js` does not exist — it has never processed a real event | 10 tests |
+
+Two more, added by later units and not in the original count: **`media/styles/main.css`** — 548 lines, the
+largest stylesheet in the project, absent from the asset manifest, no `@import`, zero references, and it
+reads like the entry point while redefining the same theme variables `variables.css` sets; and the
+**archived-diff path** (§6a), where the working method exists on both sides and no `panel.ts` case reaches
+it.
 
 Plus **17 further core IPC methods with no extension caller** (`archive.*`, `fileChanges.*`, `history.*`,
 `memory.getFile`, `memory.getProject`, `sessions.terminate`, `core.getStatus`, …). Of 55 registered
@@ -715,12 +767,26 @@ names from eight call sites** — 17 was lines *mentioning* `tool:`, including t
 declarations, two comments, and the three ternary branches of a single `emit()`. The finding stands; my
 arithmetic did not.
 
+**A stale open-items list, asserted as fresh.** I sent both owning sessions a "complete inventory,
+re-derived against HEAD so nothing is stale". For the code items that was true — I spot-checked each. For
+the **documentation** items it was not: I carried them from a unit's report written five commits earlier
+and did not re-check them. **Five were already fixed**, including one I counted by `grep`ing for the
+string `Rules Engine` without reading the line, which now reads `~~Rules Engine~~ | **Not implemented.**`
+— the correction I was asking for, already made. The peer caught it. This is the report's own subject
+matter committed by its author: a claim about current state, sounding authoritative, not re-derived.
+
+**And a rule that follows from it, which the peer articulated better than I would have.** Fixing one of my
+findings, they wrote "No such cap exists" where the real value was 200 — a false correction inside a
+correction, caught in thirty seconds by their own justifying grep. Both the original claim and the fix
+were unverified assertions about the same line. The rule is therefore not *check before you claim* but
+**check before you correct**, because a correction reads as authoritative in a way the original did not.
+
 **Four measurement artifacts of my own**, each caught by re-deriving: a `grep` that matched its own
 command text in the log; a `jq` path that silently returned `none` for 198 records; a `pgrep` reporting
 zero processes when four were alive; and a determinism check whose two replays read a corpus that grew
 between them, making the comparison invalid by construction.
 
-That is the case for R3 in a sentence: **nine of this report's inputs were wrong on first derivation** —
+That is the case for R3 in a sentence: **eleven of this report's inputs were wrong on first derivation** —
 and one audit unit corrected its own tally from 15 broken to 20 by recounting rather than trusting its
 first pass. Every one was caught by a second derivation, none by review.
 
@@ -764,3 +830,316 @@ first pass. Every one was caught by a second derivation, none by review.
 *Report-only. No source file was modified by this audit. Findings were routed to the sessions owning each
 lane as they were confirmed; several were fixed mid-audit and are recorded above as verified at their new
 state, with the state they were broken in preserved.*
+
+
+---
+---
+
+# Current Audit — Milestones 3, 4 and 5
+
+**Pins:** `7aa9f10` → `952eddb` → `e125cf1`. The branch moved three times during this pass; every finding
+names the state it was measured in. **Scope:** M3, M4, M5 only — M0–M2 were excluded as working.
+Three units, all findings derived twice, everything below either measured live or executed.
+
+## Verdict
+
+| | Status |
+| --- | --- |
+| **M3 Context** | **Substantially working.** Three of four prior defects genuinely closed and verified by execution. One real defect remains: the retention-collapse digest. |
+| **M4 Research** | **Reachable at last, and now shipping embeddings that work — with three untrue claims attached and one serious regression.** Capture, the tool's one non-negotiable job, is broken by the new feature. |
+| **M5 Agents** | **Capture is built and live; rendering is not.** The agent's output is captured on 390 of 390 events and discarded, because the code reads a key that has never existed. |
+
+## M3 — fixed, and verified against my own original failing cases
+
+`801ceed` closed two defects and I re-ran the exact cases that failed before:
+
+    truncateToBytes, 1000-byte input        was      now
+      maxBytes = 0                          1000  ->    0
+      maxBytes = 5                          1005  ->    5
+      maxBytes = -1                          999  ->    0
+
+The tray now renders **exactly 262,144 bytes** across every shape tested — 12×60 KB, 500×60 KB,
+1×300 KB — where it previously rendered **682,232**. And the test that pinned the bug is genuinely
+inverted: `context-tray.test.js:300,330` now assert `preview.bytes <= CAP` across three shapes, where the
+old test asserted only `.some(truncated)`.
+
+The **`MEMORY.md` index-prose rewrite** is fixed and, importantly, *not over-corrected*: verified across
+three variants including a line with no prose at all, while an explicit title still updates and an
+unindexed file still gets a line. One small divergence survives — `native-memory.ts:641` names a new index
+line from the fileName stem while `indexMemoryFile:703` uses `parsed.name`, so the same file gets a
+different title depending which path created it.
+
+### The one M3 defect that remains
+
+**The retention-collapse digest is still the weakest of the three, and it is not being worked on.** I
+checked whether the `log-manager.ts` edit in the working tree was a fix — it was an unrelated `projectRoot`
+change. The ordering stands: `:364` filters `this.logs`, `:374` calls `cleanup({collapseSession})`, and
+`getLogs` reads only `this.logs`. Reproduced with the real managers:
+
+| | preview | collapsed summary |
+| --- | --- | --- |
+| size | 640 B | 411 B |
+| "What was asked" | present | **absent** |
+| "What was concluded" | present | **absent** |
+| `Log entries` / `Errors logged` / `Warnings logged` | 7 / 1 / 1 | **omitted entirely** |
+
+The fact lines are **omitted rather than reported as zero**, so nothing in the surviving record indicates
+it was built from an emptied log. A digest silent about its own incompleteness is the priority bug class.
+`retention-tiering.test.js:56-172` cannot catch it — it drives `store.cleanup` with a **stub**
+`collapseSession` and never inspects digest content. The test bypasses the bug.
+
+### The composer (P5/P6) — the best-built thing in M3, with one serious defect
+
+**Preview matches delivery, proven byte-for-byte** — the first time this project's central tray claim has
+been demonstrated rather than asserted. `context.preview` and `context.arm` both call the single
+`renderTray`, and the UI sends no text, so the core re-renders from the tray it holds:
+`preview.text === JSON.parse(armed).text`, **17,056 B on both sides**, and 262,144 B on both sides in the
+cap cases. Redaction runs inside that same renderer, so a composed item containing an AWS key and a
+`ghp_…` token previewed as `[redacted]` ×2 and **the armed file on disk contained neither**.
+
+**The caps compose correctly, with honest arithmetic.** 8 KB per entry cuts visibly (`_(truncated)_`)
+rather than dropping; the 64 KB per-item refusal reads *"That item is 96 KB, over the 64 KB per-item
+limit. Trim it, or add the part you need."* — a real number and an action.
+
+**`compose.test.js` is the good pattern** — real JSONL on disk, the real reader and composer, ten tests
+over ordering, de-duplication, unresolved indexes, the clip and the empty-entry marker. Worth naming as
+the standard against the fixture-driven tests elsewhere in the repo.
+
+**Four defects, the first of which outranks the retention digest:**
+
+1. **It composes the wrong session's turns, silently.** `session-detail.js:143-152` rebuilds
+   `transcriptView` on a session switch with `sessionId`, `entries`, `total`, `hasMore`, `stats` and
+   `reason` — **`selected` is not in the list**, so it survives the spread. Tick turns 3 and 7 in session
+   A, switch to B: the bar still reads "2 turns selected", B's rows render pre-ticked, and Add sends
+   `{sessionId: "B", indexes: [3,7]}`. This is not a display bug — the composed item is armed and injected
+   into a model as context the framing line asserts was *"chosen explicitly by the user for this
+   session."* Untrue reporting with a downstream consumer that cannot check it. It is precisely the class
+   `compose.ts:9-16` claims to defend against.
+2. **Partial failure looks like success.** `ipc-server.ts:1387` deliberately returns
+   `reason: "1 of 2 selected turns are no longer in the transcript."` on `ok:true`, with a comment saying
+   a partly-failed selection "should not look like one that succeeded". `inbound-tray.js:16` branches on
+   `ok === false`, so the reason is dropped and nothing else carries it. Worse: a compaction that leaves
+   the index *in range* returns different content with **no signal at all** — index 0 returned a
+   completely different conversation. `TranscriptEntry` carries a `uuid`; the composer discards it.
+3. **Titles.** `composeTitle` — which handles the plural and uses the first prompt — is imported at
+   `ipc-server.ts:41` and **called zero times**; `:1431` uses an inline string instead. Every composed
+   item is titled "**1 turns from a session**". The documented behaviour reaches no user, and three tests
+   cover the function nothing calls.
+
+### The injection subsystem — still open, with three corrections to earlier findings
+
+**The one-shot is not one-shot, and it is worse than first measured.** Eight concurrent invocations of the
+real hook: **6–8 deliveries on every trial, 10 of 10**. `cat` then `rm` (`:85-86`) is not atomic; `mv` to a
+unique name is the fix. And a **failed `rm` replays forever** — directory `chmod 555`, five sequential
+prompts, delivered **5 of 5** with the file present after each, because `rm -f … || true` swallows the
+failure. Bounded only by the 1 h TTL.
+
+**Arming still renders `""`.** Three different shapes arrive on one `context-armed` message — arm returns
+`{armed,entry,path}`, getArmed returns `{now,pinned}`, disarm returns `{cleared}` — and `renderArmed`
+(`tray-render.js:227`) reads `.now`/`.pinned`, so the real arm result renders empty. `tray-host.js:235`
+never refetches.
+
+**Three corrections to what this audit previously reported:**
+
+| Earlier claim | Corrected |
+| --- | --- |
+| Payloads >~512 KB vanish silently | The cliff is **~1.00 MB** (`ARG_MAX`), and it is **unreachable through the tray** — the 256 KB cap delivers fine. Latent, not live. |
+| The core charges bytes for zero deliveries (`armed-store.ts:257`) | **The core is correct** — it reports `deliveries:0, estimatedRepeatBytes:0`. The lie is `tray-render.js:238`'s `\|\| armed.pinned.bytes`, which overrides the honest 0 into "59 B × 0 prompts = 59 B so far". A **renderer** bug. `armed-store.ts:257`'s `Math.max(deliveries,1)` is dead in production — and `armed-context.test.js:183` pins it. |
+| Items flagged `truncated` while intact | **Fixed** at `render.ts:108`. |
+
+That last row is the audit correcting itself twice over: a finding that was real, is now fixed, and would
+have been carried forward as open had the unit not re-checked it.
+
+**Still true:** the framing line is forgeable in-band — no delimiter, no nonce — and that matters more now
+the composer pulls tool results **verbatim from files the user did not write**. And there is still no
+audit trail: zero `addLog` calls in the arming path, and the hooks never post back.
+
+**Clean, and worth recording:** pin expiry is mandatory and clamped; a missing or unparseable `expiresAt`
+is treated as **expired rather than forever**; and session ids are validated before a path is built, in
+both the store and the shell hook.
+
+## M4 — the embeddings are real; three claims about them are not
+
+**Not a rejected experiment renamed.** Different mechanism from the rejected `semantic.ts` (which remains
+off by default, untouched), no shared code: a genuine 384-dim MiniLM via onnxruntime. Hybrid is hybrid at
+query time — neither side short-circuits — and fusion is RRF on rank, which is the right choice.
+
+**But "measured, not assumed" has no reproducible artifact.** No benchmark file exists in the repo or
+anywhere in its history; the relevance judgments were never committed; the corpus has moved 693→797. The
+454-line test drives a **fake** embedder — plumbing is tested, retrieval quality has **no test at all**,
+and nothing in CI would notice a regression to zero.
+
+So the unit measured it independently, relevance fixed before looking at any ranking:
+
+| | BM25 | embeddings | hybrid |
+| --- | ---: | ---: | ---: |
+| 8 natural-language paraphrases | 0.669 | 0.578 | **0.854** |
+| 15 literal keyword queries | **0.933** | 0.758 | 0.824 |
+
+**Hybrid wins decisively on natural language and loses on keywords** — worse than the better single signal
+on 4 of 15 keyword queries, better on 0. Combined it still wins (0.861 vs 0.780), so shipping it is
+defensible. Two claims are not:
+
+- **"never worse than either alone"** — stated in `embeddings.ts:22`, `research-index.ts:303` and the
+  commit message. **False**, by the project's own preferred metric.
+- **"embeddings alone 0.614 vs BM25 0.440"** — does not reproduce; embeddings alone lost to BM25 on both
+  sets. The claimed ordering is query-set dependent, not a property of the corpus.
+- **"offline"** (`embeddings.ts:12`) — first run downloads **22.6 MB from HuggingFace**, 3,610 ms. No API
+  key is true; offline is false, and nothing in the UI discloses a third-party fetch triggered by a click.
+
+### The serious one: the feature breaks capture
+
+**`embedPending` blocks the event loop and drops hook events.** It is a single `await embedder.embed(...)`
+over the whole batch — no yielding between items — so CPU-bound inference stalls the HTTP server. One
+batch of 200, exactly the size the UI loop uses, blocked for **7,374 ms**. Of 29 hook POSTs issued in that
+window: **27 ok, 2 failed with ECONNRESET**, latencies forming a clean descending ramp 7124→119 ms against
+a 3–5 ms baseline. The code comment claims batching means "a 23-second embed never becomes one blocking
+call" — it becomes four ~7 s blocking calls, each dropping events. **Capture is this tool's one
+non-negotiable job**, and a convenience feature now interrupts it.
+
+### M4 fixed, confirmed by differential build
+
+- **`defaultProjectKey` coverage** — was 128 of 603 (21%). At `952eddb`: **793 of 797 (99.5%)** under one
+  key. Proven by mechanism, not inference: a store fragmented by a `7aa9f10` core, then opened by a
+  `952eddb` core → `migratedKeys: 3`, snapshot v1→v2, scoped search 1/4 → 4/4.
+- **Remote-less repo fragmentation and the stats/filter disagreement** — reproduced at `7aa9f10`
+  (`byProject` reporting 1 project/4 items while the filter returned 1 of 4), **fixed at `952eddb`**.
+- **`Router.register`** — fixed, with a `view-registry.test.js` guard. But **the guard does not cover
+  subscription**: none of its five tests would fail if a registered view forgot `State.subscribe`, which
+  is the defect `10e9ad2` had just fixed.
+- **graphify** is reachable and genuinely good — 4,095 nodes / 4,922 edges live, no Python or MCP server
+  needed, and absence returns `{available:false}` rather than hanging. One inert piece: `buildGraph` is
+  defined and exported and **called from nowhere** at the pin.
+
+**Never closed:** collapsed-session resurrection (confirmed end to end — the session returns in *both*
+`getAll` and `getSummaries`); `sessions.getSummaries` still has no client; and `logRetentionDays` still
+declares "retain logs 7 days" in the settings UI while being read nowhere and never passed, with the core
+hardcoding 0.
+
+## M5 — built since the first audit, and built on the right field
+
+**Superseded.** The prior grading — "capture built, rendering not; no agent view, no MCP server" — was
+accurate at its pin and is now wrong. Four commits landed since: `agent-tracker.ts` (496 lines),
+`mcp/mcp-server.ts` (387), `protocol/agent.ts` (102) and an Agents view (275), with three test files.
+
+### The design decision that matters, and it is correct
+
+My open finding was that `subagent_complete` reads `log.details?.result`, a key present on **0 of 390**
+live `SubagentStop` events. The new tracker does not use that path at all. It reads
+**`details.tool_result` from the `Agent` tool call** (`agent-tracker.ts:212`). Measured on the live store:
+
+    Agent/Task PostToolUse events              32
+      ...with details.tool_result populated    32   (100%)
+      ...containing "teammate_spawned"         24
+
+So the tracker reads the one channel that actually carries the payload, and the **`spawn-ack` distinction
+is grounded in real data**: 24 of 32 spawns here are background teammates whose findings genuinely never
+return through that channel, and the view labels them **"never reported"** rather than counting them as
+successes. That is the honest handling of a case this project would previously have rendered as a silent
+success.
+
+**The legacy path is still wrong**, separately: `ipc-server.ts:473` still builds the `subagent_complete`
+activity item from `details.result`, so the *feed* still shows no returned text even though the *Agents
+view* now does. One bug, two consumers, only one fixed.
+
+### The classification the whole view rests on is wrong on 25% of agents
+
+`classifyResult` (`agent-tracker.ts:81`) matches **only** `teammate_spawned`. Measured against every
+spawn result in the live store:
+
+    total Agent/Task spawn results                     32
+      "teammate_spawned"                               24
+      {"isAsync":true,"status":"async_launched",...}    8   <- ALSO an acknowledgement
+      genuine reports                                   0
+
+**All 32 are acknowledgements**, in two spellings. The 8 `async_launched` ones are classified as
+**`report`**, so the Agents view shows a green "reported" badge and the detail heading `Returned` without
+the "(acknowledgement only)" qualifier, and `mcp-server.ts:214-216` tells a querying agent
+`returned: reported` — for agents that returned nothing. The feature built specifically to distinguish
+"acknowledged but never reported" from "actually reported" gets it wrong a quarter of the time.
+
+**The code asserts the falsehood in its own comment.** `agent-tracker.ts:26` reads *"All 32 captured spawn
+calls returned `{"status": "teammate_spawned", ...}`"* — 8 of them did not. The comment was written from a
+partial sample and then used as the justification for a single-spelling regex.
+
+**This audit made the same error one step earlier.** I measured 24 of 32 matching `teammate_spawned` and
+reported that "the remaining 8 would be real reports" — an inference, not a measurement, and wrong. Both
+the code and the audit looked at the same 32 records and both stopped at the first pattern they found.
+
+Two related defects from the same unit: **spawn-call duration is trusted as runtime** for those 8 —
+`ac11e4584f916134a` has **106 tool calls and renders "0.0s"** with the tooltip "Reported by the platform";
+and **`typeFromAgentId` recovers 0 of 206** blank types, because every named id already has a type and
+every blank one is hex-only. It never fires on live data.
+
+**Correctly handled, and worth stating:** one agent yields **one row despite 27 separate stops**
+(`am3-injection`: 27 stops → 1 row, 80 calls, 1,120 s). The per-turn capture defect is deduped properly.
+
+### Measured self-correction, recorded in the code
+
+`agent-tracker.ts` documents an ordering bug caught by measurement rather than reasoning: the same 13,593
+events produced **199 agents and 24 spawn-acks in order, versus 182 and ZERO reversed** — described in its
+own comment as *"a plausible-looking tree that was wrong in every column."* Feeding a newest-first query
+straight into the tracker would have made stops precede starts and every duration negative. That is the
+failure mode this audit exists to find, caught by the author before shipping.
+
+### The headline number under-reports by 42%
+
+`core.ts:326` asks for `limit: 100_000` when backfilling agents. `log-manager.ts:215` trims to
+`maxLogsInMemory`, which `cli.ts:26` defaults to **10,000**. So the backfill silently sees 10,000 of the
+store's 13,966 events. Measured with two spawned cores:
+
+    default (10k cap)        173 agents · 14 "never reported" · 1,874 tool calls
+    INSPECTOR_HOOK_MAX_LOGS  204 agents · 24 "never reported" · 1,908 tool calls
+
+**The default hides 31 agents and 10 of 24 "never reported" — 42% of the milestone's headline number.**
+The live figures I observed while running the app (174 agents, 152 unlinked) are the capped read.
+
+### It is not a tree
+
+`agent-tracker.ts:439` is `.map((agent) => ({ ...agent, children: [] }))` — a **literal empty array, never
+populated**. There are **0 `parent*` fields across 13,966 events**. The code comment at `:428` is honest
+about why ("inventing a hierarchy would be a guess"), but the view is presented as a tree and the commit
+that shipped it is titled "the tree, and what never came back".
+
+### Two tests that cannot see the bugs they cover
+
+- **The order-independence test** (`agent-tracker.test.js:397`) asserts "order must not change the tree"
+  using **4 synthetic events with distinct timestamps**. Real data has **1,611 events at second
+  granularity, 1,108 sharing a timestamp**; V8's stable sort then preserves tie order, so replaying
+  reversed flips two agents' `resultKind` and moves one duration from **7 ms to 512,531 ms**.
+- **The 380-line view suite** (`agents-view.test.js`) calls `view.init(); view.render();` by hand — the
+  Router only calls `init()`. At `6a6fd2e` `init()` never called `render()`, so the panel read
+  "Loading agents…" forever while every test passed. **Fixed at current HEAD**, but the suite still cannot
+  detect a recurrence.
+
+### Where the returned text actually is
+
+`agent-tracker.ts` reads **no result text at all** — `lastAssistantMessage`, present on 399 of 399 stops,
+appears nowhere in the file. But the text is **not lost**: `research/extract.ts:186-197` indexes it as a
+`subagent_report`, and the MCP `search_history` returns real ones. So the agent's findings live in M4's
+surface, not M5's. The legacy `subagent_complete.result` path is still wrong (0 of 399) but **bounded** —
+`activity-items.js:133-151` renders `message` and never reads `.result`.
+
+### Open at this pin
+
+- The **legacy `subagent_complete` item** above.
+- **Capture defects the tracker may inherit:** `SubagentStop` fires per turn, not per agent (27 stops for
+  one agent id); `TeammateIdle` fired 23 times with **0** carrying an `agentId`; `agentType` is missing on
+  192 of 345 stops and was measured **0% recoverable**.
+- **The MCP server is hand-rolled** — `grep -rl modelcontextprotocol` over `packages/` returns nothing. Its
+  transport, registration and whether any client can reach it today are unverified at the time of writing.
+- **Parentage:** zero `parent*` fields across 12,678 events, inferable for 12 of 183 agents. Whether the
+  "tree" is a genuine tree or a flat list rendered as one is unverified.
+
+## The through-line
+
+Unchanged, and now visible in a fourth place. Every serious finding is the same shape: **the work is real,
+one connecting detail is wrong, and a green suite says nothing.** A key name that has never existed. A
+claim of "never worse" that is worse on 4 of 15. A guard that covers registration but not subscription. A
+digest that omits the counts that would reveal it is incomplete.
+
+And it reached the audit itself: a `SubagentStop` hook emitted `additionalContext` on every stop, that
+context re-entered the model as input, the reply ended the turn, and the hook fired again — a
+self-sustaining loop, 36 events against 3 starts, each iteration a billable request. **Nothing in the tool
+built to observe hooks recorded any of it.** Fixed at the hook during this audit, verified by executing it
+before and after.

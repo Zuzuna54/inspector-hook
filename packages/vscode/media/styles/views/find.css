@@ -1,0 +1,254 @@
+/*
+ * Find — the four-corpus search.
+ *
+ * Groups are visually separated rather than blended into one list, because the
+ * scores that order them come from four different indexes and are not
+ * comparable. The styling makes the boundary obvious so the grouping reads as
+ * deliberate rather than as an unsorted list.
+ */
+
+.fd-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.fd-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fd-searchbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fd-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-input);
+  color: var(--fg-primary);
+  border: 1px solid var(--border-input);
+  border-radius: 3px;
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+}
+
+.fd-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+/* --- corpus sizes ------------------------------------------------------- */
+
+.fd-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.fd-stats li {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: var(--font-size-sm);
+}
+
+.fd-stat-name {
+  color: var(--fg-secondary);
+}
+
+.fd-stat-meta {
+  color: var(--fg-muted);
+}
+
+.fd-store {
+  margin: 0;
+}
+
+/* --- results ------------------------------------------------------------ */
+
+.fd-results {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fd-searching,
+.fd-none,
+.fd-unavailable {
+  padding: 8px 0;
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* A corpus that could not be searched is a different statement from one that
+   matched nothing, so it does not look the same. */
+.fd-unavailable {
+  color: var(--color-warning);
+}
+
+.fd-group {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.fd-group-head {
+  display: flex;
+  align-items: center;
+}
+
+.fd-group-toggle {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+
+.fd-group-toggle:focus-visible {
+  outline: 1px solid var(--border-focus);
+}
+
+.fd-group-name {
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+
+.fd-count {
+  color: var(--fg-secondary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-count-off {
+  color: var(--color-warning);
+}
+
+.fd-searched {
+  color: var(--fg-muted);
+}
+
+/* Documents with no project identity, included rather than hidden. */
+.fd-unattributed {
+  color: var(--color-warning);
+}
+
+.fd-group-note {
+  margin: 2px 0 8px;
+}
+
+.fd-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fd-hit {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fd-hit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.fd-hit-title {
+  font-weight: 500;
+  color: var(--fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.fd-hit-score {
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.fd-hit-snippet {
+  color: var(--fg-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.fd-hit-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.fd-hit-meta {
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+/* ---- the global project filter (P9) ------------------------------------ */
+
+.project-filter {
+  max-width: 16rem;
+  padding: 4px 6px;
+  background: var(--bg-input);
+  color: var(--fg-primary);
+  border: 1px solid var(--border-input);
+  border-radius: 3px;
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+}
+
+.project-filter:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+/* A scoped view says so, and says what it could not place. Warning-coloured
+   rather than muted: an active filter that reads as decoration is how a short
+   list gets mistaken for an empty store. */
+.project-scope {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+}
+
+.project-scope-name {
+  color: var(--color-warning);
+  font-weight: 500;
+}
+
+.project-unattributed {
+  color: var(--fg-muted);
+}

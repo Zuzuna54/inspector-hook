@@ -412,19 +412,32 @@ function init() {
   // Set up tab navigation
   setupTabNavigation();
 
+  // Read off `window` rather than as a bare identifier. Classic scripts share
+  // a global scope in the panel, so either works there — but a bare identifier
+  // does not cross an `eval` boundary in strict mode, which is how the
+  // view-registry test loads these files. `window.Header` is correct in both.
+  const header = (typeof window !== 'undefined' && window.Header) || null;
+  if (!header) {
+    console.error('[Inspector Hook] header.js did not load; the header is inert');
+  }
+
   // Set up search
-  setupSearch();
+  header?.setupSearch();
 
   // Set up clear button
-  setupClearButton();
+  header?.setupClearButton();
 
   // Set up header stats updates
   // Handlers are all registered by now (main.js loads last), so release
   // anything that arrived before they were in place.
   API.ready();
 
-  setupHeaderStats();
-  setupConnectionIndicator();
+  // The global project filter. After API.ready() so its first request is not
+  // queued behind the flush, and after the inbound handlers are registered.
+  if (typeof ProjectPicker !== "undefined") ProjectPicker.init();
+
+  header?.setupHeaderStats();
+  header?.setupConnectionIndicator();
 
   // Navigate to default view
   Router.navigate('dashboard');
@@ -455,104 +468,6 @@ function setupTabNavigation() {
       }
     });
   });
-}
-
-/**
- * Set up search input
- */
-function setupSearch() {
-  const searchInput = document.getElementById('search');
-  if (searchInput) {
-    searchInput.addEventListener('input', Utils.debounce((e) => {
-      const query = e.target.value.trim();
-      State.update('searchQuery', query);
-
-      // Also request filtered logs from backend
-      if (query) {
-        API.getLogs({ search: query });
-      } else {
-        API.getLogs();
-      }
-    }, 300));
-
-    // Clear search on Escape
-    searchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        searchInput.value = '';
-        State.update('searchQuery', '');
-        API.getLogs();
-      }
-    });
-  }
-}
-
-/**
- * Set up clear button
- */
-function setupClearButton() {
-  const clearBtn = document.getElementById('clear-btn');
-  if (clearBtn) {
-    clearBtn.addEventListener('click', () => {
-      if (confirm('Clear all logs? This cannot be undone.')) {
-        API.clearLogs();
-      }
-    });
-  }
-}
-
-/**
- * Set up header stats updates
- */
-/**
- * Reflect the core's liveness in the header.
- *
- * The markup shipped with class "connected" and the literal text "Connected",
- * and nothing anywhere read either element -- so the panel asserted a healthy
- * core rather than reporting one, and kept saying "Connected" after the core
- * had exited. `.status-indicator.disconnected` was already styled, with no code
- * path that could ever add it.
- */
-function setupConnectionIndicator() {
-	const render = () => {
-		const dot = document.getElementById("status-indicator");
-		const text = document.getElementById("status-text");
-		if (!dot || !text) return;
-		const ok = State.connected;
-		dot.classList.toggle("connected", ok);
-		dot.classList.toggle("disconnected", !ok);
-		text.textContent = ok ? "Connected" : "Core not running";
-		text.title = ok ? "" : State.connectionReason || "";
-	};
-	State.subscribe("connected", render);
-	State.subscribe("connectionReason", render);
-	render();
-}
-
-function setupHeaderStats() {
-  // Subscribe to stats updates
-  State.subscribe('stats', updateHeaderStats);
-  State.subscribe('fileChanges', updateHeaderStats);
-
-  // Initial render
-  updateHeaderStats();
-}
-
-/**
- * Update header stats display
- */
-function updateHeaderStats() {
-  const stats = State.stats;
-  const fileChanges = State.fileChanges;
-
-  const errorsStat = document.getElementById('stat-errors');
-  if (errorsStat) {
-    errorsStat.textContent = `${stats.errors || 0} errors`;
-  }
-
-  const changesStat = document.getElementById('stat-changes');
-  if (changesStat) {
-    changesStat.textContent = `${fileChanges.length || 0} changes`;
-  }
 }
 
 // ==========================================================================

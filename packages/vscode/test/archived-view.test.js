@@ -48,11 +48,36 @@ function loadArchived({ confirmAnswer = true } = {}) {
 			getDiff: () => {},
 		},
 	});
-	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
-	eval(readMedia("scripts/views/archived.js"));
+	// Manifest order: the renderer, then the controller that composes it.
+	for (const relPath of [
+		"scripts/views/archived/archived-render.js",
+		"scripts/views/archived.js",
+	]) {
+		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
+		eval(readMedia(relPath));
+	}
 	const view = globalThis.window.ArchivedView;
 	view.renderSessionAccordions = () => {}; // no DOM in this harness
 	return { view, restored, refreshed };
+}
+
+/**
+ * The view WITHOUT the DOM-free stub, so the extracted renderer is real.
+ *
+ * The stub above is why splitting this file was invisible to the suite: every
+ * test replaced the one render method it had, so removing the composition
+ * entirely changed nothing and the whole extracted module was unexercised.
+ */
+function loadArchivedRenderer() {
+	installGlobals({ API: {} });
+	for (const relPath of [
+		"scripts/views/archived/archived-render.js",
+		"scripts/views/archived.js",
+	]) {
+		// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
+		eval(readMedia(relPath));
+	}
+	return globalThis.window.ArchivedView;
 }
 
 describe("archived diff routing", () => {
@@ -223,5 +248,52 @@ describe("archived diffs reach the archive, not the pending map", () => {
 			/if \(!diff\) \{[\s\S]*?type: "diff-error"/,
 			"a null diff can still be spread into a truthy, empty-looking result",
 		);
+	});
+});
+
+describe("the extracted renderer is actually composed on", () => {
+	it("puts the render methods on the view", () => {
+		// These live only in archived/archived-render.js. If the Object.assign
+		// is dropped, or the manifest loads the two files in the wrong order,
+		// every one of them is undefined at click time — and nothing else in
+		// this suite would notice, because the tests above stub the one method
+		// they call.
+		const view = loadArchivedRenderer();
+		for (const method of [
+			"renderSessionAccordions",
+			"_renderFileAccordions",
+			"_renderChangeList",
+			"_renderChangeItem",
+			"_renderDiffPreview",
+			"_renderHunkPreview",
+			"_formatSessionAge",
+		]) {
+			assert.equal(typeof view[method], "function", `${method} is not composed on`);
+		}
+	});
+
+	it("renders a change through the extracted code", () => {
+		// Behaviour, not just presence: the split must not have changed output.
+		const view = loadArchivedRenderer();
+		const html = view._renderChangeItem({
+			id: "c1",
+			resolution: "reverted",
+			toolName: "Edit",
+			timestamp: "2026-09-01T10:00:00.000Z",
+		});
+		assert.match(html, /data-change-id="c1"/);
+		assert.match(html, /arc-change-badge reverted/);
+		assert.match(html, /arc-change-restore/, "a reverted change must offer Restore");
+	});
+
+	it("offers no Restore on a kept change", () => {
+		const view = loadArchivedRenderer();
+		const html = view._renderChangeItem({
+			id: "c2",
+			resolution: "kept",
+			toolName: "Write",
+			timestamp: "2026-09-01T10:00:00.000Z",
+		});
+		assert.ok(!/arc-change-restore/.test(html));
 	});
 });

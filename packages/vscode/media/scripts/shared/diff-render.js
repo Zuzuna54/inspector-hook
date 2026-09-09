@@ -66,10 +66,26 @@ const DiffRenderMixin = {
 	 * Get file changes from state
 	 */
 	_getFileChanges() {
-		if (typeof State !== "undefined" && State.fileChanges) {
+		if (typeof State === "undefined" || !State.fileChanges) return [];
+
+		// The global project filter, applied here because this accessor is the
+		// single source both File Changes and History read from.
+		//
+		// Three-valued: a change whose path the core could not place is KEPT.
+		// Dropping it would make a scoped list silently shorter than the truth,
+		// and a short list reads as "this project changed fewer files" rather
+		// than "some changes could not be attributed".
+		const identity =
+			typeof ProjectFilter !== "undefined" ? ProjectFilter.selected() : null;
+		if (!identity) {
+			this._unattributedChanges = 0;
 			return State.fileChanges;
 		}
-		return [];
+		const split = ProjectFilter.split(identity, State.fileChanges, (c) => ({
+			path: c.filePath,
+		}));
+		this._unattributedChanges = split.unknown.length;
+		return [...split.included, ...split.unknown];
 	},
 };
 

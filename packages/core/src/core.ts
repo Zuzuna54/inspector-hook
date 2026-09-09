@@ -14,10 +14,22 @@ import type {
 import {
 	CHANGE_SCAN_LIMIT,
 	ContextFindService,
+	LOG_SCAN_LIMIT,
 } from "./context/find-service.js";
+import { listProjects } from "./projects/project-registry.js";
+import type { ProjectIdentity } from "./projects/project-identity.js";
 import { VERSION } from "./index.js";
 import { IpcServer } from "./ipc/ipc-server.js";
 import { AgentTracker } from "./managers/agent-tracker.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { QualityStore } from "./quality/quality-store.js";
+import {
+	discoverProjects,
+	summarise,
+	type ScannableProject,
+} from "./quality/project-registry.js";
+import { scanProject, type ScanOptions } from "./quality/scanner.js";
 import { FileTracker } from "./managers/file-tracker.js";
 import { LogManager } from "./managers/log-manager.js";
 import { SessionManager } from "./managers/session-manager.js";
@@ -62,6 +74,13 @@ export class InspectorCore {
 	 * new transport.
 	 */
 	private readonly agentTracker = new AgentTracker();
+	/**
+	 * Quality reports for every observed project (M7).
+	 *
+	 * Machine-wide, like the research index: Inspector Hook scans the projects
+	 * it watches, not its own repository.
+	 */
+	private readonly qualityStore: QualityStore;
 
 	/**
 	 * Periodic index flush.
@@ -170,6 +189,13 @@ export class InspectorCore {
 				];
 			},
 			research: () => this.researchIndex,
+			projects: () => this.listProjects(),
+			// Events, so the header search stops being logs-only in one
+			// direction and log-blind in the other: one query, every corpus.
+			logs: async () =>
+				(await this.logManager.getLogs({
+					pagination: { offset: 0, limit: LOG_SCAN_LIMIT },
+				})).logs,
 			// Retention is off by choice, so the store grows without bound and
 			// nothing else in the UI reports what that costs. `getStats()` has
 			// computed it since it was written and had no consumer until here.
@@ -177,6 +203,7 @@ export class InspectorCore {
 		});
 
 		this.workspaceRoot = params.workspaceRoot;
+		this.qualityStore = new QualityStore(this.persistence);
 
 		// Initialize servers
 		this.httpServer = new HttpServer({
@@ -696,6 +723,42 @@ export class InspectorCore {
 	 * -- one fixed filename under one fixed directory -- and a relative path is
 	 * refused rather than resolved against whatever the cwd happens to be.
 	 */
+	/**
+	 * Every project this core can see, reconciled across three identity spaces.
+	 *
+	 * Not cached: it is cheap, and a stale list would offer a project that no
+	 * longer has anything behind it — a filter that scopes a view to nothing
+	 * and looks like an empty store.
+	 */
+	async listProjects(): Promise<ProjectIdentity[]> {
+		return listProjects({
+			sessions: async () => (await this.sessionManager.getSessions({})).sessions,
+			memoryProjects: () => listMemoryProjects(),
+			changes: async () => {
+				const [pending, archived] = await Promise.all([
+					this.fileTracker.getAllChanges({
+						pagination: { offset: 0, limit: CHANGE_SCAN_LIMIT },
+					}),
+					this.fileTracker.getArchivedChanges({ limit: CHANGE_SCAN_LIMIT }),
+				]);
+				return [
+					...pending.changes,
+					...archived.changes.map((c) => ({
+						id: c.id,
+						filePath: c.filePath,
+						sessionId: c.sessionId,
+						timestamp: c.originalTimestamp,
+						beforeContent: c.beforeContent,
+						afterContent: c.afterContent,
+						status: "kept" as const,
+					})),
+				];
+			},
+			research: () => this.researchIndex,
+			workspaceRoot: this.workspaceRoot,
+		});
+	}
+
 	/** Cross-corpus search over memory, digests, file changes and prompts. */
 	getContextFind(): ContextFindService {
 		return this.contextFind;
@@ -726,6 +789,55 @@ export class InspectorCore {
 				options?.projectKey ?? this.researchIndex.stats().defaultProjectKey,
 			maxChars: options?.maxChars,
 		});
+	}
+
+	/** Every project Inspector Hook could scan, existing or not (M7). */
+	listScannableProjects(): {
+		projects: ScannableProject[];
+		summary: ReturnType<typeof summarise>;
+	} {
+		const projects = discoverProjects();
+		return { projects, summary: summarise(projects) };
+	}
+
+	/**
+	 * Scan one project and store the result.
+	 *
+	 * Stores even a report where every tool failed: "nothing could be measured"
+	 * is the finding in that case, and discarding it would leave the history
+	 * looking like the scan never happened.
+	 */
+	async scanProjectQuality(root: string, options?: ScanOptions) {
+		const project =
+			discoverProjects().find((p) => p.root === root) ??
+			// A project the transcripts have not seen is still scannable when a
+			// caller names it directly.
+			({
+				root,
+				name: root.split("/").filter(Boolean).pop() ?? root,
+				transcriptDir: "",
+				exists: existsSync(root),
+				hasGit: existsSync(join(root, ".git")),
+				hasPackageJson: existsSync(join(root, "package.json")),
+				hasTsconfig: existsSync(join(root, "tsconfig.json")),
+				hasGraph: existsSync(join(root, "graphify-out", "graph.json")),
+				tools: {
+					knip: existsSync(join(root, "package.json")),
+					madge: existsSync(join(root, "package.json")),
+					graphify: existsSync(root),
+					sonarSecrets: existsSync(root),
+				},
+				rootSource: "transcript" as const,
+			} satisfies ScannableProject);
+
+		const report = await scanProject(project, options);
+		await this.qualityStore.save(report);
+		return report;
+	}
+
+	/** The quality store (M7). */
+	getQualityStore(): QualityStore {
+		return this.qualityStore;
 	}
 
 	/** Get the agent tracker (M5). */

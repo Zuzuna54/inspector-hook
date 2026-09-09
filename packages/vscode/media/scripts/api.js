@@ -329,6 +329,8 @@ Object.assign(
 	window.HistoryApiMixin,
 	window.TrayApiMixin,
 	window.TranscriptApiMixin,
+	window.FindApiMixin,
+	window.ProjectsApiMixin,
 );
 
 window.API = API;

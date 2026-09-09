@@ -40,6 +40,16 @@ const FileChangesView = {
 	 * Initialize the view
 	 */
 	init() {
+		// The global project filter scopes this view, so a change has to
+		// redraw it — otherwise the list keeps the previous scope while the
+		// header says something else.
+		if (typeof State !== 'undefined' && State.subscribe) {
+			const off = State.subscribe('projectFilter', (next, prev) => {
+				if (prev && next.selectedId === prev.selectedId) return;
+				this.renderSidebar();
+			});
+			if (this._unsubscribers) this._unsubscribers.push(off);
+		}
 		this._setupSubscriptions();
 		this.renderSidebar();
 		this.renderEmptyDiff();

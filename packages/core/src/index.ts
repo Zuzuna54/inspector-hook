@@ -176,7 +176,12 @@ export type {
 	ProjectObservation,
 } from "./projects/project-identity.js";
 export { ContextIndex, findResult } from "./context/context-index.js";
-export { ContextFindService, STALE_AFTER_MS } from "./context/find-service.js";
+export {
+	CHANGE_SCAN_LIMIT,
+	ContextFindService,
+	LOG_SCAN_LIMIT,
+	STALE_AFTER_MS,
+} from "./context/find-service.js";
 export type { FindOptions, FindSources } from "./context/find-service.js";
 export type { ContextSearchOptions } from "./context/context-index.js";
 export {
@@ -184,6 +189,7 @@ export {
 	digestDoc,
 	fileChangeDoc,
 	LOCAL_CORPORA,
+	logDoc,
 	memoryDoc,
 	snippetOf,
 	summaryDoc,
@@ -218,6 +224,66 @@ export {
 } from "./research/briefing.js";
 
 // Export code quality analysis (Milestone 7)
+export {
+	ANALYZERS,
+	DETECT_DEPTH,
+	LANGUAGE_FLOOR,
+	VENDOR_DIRS,
+	analyzersFor,
+	detectLanguages,
+	estimateSeconds,
+	findJsRoot,
+	hasManifest,
+	type Analyzer,
+	type AnalyzerContext,
+	type FindingKind,
+	type LanguageCounts,
+	type ParsedFinding,
+} from "./quality/analyzers.js";
+
+export {
+	MAX_HISTORY,
+	QUALITY_CATEGORY,
+	QualityStore,
+	projectStoreId,
+} from "./quality/quality-store.js";
+
+export {
+	MAX_OUTPUT_BYTES,
+	TOOL_TIMEOUT_MS,
+	hasGraph,
+	packageName,
+	parseKnipFiles,
+	parseMadgeCycles,
+	parseSonarSecrets,
+	scanProject,
+	type ScanOptions,
+} from "./quality/scanner.js";
+
+export {
+	groundTruthsFor,
+	rankFindings,
+	toRelative,
+	webviewManifestTruth,
+	type Confidence,
+	type DeadCodeFinding,
+	type GroundTruth,
+	type SignalInput,
+	type SignalName,
+} from "./quality/confidence.js";
+
+export {
+	CWD_PROBE_BYTES,
+	TRANSCRIPT_ROOT,
+	cwdFromTranscript,
+	discoverProjects,
+	pathFromDashedName,
+	summarise,
+	type ProjectTools,
+	type RegistrySummary,
+	type ScannableProject,
+} from "./quality/project-registry.js";
+
 export {
 	GOD_NODE_FLOOR,
 	GOD_NODE_PERCENTILE,

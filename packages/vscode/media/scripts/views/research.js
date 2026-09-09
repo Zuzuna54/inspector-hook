@@ -379,13 +379,27 @@ const ResearchView = {
 			API.graphSearch({ query, limit: 30 });
 			return;
 		}
+		// The GLOBAL project filter wins when one is selected.
+		//
+		// This view's own toggle resolves "this project" through
+		// `stats.defaultProjectKey`, which the core INFERS from the workspace
+		// and which reaches a minority of the corpus. The global filter does
+		// not infer: it is a project the user picked from a list the core
+		// reconciled, and it carries the git remote — which is the key this
+		// index actually stores. So when it is set, it is the better answer.
+		const picked =
+			typeof ProjectFilter !== "undefined" ? ProjectFilter.selected() : null;
+		const globalKey = picked && picked.gitRemote;
+
 		API.researchSearch({
 			query,
 			// Scope is only sent when the user asked for it. Omitting the key
 			// is what makes the search cross-project.
-			...(v.scope === "project" && v.stats && v.stats.defaultProjectKey
-				? { projectKey: v.stats.defaultProjectKey }
-				: {}),
+			...(globalKey
+				? { projectKey: globalKey }
+				: v.scope === "project" && v.stats && v.stats.defaultProjectKey
+					? { projectKey: v.stats.defaultProjectKey }
+					: {}),
 			...(v.kinds && v.kinds.length ? { kinds: v.kinds } : {}),
 			limit: 30,
 		});

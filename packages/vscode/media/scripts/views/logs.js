@@ -98,6 +98,13 @@ const LogsView = {
             <option value="">All Sessions</option>
           </select>
         </div>
+        <div class="filter-group">
+          <label class="filter-label">Filter</label>
+          <input type="search" id="filter-text" class="input filter-select"
+                 placeholder="Filter these logs…"
+                 value="${Utils.escapeHtml(State.searchQuery || "")}"
+                 aria-label="Filter logs">
+        </div>
         <div class="filter-spacer"></div>
         <div class="filter-count">
           <span id="log-count">0</span> logs
@@ -119,6 +126,25 @@ const LogsView = {
    * Set up filter event handlers
    */
   setupFilters() {
+    // The log-only filter.
+    //
+    // The header box used to do this job and nothing else, which is why a
+    // search that looked global only ever reached logs. The header is now
+    // genuinely global; this is where you narrow THESE rows, and it writes the
+    // same `searchQuery` key the table already reads.
+    const filterText = document.getElementById('filter-text');
+    if (filterText) {
+      filterText.addEventListener('input', Utils.debounce((e) => {
+        const query = e.target.value.trim();
+        State.update('searchQuery', query);
+        if (query) {
+          API.getLogs({ search: query });
+        } else {
+          API.getLogs();
+        }
+      }, 300));
+    }
+
     const filterLevel = document.getElementById('filter-level');
     if (filterLevel) {
       filterLevel.value = State.filters.level || '';

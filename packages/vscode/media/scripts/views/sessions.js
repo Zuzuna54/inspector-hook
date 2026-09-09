@@ -48,6 +48,16 @@ const SessionsView = {
 		// next unrelated render -- the same shape as every other "the work
 		// happened and no view showed it" failure here.
 		this._unsubscribers.push(
+			// The global project filter scopes this list, so a change has to
+			// redraw it. Without this the sidebar keeps the previous scope while
+			// the header says otherwise.
+			State.subscribe("projectFilter", (next, prev) => {
+				if (prev && next.selectedId === prev.selectedId) return;
+				this.renderSidebar();
+			}),
+		);
+
+		this._unsubscribers.push(
 			State.subscribe("transcriptView", () => {
 				if (State.sessionView.activeTab === "transcript") this.renderTabContent();
 			}),

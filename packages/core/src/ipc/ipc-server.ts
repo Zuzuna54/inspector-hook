@@ -772,6 +772,72 @@ export class IpcServer {
 		);
 
 		// ---------------------------------------------------------------------
+		// Code quality across observed projects (M7)
+		//
+		// Scans the projects Inspector Hook watches, not this repository. Every
+		// result reports which tools MEASURED it, because "0 findings" and
+		// "nothing ran" must never render the same.
+		// ---------------------------------------------------------------------
+
+		/** Every project that could be scanned, existing or not. */
+		this.methods.set("quality.getProjects", async () => {
+			const { projects, summary } = this.core.listScannableProjects();
+			const store = this.core.getQualityStore();
+			const rows = await Promise.all(
+				projects.map(async (p) => {
+					const latest = await store.latest(p.root);
+					return {
+						root: p.root,
+						name: p.name,
+						exists: p.exists,
+						hasGraph: p.hasGraph,
+						tools: p.tools,
+						rootSource: p.rootSource,
+						lastScannedAt: latest?.scannedAt,
+						high: latest?.summary.high,
+						measured: latest?.summary.measured,
+					};
+				}),
+			);
+			return {
+				projects: rows,
+				discovered: summary.discovered,
+				existing: summary.existing,
+				scanned: rows.filter((r) => r.lastScannedAt).length,
+			};
+		});
+
+		/**
+		 * Scan one project now.
+		 *
+		 * Slow by nature -- knip and madge took 7s and 5s on this repository --
+		 * so a caller should expect to wait rather than poll.
+		 */
+		this.methods.set("quality.scan", async (params) => {
+			const rec = asRec(params) ?? {};
+			const root = asStr(rec.root);
+			if (!root || !root.startsWith("/")) {
+				return { error: "an absolute project root is required" };
+			}
+			return this.core.scanProjectQuality(root, {
+				timeoutMs: asNum(rec.timeoutMs),
+			});
+		});
+
+		/** The newest stored report, without rescanning. */
+		this.methods.set("quality.getReport", async (params) => {
+			const root = asStr(asRec(params)?.root);
+			return root ? this.core.getQualityStore().latest(root) : null;
+		});
+
+		/** Counts over time. See QualityStore.trend for the comparison rule. */
+		this.methods.set("quality.getTrend", async (params) => {
+			const root = asStr(asRec(params)?.root);
+			if (!root) return { projectRoot: "", points: [], highDelta: 0 };
+			return this.core.getQualityStore().trend(root);
+		});
+
+		// ---------------------------------------------------------------------
 		// Agents and subagents (M5)
 		//
 		// The tree is built from the ordinary log stream: `agentId` rides on
@@ -1525,11 +1591,17 @@ export class IpcServer {
 		this.methods.set("context.find", async (params) => {
 			const rec = asRec(params) ?? {};
 			return this.core.getContextFind().find(asStr(rec.query) ?? "", {
-				projectKey: asStr(rec.projectKey),
+				projectId: asStr(rec.projectId),
 				limit: asNum(rec.limit),
 				refresh: asBool(rec.refresh),
 			});
 		});
+
+		// The global project filter (P9). One list, reconciled across the three
+		// identity spaces, so every view can scope on the same handle.
+		this.methods.set("projects.list", async () => ({
+			projects: await this.core.listProjects(),
+		}));
 
 		this.methods.set("context.findStats", async () =>
 			this.core.getContextFind().stats(),
