@@ -179,6 +179,7 @@ export {
 	buildNarrative,
 	childEnv,
 	claudeOnPath,
+	findClaude,
 	DEFAULT_TIMEOUT_MS,
 	defaultRunner,
 	MAX_NARRATIVE_CHARS,

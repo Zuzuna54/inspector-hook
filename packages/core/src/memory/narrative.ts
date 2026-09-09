@@ -112,16 +112,36 @@ export function childEnv(
 	};
 }
 
+/**
+ * Where `claude` is, according to a given PATH.
+ *
+ * Returns the absolute path so the gate and the spawn are provably the SAME
+ * lookup rather than two that happen to agree.
+ *
+ * They do agree today: measured, `spawn("claude", …, {env})` resolves against
+ * the PATH in the env it is given, so the bare name would work. But that is a
+ * libuv behaviour, not a POSIX guarantee — `execvp` is specified against the
+ * caller's environment — and a gate that checks one PATH while the spawn
+ * consults another is the kind of divergence that shows up as exit 127 on
+ * somebody else's platform. One resolution, used by both, costs nothing.
+ *
+ * Deliberately not `which`: that is a subprocess per check, on a gate that is
+ * usually closed.
+ */
+export function findClaude(env: NodeJS.ProcessEnv = process.env): string | null {
+	const path = env.PATH ?? "";
+	if (!path) return null;
+	for (const dir of path.split(":")) {
+		if (!dir) continue;
+		const candidate = join(dir, "claude");
+		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
 /** Is `claude` reachable? Cheap, and never throws. */
 export function claudeOnPath(env: NodeJS.ProcessEnv = process.env): boolean {
-	const path = env.PATH ?? "";
-	if (!path) return false;
-	// Deliberately not `which`: that is a subprocess per check, and this runs
-	// on a gate that is usually closed.
-	for (const dir of path.split(":")) {
-		if (dir && existsSync(join(dir, "claude"))) return true;
-	}
-	return false;
+	return findClaude(env) !== null;
 }
 
 /** The default runner: `claude -p`, with the prompt on stdin. */
@@ -131,7 +151,11 @@ export const defaultRunner: NarrativeRunner = (prompt, options) =>
 		let stderr = "";
 		let timedOut = false;
 
-		const child = spawn("claude", ["-p"], {
+		// The resolved absolute path, not the bare name, so this uses the same
+		// lookup the gate did. See findClaude: the bare name also works here,
+		// but only by a libuv behaviour rather than a guarantee.
+		const binary = findClaude(options.env) ?? "claude";
+		const child = spawn(binary, ["-p"], {
 			env: options.env,
 			cwd: options.cwd,
 			stdio: ["pipe", "pipe", "pipe"],

@@ -588,16 +588,26 @@ describe("context: digest preview", () => {
 		// "Summarise did nothing" and "narratives are off, here is the variable
 		// to set" — a silent no-op on a button is what this view was rebuilt to
 		// remove.
+		// The fixture, not a literal. `narrativeOff` is what `buildNarrative`
+		// actually returns for a closed env gate, recorded by the generator —
+		// a hand-written `{reason, gate}` is the invented-shape failure these
+		// fixtures exist to make impossible.
 		const html = view.renderDigest({
 			...PAYLOADS.digestPayload,
-			narrative: { reason: "Narratives are off on this machine.", gate: "env" },
+			narrative: PAYLOADS.narrativeOff,
 		});
 		// Asserted against the NOTE, not the page. The Summarise button's own
 		// tooltip names the environment variable too, so matching that string
 		// anywhere in the html passed whether or not the note rendered at all —
 		// the assertion was green against a function that returned "".
 		assert.match(html, /ctx-narrative-note/, "the reason was not rendered");
-		assert.match(html, /Narratives are off on this machine\./);
+		// Asserted against the NOTE, not the page: the Summarise button's own
+		// tooltip names the environment variable too, so matching that string
+		// anywhere passed whether or not the note rendered at all.
+		assert.ok(
+			html.includes(PAYLOADS.narrativeOff.reason),
+			"the core's own reason was not shown",
+		);
 	});
 
 	it("says nothing when no summary was asked for", () => {
@@ -605,7 +615,7 @@ describe("context: digest preview", () => {
 		// would put a notice under every preview.
 		const html = view.renderDigest({
 			...PAYLOADS.digestPayload,
-			narrative: { reason: "Not requested for this session.", gate: "call" },
+			narrative: PAYLOADS.narrativeNotAsked,
 		});
 		assert.ok(!/ctx-narrative-note/.test(html));
 	});
@@ -613,7 +623,7 @@ describe("context: digest preview", () => {
 	it("shows no note once a summary exists", () => {
 		const html = view.renderDigest({
 			...PAYLOADS.digestPayload,
-			narrative: { text: "It worked." },
+			narrative: PAYLOADS.narrativeOk,
 		});
 		assert.ok(!/ctx-narrative-note/.test(html));
 	});

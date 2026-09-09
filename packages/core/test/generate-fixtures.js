@@ -21,7 +21,11 @@
  * `fixtures.test.js` fails if the checked-in copy has drifted.
  */
 
-import { buildSessionDigest, collectDigestInput } from "../dist/index.js";
+import {
+	buildNarrative,
+	buildSessionDigest,
+	collectDigestInput,
+} from "../dist/index.js";
 
 /** A session with real activity, so the digest is worth keeping. */
 const ACTIVE_SESSION = {
@@ -85,9 +89,38 @@ export async function buildFixtures() {
 		await collectDigestInput({ session: EMPTY_SESSION }),
 	);
 
-	// What ipc-server.ts returns for memory.buildDigest, verbatim.
-	const digestEnvelope = { digest, written: false };
-	const emptyEnvelope = { digest: emptyDigest, written: false };
+	// The narrative shapes, from the REAL builder rather than written by hand.
+	//
+	// `buildNarrative` never calls a model here: two of these are refusals from
+	// a closed gate, and the third supplies a stub runner. The point is that the
+	// renderer tests get the shape the core actually produces — a hand-written
+	// `{reason, gate}` is precisely the invented literal these fixtures exist to
+	// make impossible.
+	const narrativeNotAsked = await buildNarrative(digest.body, {});
+	const narrativeOff = await buildNarrative(digest.body, {
+		narrative: true,
+		env: {},
+	});
+	const narrativeOk = await buildNarrative(digest.body, {
+		narrative: true,
+		env: { INSPECTOR_HOOK_NARRATIVE: "1" },
+		hasClaude: () => true,
+		runner: async () => ({
+			stdout: "Rewrote the tokenizer to handle CRLF, and the tests pass.",
+			stderr: "",
+			code: 0,
+			timedOut: false,
+		}),
+	});
+
+	// What ipc-server.ts returns for memory.buildDigest, verbatim — including
+	// the narrative field, which it has carried since P11.
+	const digestEnvelope = { digest, written: false, narrative: narrativeNotAsked };
+	const emptyEnvelope = {
+		digest: emptyDigest,
+		written: false,
+		narrative: narrativeNotAsked,
+	};
 
 	// What panel.ts forwards to the webview after unwrapping. This is the
 	// shape every renderer test must use, and the shape the old fixtures got
@@ -103,6 +136,13 @@ export async function buildFixtures() {
 		digestPayload,
 		emptyDigestPayload,
 		digestError: { error: "No session nope." },
+
+		// The three narrative outcomes a preview can receive. Recorded so a
+		// renderer test asserts against what the core returns rather than a
+		// literal someone typed while looking at the renderer.
+		narrativeNotAsked,
+		narrativeOff,
+		narrativeOk,
 
 		// memory.stageContext: both branches. The refusal is a DIFFERENT shape
 		// from a StagedContext, which is why storing it as one drew a success

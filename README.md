@@ -315,8 +315,26 @@ It also writes the port to `/tmp/inspector-hook.port` for hook scripts to discov
 ```bash
 INSPECTOR_HOOK_HTTP_PORT=52376        # HTTP server port (0 = auto-assign)
 INSPECTOR_HOOK_MAX_LOGS=10000         # Maximum logs in memory
-INSPECTOR_HOOK_RETENTION_DAYS=7       # Log retention period
 INSPECTOR_HOOK_WORKSPACE=/path        # Working directory
+INSPECTOR_HOOK_STORAGE=~/.inspector-hook   # Where the store lives
+
+# Retention. DEFAULT 0 = keep everything, which is what the core ships.
+# It was 7, and seven-day deletion is correct for a log tool and wrong for one
+# whose point is answering "where did I solve this before". Set a positive
+# number to turn deletion back on; the mechanism is intact and tested.
+INSPECTOR_HOOK_RETENTION_DAYS=0
+
+# Write a digest of each finished session into Claude Code's own auto memory.
+# Off by default: those files live outside your workspace and change what every
+# future session in that project is told.
+INSPECTOR_HOOK_SESSION_MEMORY=0
+
+# Allow the optional prose summary over a session digest (`claude -p`).
+# Off by default, and this is only ONE of three gates — the panel's "Summarise"
+# button must also be clicked, and `claude` must be on PATH. Each call spends a
+# model call, and nothing spends one automatically: session end and retention
+# collapse never ask for a narrative.
+INSPECTOR_HOOK_NARRATIVE=0
 ```
 
 ### Core Components
