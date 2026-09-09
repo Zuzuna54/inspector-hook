@@ -456,5 +456,15 @@ export {
 	type UtilizationResult,
 } from "./skills/utilization.js";
 
+// Export native hook payload normalisation (Milestone 2)
+export {
+	eventFor,
+	levelFor,
+	messageFor,
+	normaliseHookPayload,
+	type NativeHookPayload,
+	type NormalisedHookLog,
+} from "./server/hook-payload.js";
+
 // Export version
 export const VERSION = "0.1.0";
