@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 115 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
+status with evidence — **plus 117 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -747,7 +747,7 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 115 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+**These 117 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
 from `docs/phases/*.md`; M3 onward were added by the plan and have no phase document, which is
 why this matrix covered none of the milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
@@ -766,9 +766,9 @@ measurement of 17,192 log rows plus one end-to-end run, and turned up a third: a
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 107 | 93% |
+| **verified** | 107 | 91% |
 | **untested** | 4 | 3% |
-| **not-impl** | 4 | 3% |
+| **not-impl** | 6 | 5% |
 
 Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
@@ -918,6 +918,8 @@ Measured by one live scan of this repository on 2026-09-09: 12.0s, 8 analysers,
 | M8.12 | Observed-but-unconfigured servers are first-class | verified | live · `claude-in-chrome` is **548 of 684** calls and is in no config file; `claude_ai_Google_Drive` (16) likewise. A config-driven list would omit the busiest server on the machine · `skills-view.test.js` |
 | M8.13 | A configured server never called is reported as such | verified | live · 3 of 4 configured servers have 0 calls; only playwright (120) has any |
 | M8.14 | Server reachability | verified | live · a real handshake — initialize / notifications/initialized / tools/list — against each configured server. Found `memory` **cannot start** (its venv interpreter was deleted) in 9ms, and that `fetcher` answers as `browser-mcp` and `mcp-ical` as `Calendar`, neither matching its config key. Advertised tools are kept apart from observed: playwright advertises 24 and 9 were ever called · `mcp-probe.test.js` |
+| M8.24 | Detail pane renders SKILL.md as markdown | **not-impl** | read · §8.3 asks for a *rendered* SKILL.md; it ships as escaped `<pre>`. Readable, but headings, lists and code fences are not. **This was not recorded anywhere until 2026-09-10** — the milestone was reported complete with it missing |
+| M8.25 | Detail pane shows a supporting-file tree | **not-impl** | read · §8.3 asks for a *tree*; it ships as a comma-joined list of directory NAMES plus a file count, so `references/patterns.md` is never named. Same omission, same date |
 | M8.22 | Reachability never runs itself | verified | test · it spawns a process per server, one of them a browser, so it is a button. An unchecked server renders as "not checked" — never as reachable, never as broken · `skills-view.test.js` |
 | M8.23 | A probe never handles secrets to succeed | verified | test · the probe's targets come from `readConfiguredServers`, which is asserted to carry no `env` key and not to leak a configured `sk-secret` value; the probe therefore inherits only the ambient environment, and a server needing a key fails its handshake rather than being worked around · `skills-registry.test.js` |
 | M8.15 | Every count states its source | verified | test · the footer names the transcript count and scan time; 0 transcripts renders "Not measured — unknown, not zero" rather than a confident zero · `skills-view.test.js` |
