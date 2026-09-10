@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 117 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
+status with evidence — **plus 119 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -747,7 +747,7 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 117 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+**These 119 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
 from `docs/phases/*.md`; M3 onward were added by the plan and have no phase document, which is
 why this matrix covered none of the milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
@@ -766,9 +766,9 @@ measurement of 17,192 log rows plus one end-to-end run, and turned up a third: a
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 107 | 91% |
+| **verified** | 113 | 94% |
 | **untested** | 4 | 3% |
-| **not-impl** | 6 | 5% |
+| **not-impl** | 2 | 1% |
 
 Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
@@ -837,7 +837,7 @@ produced it. No status outside the five defined above is used here.
 | M5.6 | Show duration | verified | test · `SubagentStop.durationMs` is null in 384 of 384, so it is computed and carries `durationSource`; a spawn call's duration is explicitly NOT trusted as the agent's runtime |
 | M5.7 | Live agent tree in the UI | verified | test · Agents tab in Monitor, filters incl. "Never reported" · `agents-view.test.js` |
 | M5.8 | Tree survives a core restart | verified | live · backfilled from the log on startup, 170 agents from 10000 rows |
-| M5.9 | Nesting: which agent spawned which | not-impl | read · no captured event states parentage. `children` exists and is always empty; inventing a hierarchy would be a guess |
+| M5.9 | Nesting: which agent spawned which | verified | live · no hook event states parentage, but the platform writes a subagent's transcript INSIDE its parent's directory, so the path is the answer. **83 agents resolved across 17 parent sessions.** `maxDepth` is 1 here because 0 agent-to-agent spawns exist — cross-checked twice: no second-level `subagents/` anywhere, and 0 `Task`/`Agent` calls inside any of the 83 subagent transcripts. A two-level fixture proves that is the corpus and not the code · `agent-parentage.test.js` |
 | M5.10 | Expose prior findings over MCP | verified | live · `--mcp`, real handshake: initialize / tools/list / tools/call, 3 tools, `-32601` on unknown |
 | M5.11 | MCP results never misdescribe themselves | verified | test · a spawn acknowledgement renders as "NEVER REPORTED"; the graph reports current / out-of-date / unknown age · `mcp-server.test.js` |
 | M5.12 | `--mcp` does not share stdio with IPC | verified | live · was **broken**: notifications were interleaved into the MCP stream. Observed before/after on the binary; an end-to-end test spawns `--mcp` and asserts zero unsolicited notifications |
@@ -897,7 +897,9 @@ Measured by one live scan of this repository on 2026-09-09: 12.0s, 8 analysers,
 | M7.17 | Graph analysis: orphans, god nodes, coupling, rot | verified | live · 4095 nodes / 4922 edges · 9 orphans · god node `index.ts` at **149 edges** · 339 communities at **12% crossing** · rot reported with `checked` so an unverifiable count is not shown as zero |
 | M7.18 | A stale graph is labelled, never trusted silently | verified | live · this repo's graph reports `stale: true` against HEAD, and `stale` is three-valued — `null` means unknown, which is not the same as current |
 | M7.19 | Scans are persisted with history, and trend | verified | test · `MAX_HISTORY = 30`; `highDelta` compares only scans whose `measured` tool sets match, so a trend never compares a 5-tool scan with a 2-tool one · `quality-store.test.js` |
-| M7.20 | graphify builds graphs for every project | **not-impl** | live · **1 of 18 projects on disk has a graph** — this one. `ScanOptions.buildGraph` is declared and read nowhere, and no UI triggers a build. The scan reads graphs; it does not create them, so 17 projects get the narrow signal only |
+| M7.20 | graphify builds graphs for every project | verified | live · was **inert**: `ScanOptions.buildGraph` was declared, documented and read by nothing for a whole milestone. Now wired scan → IPC → a separate "Build graph + scan" button, and proved end to end on a project that had never had one (build 852ms → 8 nodes analysed) · `quality-scanner.test.js` |
+| M7.22 | A graph build refuses a root it must not walk | verified | test · one of the 18 real projects IS `/Users/giorgobg`, because `discoverProjects` reads the cwd a session ran in. graphify walks everything below its root, so a build there would crawl the whole home directory. Refused structurally — at or above home, or under two segments deep — and reported as `not-applicable` WITH the reason rather than skipped silently |
+| M7.23 | Building is never implied by a scan | verified | test · a plain scan emits no `graphify-build` result at all. It is the only thing a scan does to the PROJECT rather than to our store, so it is a separate button, not a checkbox |
 | M7.21 | Gating a build on a scan | not-impl | read · deferred with M6 by decision. No project on this machine has run Forge, so the gate has nothing to attach to |
 
 ### Milestone 8 — skills and MCP tools: inventory against utilization
@@ -918,8 +920,8 @@ Measured by one live scan of this repository on 2026-09-09: 12.0s, 8 analysers,
 | M8.12 | Observed-but-unconfigured servers are first-class | verified | live · `claude-in-chrome` is **548 of 684** calls and is in no config file; `claude_ai_Google_Drive` (16) likewise. A config-driven list would omit the busiest server on the machine · `skills-view.test.js` |
 | M8.13 | A configured server never called is reported as such | verified | live · 3 of 4 configured servers have 0 calls; only playwright (120) has any |
 | M8.14 | Server reachability | verified | live · a real handshake — initialize / notifications/initialized / tools/list — against each configured server. Found `memory` **cannot start** (its venv interpreter was deleted) in 9ms, and that `fetcher` answers as `browser-mcp` and `mcp-ical` as `Calendar`, neither matching its config key. Advertised tools are kept apart from observed: playwright advertises 24 and 9 were ever called · `mcp-probe.test.js` |
-| M8.24 | Detail pane renders SKILL.md as markdown | **not-impl** | read · §8.3 asks for a *rendered* SKILL.md; it ships as escaped `<pre>`. Readable, but headings, lists and code fences are not. **This was not recorded anywhere until 2026-09-10** — the milestone was reported complete with it missing |
-| M8.25 | Detail pane shows a supporting-file tree | **not-impl** | read · §8.3 asks for a *tree*; it ships as a comma-joined list of directory NAMES plus a file count, so `references/patterns.md` is never named. Same omission, same date |
+| M8.24 | Detail pane renders SKILL.md as markdown | verified | live+test · hand-rolled, because the CSP admits scripts from an allowlist and the package has no runtime dependency. Its non-negotiable property is that unrecognised syntax survives as text — checked against **all 22 real skills, every word of every file survives**. Escaping happens once, before any markup, and a fixture `<img onerror>` renders as visible text · `skills-view.test.js` |
+| M8.25 | Detail pane shows a supporting-file tree | verified | test · `SkillRecord.files` carries the real paths, capped at 200 with `extraFiles` as the true total, so a truncated list says how many it hides instead of looking complete · `skills-view.test.js` |
 | M8.22 | Reachability never runs itself | verified | test · it spawns a process per server, one of them a browser, so it is a button. An unchecked server renders as "not checked" — never as reachable, never as broken · `skills-view.test.js` |
 | M8.23 | A probe never handles secrets to succeed | verified | test · the probe's targets come from `readConfiguredServers`, which is asserted to carry no `env` key and not to leak a configured `sk-secret` value; the probe therefore inherits only the ambient environment, and a server needing a key fails its handshake rather than being worked around · `skills-registry.test.js` |
 | M8.15 | Every count states its source | verified | test · the footer names the transcript count and scan time; 0 transcripts renders "Not measured — unknown, not zero" rather than a confident zero · `skills-view.test.js` |
