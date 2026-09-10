@@ -57,6 +57,17 @@ const SessionsView = {
 			}),
 		);
 
+		// Delivery markers. Asked for once and redrawn when they land — the
+		// counts come from a file the hooks append to, so the panel has no other
+		// way to know a session received anything.
+		this._unsubscribers.push(
+			State.subscribe("injectionsView", (next, prev) => {
+				if (prev && next.counts === prev.counts) return;
+				this.renderSidebar();
+			}),
+		);
+		API.getInjectionCounts();
+
 		this._unsubscribers.push(
 			State.subscribe("transcriptView", () => {
 				if (State.sessionView.activeTab === "transcript") this.renderTabContent();
@@ -197,7 +208,7 @@ const SessionsView = {
  * Read through window.* rather than the bare const each module declares: the
  * bindings would resolve across classic script tags, but going through the
  * explicit global states the dependency and works under any loader. panel.ts
- * loads all six before this file.
+ * loads all of them before this file.
  */
 Object.assign(
 	SessionsView,
@@ -208,6 +219,7 @@ Object.assign(
 	window.ToolDetailMixin,
 	window.SessionDetailMixin,
 	window.TranscriptRenderMixin,
+	window.InjectedRenderMixin,
 );
 
 // Register view with router

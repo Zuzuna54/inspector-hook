@@ -56,6 +56,17 @@ const OVER_LIMIT = {
 		// file when asked for one hunk.
 		why: "one method per IPC call; more domains to split out",
 	},
+	// webview-html.ts was here at 601 and is GONE from the list, at 456: the
+	// asset manifests moved to src/webview-assets.ts. It is off rather than
+	// raised because this list's rule is that an exemption cannot outlive its
+	// reason. The split was the awkward one -- five tests and
+	// core/src/quality/confidence.ts read that file BY PATH, and confidence.ts
+	// uses the manifest as the ground truth that suppresses 64 of knip's 66
+	// findings here. Moving it silently returned null from
+	// webviewManifestTruth, which reads as "suppress nothing"; a scan then
+	// reports every webview script as dead code. Only a test caught it, so the
+	// reader now tries both locations and a manifest that is expected and
+	// missing is reported on the scan instead of vanishing.
 };
 
 const ROOTS = ["media", "src"];

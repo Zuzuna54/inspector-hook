@@ -118,6 +118,21 @@ export interface QualityReport {
 	languages?: Record<string, number>;
 	graph?: GraphHealth;
 	/**
+	 * The ground truths that were available to suppress findings, and any that
+	 * were expected and missing.
+	 *
+	 * Reported because the absence is otherwise invisible in the worst way: a
+	 * missing manifest takes 64 of this repository's 66 knip findings from
+	 * `suppressed` to `high`, and every one of them is a false positive with
+	 * nothing on screen to say the suppressor is gone. Measured — splitting the
+	 * manifest out of `webview-html.ts` did exactly that.
+	 */
+	groundTruth?: {
+		available: { name: string; files: number }[];
+		/** Human-readable reasons a truth that should exist does not. */
+		problems: string[];
+	};
+	/**
 	 * Headline counts, each derived only from tools whose status is `ok`.
 	 *
 	 * `measured` lists which tools those were, so a small number is never

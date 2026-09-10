@@ -544,3 +544,10 @@
 	color: var(--fg-muted);
 	flex-shrink: 0;
 }
+
+/* The reason a prose summary was not produced (P11).
+   Muted rather than an error: a closed gate is a configuration state, not a
+   failure, and colouring it red would report a problem nobody has. */
+.ctx-narrative-note {
+  margin: 4px 0 0;
+}

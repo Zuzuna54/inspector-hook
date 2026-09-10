@@ -13,6 +13,7 @@ import type { LogEntry } from "@inspector-hook/protocol";
 import type { FileTracker } from "../managers/file-tracker.js";
 import type { LogManager } from "../managers/log-manager.js";
 import type { SessionManager } from "../managers/session-manager.js";
+import { normaliseHookPayload } from "./hook-payload.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { redactPayload } from "./redaction.js";
 
@@ -221,6 +222,18 @@ export class HttpServer {
 					}
 					break;
 
+				// A native Claude Code HTTP hook posts here: the raw event, with
+				// no shell and no jq. The reshaping the shell hook does in
+				// jq happens in hook-payload.ts instead, so both transports
+				// produce identical records.
+				case "/api/hook":
+					if (req.method === "POST") {
+						await this.handleNativeHook(req, res);
+					} else {
+						this.sendMethodNotAllowed(res);
+					}
+					break;
+
 				// The subagent briefing hook posts here. HTTP rather than IPC
 				// because a hook is a short-lived shell script and the core's
 				// stdio belongs to the extension.
@@ -322,39 +335,7 @@ export class HttpServer {
 				return;
 			}
 
-			// Add log to manager
-			const log = await this.logManager.addLog(logData);
-
-			// Track session if session_id present
-			if (log.sessionId) {
-				this.sessionManager.trackActivity(log.sessionId, log);
-			}
-
-			// File tracking workflow for Edit/Write tools:
-			// - On PreToolUse: capture BEFORE content from disk
-			// - On PostToolUse: read AFTER content from disk and detect change
-			if (
-				log.file &&
-				log.tool &&
-				(log.tool === "Edit" || log.tool === "Write")
-			) {
-				if (log.event === "PreToolUse") {
-					// Capture the before content BEFORE the tool modifies the file
-					await this.fileTracker.captureBeforeContent(
-						log.file,
-						log.sessionId || "unknown",
-						log.tool,
-					);
-				} else if (log.event === "PostToolUse") {
-					// After tool execution, detect the change by reading current file content
-					const change = await this.fileTracker.trackFromLog(log);
-					// If a change was detected, link it to the session
-					if (change && log.sessionId) {
-						this.sessionManager.addFileChange(log.sessionId, change.id);
-					}
-				}
-			}
-
+			const log = await this.ingestLog(logData);
 			this.sendJson(res, { success: true, id: log.id });
 		} catch (error) {
 			if (error instanceof SyntaxError) {
@@ -363,6 +344,75 @@ export class HttpServer {
 				throw error;
 			}
 		}
+	}
+
+	/**
+	 * Store one already-validated log and run the file-tracking workflow.
+	 *
+	 * Extracted so the shell transport (`/log`) and the native HTTP hook
+	 * transport (`/api/hook`) cannot drift: a difference between them would
+	 * mean an event captured one way and lost the other, which is the hardest
+	 * kind of gap to notice.
+	 */
+	private async ingestLog(logData: Partial<LogEntry>): Promise<LogEntry> {
+		const log = await this.logManager.addLog(logData);
+
+		if (log.sessionId) {
+			this.sessionManager.trackActivity(log.sessionId, log);
+		}
+
+		// File tracking workflow for Edit/Write tools:
+		// - On PreToolUse: capture BEFORE content from disk
+		// - On PostToolUse: read AFTER content from disk and detect change
+		if (log.file && log.tool && (log.tool === "Edit" || log.tool === "Write")) {
+			if (log.event === "PreToolUse") {
+				await this.fileTracker.captureBeforeContent(
+					log.file,
+					log.sessionId || "unknown",
+					log.tool,
+				);
+			} else if (log.event === "PostToolUse") {
+				const change = await this.fileTracker.trackFromLog(log);
+				if (change && log.sessionId) {
+					this.sessionManager.addFileChange(log.sessionId, change.id);
+				}
+			}
+		}
+
+		return log;
+	}
+
+	/**
+	 * Ingest one native Claude Code hook payload (M2).
+	 *
+	 * ALWAYS answers `{}` with 200, including on malformed input. Claude Code
+	 * reads this response AS HOOK OUTPUT, so anything else risks the observer
+	 * changing the session it observes: an error body can surface to the user,
+	 * and a `decision` field would block a tool call. An observability tool
+	 * that can veto a tool call is a different product.
+	 */
+	private async handleNativeHook(
+		req: IncomingMessage,
+		res: ServerResponse,
+	): Promise<void> {
+		try {
+			const raw = await this.readBody(req);
+			const log = normaliseHookPayload(JSON.parse(raw));
+			if (log) {
+				// Same redaction as the shell path, and before anything is stored
+				// or broadcast: payloads carry prompts, tool I/O and file
+				// contents, so they routinely contain keys and tokens.
+				await this.ingestLog(
+					(this.redactSecrets
+						? redactPayload(log).value
+						: log) as Partial<LogEntry>,
+				);
+			}
+		} catch {
+			// Malformed body, or an ingest that threw. Stay silent rather than
+			// answering a hook with an error it would show the user.
+		}
+		this.sendJson(res, {}, 200);
 	}
 
 	/**

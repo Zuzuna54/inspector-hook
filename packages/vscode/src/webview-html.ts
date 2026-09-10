@@ -11,6 +11,7 @@
  * is deleted; this is the only one.
  */
 
+import { SCRIPTS, STYLES } from "./webview-assets.js";
 import * as vscode from "vscode";
 /**
  * Generate a random nonce
@@ -45,150 +46,11 @@ export function buildWebviewHtml(
 		webview.asWebviewUri(
 			vscode.Uri.joinPath(extensionUri, "media", ...paths),
 		);
-
-	// Asset manifests. Order matters for scripts: a module must load before
-	// anything that references it at parse time.
-	//
-	// Every entry is individually optional -- a path that does not exist yet is
-	// a 404 the webview ignores -- so a tag can land before the file it names.
-	// That is deliberate: it lets the split of a large view proceed one module
-	// at a time without a broken intermediate state, and it is why these are
-	// real <link>/<script> tags rather than CSS @import. An @import with a
-	// wrong path fails silently and takes the whole stylesheet with it; a
-	// missing tag here costs only the one file.
-	//
-	// The cost of that tolerance is that a typo is free and permanent, and two
-	// entries did exactly that -- naming a stylesheet and a script nobody ever
-	// wrote. So test/manifest.test.js now requires every path to exist unless
-	// it is named in that file's PENDING map with a reason. The tolerance is
-	// intact; it just has to be claimed rather than assumed.
-	const styles: string[][] = [
-		["styles", "variables.css"],
-		["styles", "layout.css"],
-		["styles", "components.css"],
-		["styles", "components", "controls.css"],
-		["styles", "components", "data-display.css"],
-		["styles", "components", "feedback.css"],
-		["styles", "components", "nav.css"],
-		["styles", "prism-theme.css"],
-		["styles", "views", "dashboard.css"],
-		["styles", "views", "logs.css"],
-		["styles", "views", "sessions.css"],
-		["styles", "views", "sessions", "list.css"],
-		["styles", "views", "sessions", "feed.css"],
-		["styles", "views", "sessions", "tool-detail.css"],
-		["styles", "views", "sessions", "detail.css"],
-		["styles", "views", "sessions", "transcript.css"],
-		["styles", "views", "file-changes.css"],
-		["styles", "views", "file-changes", "layout.css"],
-		["styles", "views", "file-changes", "sidebar.css"],
-		["styles", "views", "file-changes", "diff.css"],
-		["styles", "views", "file-changes", "edit.css"],
-		["styles", "views", "history.css"],
-		["styles", "views", "history", "layout.css"],
-		["styles", "views", "history", "accordion.css"],
-		["styles", "views", "history", "viewer.css"],
-		["styles", "views", "history", "diff.css"],
-		["styles", "views", "archived.css"],
-		["styles", "views", "archived", "layout.css"],
-		["styles", "views", "archived", "accordion.css"],
-		["styles", "views", "archived", "preview.css"],
-		["styles", "views", "context.css"],
-		["styles", "views", "quality.css"],
-		["styles", "views", "agents.css"],
-		["styles", "views", "research.css"],
-		["styles", "views", "tray.css"],
-		["styles", "views", "find.css"],
-	];
-
-	const scripts: string[][] = [
-		["scripts", "state.js"],
-		["scripts", "router.js"],
-		// mergeActivity, before api.js which calls it.
-		["scripts", "shared", "activity-merge.js"],
-		// The index load budget, before every surface that reports against it.
-		["scripts", "shared", "budget.js"],
-		["scripts", "shared", "project-filter.js"],
-		["scripts", "shared", "project-picker.js"],
-		// Sender mixins load before api.js, which composes them onto API at
-		// its own load time.
-		["scripts", "api", "memory-senders.js"],
-		["scripts", "api", "history-senders.js"],
-		["scripts", "api", "tray-senders.js"],
-		["scripts", "api", "find-senders.js"],
-		["scripts", "api", "projects-senders.js"],
-		["scripts", "api", "transcript-senders.js"],
-		["scripts", "api.js"],
-		// Inbound handlers register onto API, so they load after it. Each
-		// claims its message types via API.on, which throws on a duplicate.
-		["scripts", "api", "inbound-core.js"],
-		["scripts", "api", "inbound-sessions.js"],
-		["scripts", "api", "inbound-changes.js"],
-		["scripts", "api", "inbound-history.js"],
-		["scripts", "api", "inbound-context.js"],
-		["scripts", "api", "research-senders.js"],
-		["scripts", "api", "inbound-research.js"],
-		["scripts", "api", "quality-senders.js"],
-		["scripts", "api", "inbound-quality.js"],
-		["scripts", "api", "agents-senders.js"],
-		["scripts", "api", "inbound-agents.js"],
-		["scripts", "api", "graphify-senders.js"],
-		["scripts", "api", "inbound-graphify.js"],
-		["scripts", "api", "inbound-tray.js"],
-		["scripts", "api", "inbound-find.js"],
-		["scripts", "api", "inbound-projects.js"],
-		["scripts", "api", "inbound-transcript.js"],
-		// Shared helpers, before every view that uses them.
-		["scripts", "session-utils.js"],
-		["scripts", "shared", "diff-render.js"],
-		["scripts", "views", "dashboard.js"],
-		["scripts", "views", "logs.js"],
-		// Sessions modules load before sessions.js.
-		["scripts", "views", "sessions", "session-list.js"],
-		["scripts", "views", "sessions", "activity-items.js"],
-		["scripts", "views", "sessions", "activity-feed.js"],
-		["scripts", "views", "sessions", "tool-detail.js"],
-		["scripts", "views", "sessions", "session-detail.js"],
-		["scripts", "views", "sessions", "transcript-render.js"],
-		["scripts", "views", "sessions.js"],
-		// File-changes modules load before file-changes.js.
-		["scripts", "views", "file-changes", "fc-session-list.js"],
-		["scripts", "views", "file-changes", "fc-diff-render.js"],
-		["scripts", "views", "file-changes", "fc-diff-view.js"],
-		["scripts", "views", "file-changes", "fc-editor.js"],
-		["scripts", "views", "file-changes", "fc-actions.js"],
-		["scripts", "views", "file-changes.js"],
-		// History modules load before history.js.
-		["scripts", "views", "history", "file-list.js"],
-		["scripts", "views", "history", "version-list.js"],
-		["scripts", "views", "history", "diff-render.js"],
-		["scripts", "views", "history", "diff-viewer.js"],
-		["scripts", "views", "history", "virtual-scroll.js"],
-		["scripts", "views", "history", "restore.js"],
-		["scripts", "views", "history.js"],
-		["scripts", "views", "archived", "archived-render.js"],
-		["scripts", "views", "archived.js"],
-		// Context modules load before context.js.
-		["scripts", "views", "context", "memory-render.js"],
-		["scripts", "views", "context", "injection-render.js"],
-		["scripts", "views", "context", "handlers.js"],
-		["scripts", "views", "context", "curation.js"],
-		["scripts", "views", "context.js"],
-		["scripts", "views", "agents.js"],
-		["scripts", "views", "quality.js"],
-		["scripts", "views", "research", "graph-render.js"],
-		["scripts", "views", "research.js"],
-		// The tray: renderers before the controller that composes them.
-		["scripts", "views", "find", "find-render.js"],
-		["scripts", "views", "find.js"],
-		["scripts", "tray", "tray-render.js"],
-		["scripts", "tray", "tray-preview.js"],
-		["scripts", "tray", "tray-bundles.js"],
-		["scripts", "tray", "tray-host.js"],
-		// main.js wires everything up and must be last.
-		["scripts", "header.js"],
-		["scripts", "main.js"],
-	];
+	// The asset manifests live in ./webview-assets.ts. They are pure data and
+	// the half that actually changes, so they were split out when this file
+	// crossed the size limit; the ordering rules are documented there.
+	const styles = STYLES;
+	const scripts = SCRIPTS;
 
 	// Use a nonce to only allow specific scripts to run
 	const nonce = getNonce();
@@ -270,6 +132,9 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
         </button>
         <button class="tab" data-view="find" role="tab" aria-selected="false" tabindex="-1">
           Find
+        </button>
+        <button class="tab" data-view="skills" role="tab" aria-selected="false" tabindex="-1">
+          Skills
         </button>
         <button class="tab" data-view="tray" role="tab" aria-selected="false" tabindex="-1">
           Tray
@@ -385,6 +250,16 @@ ${styles.map((path) => `  <link href="${getUri(...path)}" rel="stylesheet">`).jo
       <div id="view-quality" class="view hidden" role="tabpanel" aria-labelledby="nav-group-monitor">
         <div id="quality-view" class="ql-root">
           <div class="ql-empty">Loading projects…</div>
+        </div>
+      </div>
+
+      <!-- Skills View: installed skills against what actually fires (M8).
+           The static shell matters here: this view's first paint waits on a
+           scan of every transcript, and a blank pane during that is the bug
+           the Agents view shipped with. -->
+      <div id="view-skills" class="view hidden" role="tabpanel" aria-labelledby="nav-group-knowledge">
+        <div id="skills-view" class="sk-root">
+          <div class="sk-dim sk-pad">Loading skills…</div>
         </div>
       </div>
 

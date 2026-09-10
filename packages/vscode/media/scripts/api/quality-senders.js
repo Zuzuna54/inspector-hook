@@ -12,9 +12,16 @@ const QualityApiMixin = {
 		this.send("quality-projects", {});
 	},
 
-	/** Scan now. Slow — knip and madge are external processes. */
-	qualityScan(root) {
-		this.send("quality-scan", { root });
+	/**
+	 * Scan now. Slow — knip and madge are external processes.
+	 *
+	 * `buildGraph` additionally runs `graphify update`, which walks the whole
+	 * repository and WRITES a graphify-out/ directory into it. That is the only
+	 * thing a scan does to a project rather than to our own store, so it is
+	 * never implied — a caller has to ask.
+	 */
+	qualityScan(root, buildGraph = false) {
+		this.send("quality-scan", { root, buildGraph });
 	},
 
 	/** The stored report, without rescanning. */

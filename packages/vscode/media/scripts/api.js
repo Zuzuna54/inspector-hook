@@ -331,6 +331,7 @@ Object.assign(
 	window.TranscriptApiMixin,
 	window.FindApiMixin,
 	window.ProjectsApiMixin,
+	window.InjectionsApiMixin,
 );
 
 window.API = API;

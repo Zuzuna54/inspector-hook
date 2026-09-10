@@ -47,6 +47,14 @@ import {
 	readBundle,
 	saveBundle,
 } from "../context/bundle-store.js";
+import {
+	injectionCounts,
+	readInjections,
+} from "../context/injections.js";
+import {
+	buildNarrative,
+	withNarrative,
+} from "../memory/narrative.js";
 import { readTranscript, transcriptStats } from "../transcript/transcript-reader.js";
 import {
 	armContext,
@@ -821,6 +829,9 @@ export class IpcServer {
 			}
 			return this.core.scanProjectQuality(root, {
 				timeoutMs: asNum(rec.timeoutMs),
+				// M7.20: the scan can now CREATE a graph, not just read one.
+				// Off unless asked, because it walks the whole repository.
+				buildGraph: asBool(rec.buildGraph) === true,
 			});
 		});
 
@@ -835,6 +846,74 @@ export class IpcServer {
 			const root = asStr(asRec(params)?.root);
 			if (!root) return { projectRoot: "", points: [], highDelta: 0 };
 			return this.core.getQualityStore().trend(root);
+		});
+
+		// ---------------------------------------------------------------------
+		// Skills and MCP tools (M8)
+		//
+		// Inventory joined to utilization. Both directions are reported: a
+		// skill installed and never chosen, and a skill that fired without
+		// being installed (Claude Code's own). Counting only the first would
+		// have kept the plan's wrong "1 of 22" headline.
+		// ---------------------------------------------------------------------
+
+		/** Everything installed, everything that fired, and the MCP servers. */
+		this.methods.set("skills.getOverview", async (params) => {
+			const p = asRec(params) ?? {};
+			const overview = await this.core.getSkillsOverview({
+				refresh: asBool(p.refresh) === true,
+			});
+			return {
+				...overview,
+				archived: await this.core.listArchivedSkills(),
+			};
+		});
+
+		/**
+		 * One skill's SKILL.md, for the detail pane.
+		 *
+		 * Read here rather than in the extension host so the byte cap and the
+		 * containment check have exactly one implementation.
+		 */
+		this.methods.set("skills.readSkillFile", async (params) => {
+			const id = asStr(asRec(params)?.id);
+			if (!id) return { error: "a skill id is required" };
+			return this.core.readSkillFile(id);
+		});
+
+		/**
+		 * Handshake with the configured MCP servers.
+		 *
+		 * Separate from `skills.getOverview` because it SPAWNS PROCESSES. The
+		 * overview is a pure read and must stay one; reachability is a
+		 * diagnostic a user asks for. Sequential and timeout-bounded — four
+		 * MCP servers starting at once includes a browser.
+		 */
+		this.methods.set("skills.probeServers", async (params) => {
+			const p = asRec(params) ?? {};
+			const names = Array.isArray(p.servers)
+				? p.servers.filter((n): n is string => typeof n === "string")
+				: undefined;
+			return { probes: await this.core.probeMcpServers(names) };
+		});
+
+		/** The last probe of each server, without probing again. */
+		this.methods.set("skills.getProbes", async () => ({
+			probes: this.core.getMcpProbes(),
+		}));
+
+		/**
+		 * Archive or restore one skill.
+		 *
+		 * `settings.json` has no skills key, so there is nothing to toggle --
+		 * moving the directory is the only lever that works, and the method is
+		 * named for what it does rather than for what a toggle would imply.
+		 */
+		this.methods.set("skills.setArchived", async (params) => {
+			const p = asRec(params) ?? {};
+			const id = asStr(p.id);
+			if (!id) return { ok: false, error: "a skill id is required" };
+			return this.core.setSkillArchived(id, asBool(p.archived) !== false);
 		});
 
 		// ---------------------------------------------------------------------
@@ -1603,6 +1682,26 @@ export class IpcServer {
 			projects: await this.core.listProjects(),
 		}));
 
+		/**
+		 * What was injected INTO a session (P10).
+		 *
+		 * Read from the append-only log the HOOKS write, never derived from
+		 * `StagedContext.sourceSessionId` — that field records where text came
+		 * from, which is usually a different session, so reading it as a
+		 * delivery record answers the question backwards and confidently.
+		 */
+		this.methods.set("context.getInjections", async (params) => {
+			const rec = asRec(params) ?? {};
+			return readInjections(this.storagePath, {
+				sessionId: asStr(rec.sessionId),
+				limit: asNum(rec.limit),
+			});
+		});
+
+		this.methods.set("context.injectionCounts", async () => ({
+			counts: Object.fromEntries(await injectionCounts(this.storagePath)),
+		}));
+
 		this.methods.set("context.findStats", async () =>
 			this.core.getContextFind().stats(),
 		);
@@ -1621,6 +1720,45 @@ export class IpcServer {
 		 * file, which is the class of quiet wrongness this project keeps
 		 * finding rather than a rounding error.
 		 */
+		/**
+		 * Add a session's digest to the tray (P10).
+		 *
+		 * The Sessions view had no way to do this. The Context view could,
+		 * through its injection pane, and the transcript composer could add
+		 * individual turns — but "put what this session did into the tray" from
+		 * the session itself required leaving it, finding the same session in
+		 * another view, and previewing it there.
+		 *
+		 * Refuses a digest not worth keeping, with the reason, rather than
+		 * adding an item whose body says nothing happened.
+		 */
+		this.methods.set("context.addSessionDigest", async (params) => {
+			const sessionId = asStr(asRec(params)?.sessionId) ?? "";
+			const session = await this.sessionManager.getSession(sessionId);
+			if (!session) {
+				return { ok: false, reason: `No session ${sessionId}.` };
+			}
+			const digest = await this.digestFor(session);
+			if (!digest.worthKeeping) {
+				return { ok: false, reason: digest.skipReason };
+			}
+			const tray = await readTray(this.storagePath);
+			const result = addItem(tray, {
+				kind: "session_digest",
+				title: digest.title || digest.name,
+				text: digest.body,
+				source: { sessionId },
+			});
+			if (!result.item) return { ok: false, reason: result.reason };
+			const saved = await writeTray(this.storagePath, result.tray);
+			return {
+				ok: true,
+				tray: saved,
+				item: result.item,
+				preview: renderTray(saved),
+			};
+		});
+
 		this.methods.set("context.addFromFind", async (params) => {
 			const id = asStr(asRec(params)?.id) ?? "";
 			const resolved = await this.core.getContextFind().resolveHit(id);
@@ -1690,14 +1828,32 @@ export class IpcServer {
 
 			const digest = await this.digestFor(session);
 
-			if (!asBool(rec.write)) return { digest, written: false };
+			// The optional prose narrative (P11).
+			//
+			// Requested per call and nowhere else. `core.ts` builds digests on
+			// `session:ended` and during retention collapse, and NEITHER passes
+			// this — a model call per session end is a cost that accrues with
+			// nobody watching. Two further gates live in buildNarrative itself.
+			//
+			// A refused or failed narrative returns its reason and the digest is
+			// unchanged: the facts were always the deliverable.
+			const narrative = await buildNarrative(digest.body, {
+				narrative: asBool(rec.narrative),
+			});
+			const narrated = narrative.text
+				? { ...digest, body: withNarrative(digest.body, narrative) }
+				: digest;
+
+			if (!asBool(rec.write)) {
+				return { digest: narrated, written: false, narrative };
+			}
 			if (!digest.worthKeeping) {
-				return { digest, written: false, reason: digest.skipReason };
+				return { digest: narrated, written: false, reason: digest.skipReason };
 			}
 			const dir = resolveMemoryDir(
 				(session.metadata as Record<string, unknown> | undefined)?.transcriptPath,
 			);
-			const result = await writeMemoryFile(dir, digest);
+			const result = await writeMemoryFile(dir, narrated);
 			return { digest, ...result };
 		});
 	}

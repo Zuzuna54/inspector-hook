@@ -193,9 +193,15 @@ const QualityView = {
 					<div class="ql-report-title">${Utils.escapeHtml(project?.name || v.selected)}</div>
 					<div class="ql-dim">${Utils.escapeHtml(v.selected)}</div>
 				</div>
-				<button id="ql-scan" class="btn btn-primary"${v.scanning ? " disabled" : ""}>
-					${v.scanning ? "Scanning…" : "Scan now"}
-				</button>
+				<div class="ql-actions">
+					<button id="ql-scan" class="btn btn-primary"${v.scanning ? " disabled" : ""}>
+						${v.scanning ? "Scanning…" : "Scan now"}
+					</button>
+					<button id="ql-build-graph" class="btn"${v.scanning ? " disabled" : ""}
+						title="Run graphify update first, then scan. This WRITES a graphify-out/ directory into the project — the only thing a scan changes outside our own store. 17 of the 18 projects on disk have no graph, and without one the language-agnostic signal is missing entirely.">
+						${v.scanning ? "Working…" : project?.hasGraph ? "Rebuild graph + scan" : "Build graph + scan"}
+					</button>
+				</div>
 			</div>`;
 
 		if (v.scanning) {
@@ -361,9 +367,7 @@ const QualityView = {
 	},
 
 	_bindScan() {
-		const button = document.getElementById("ql-scan");
-		if (!button) return;
-		button.addEventListener("click", () => {
+		const start = (buildGraph) => () => {
 			const root = State.qualityView.selected;
 			if (!root) return;
 			State.update("qualityView", {
@@ -371,8 +375,17 @@ const QualityView = {
 				scanning: true,
 				error: null,
 			});
-			API.qualityScan(root);
-		});
+			API.qualityScan(root, buildGraph);
+		};
+
+		const button = document.getElementById("ql-scan");
+		if (button) button.addEventListener("click", start(false));
+
+		// Separate button rather than a checkbox: building writes into the
+		// project, and an option that has to be noticed is one that gets
+		// clicked by accident.
+		const build = document.getElementById("ql-build-graph");
+		if (build) build.addEventListener("click", start(true));
 	},
 };
 

@@ -32,6 +32,29 @@
 #   ./install.sh --dry-run    show the resulting settings without writing
 #   ./install.sh --uninstall  remove only Inspector Hook's entries
 #   ./install.sh --settings <path>   target a different settings file
+#   ./install.sh --http [port]       register HTTP hooks instead of the shell
+#                                    script (default port 52376)
+#
+# ## About --http
+#
+# Claude Code supports `{"type": "http", "url": "…"}` hooks, which POST the raw
+# event to a URL. The core's own server answers at /api/hook, so --http deletes
+# the shell + jq + curl + port-file layer entirely. Verified end to end on
+# 2026-09-09: four HTTP-registered events (PreToolUse, PostToolUse,
+# UserPromptSubmit, Stop) all captured, correctly levelled, with tool_use_id
+# matching across the Pre/Post pair and a real 1733ms duration.
+#
+# It is NOT the default, for one measured reason. An HTTP hook URL is static
+# and the core's port is not: the core tries 52376 and scans upward when that
+# is taken, and at the time of writing the live core is on 52377 for exactly
+# that reason. The shell hook reads the port file on every event and always
+# finds it; a registered URL cannot. So --http is the faster, dependency-free
+# transport for a pinned port, and the shell hook is the one that always works.
+#
+# The other worry turned out not to be one. An HTTP hook's documented timeout
+# is 600s, so a dead core might have stalled every tool call. Measured against
+# a closed port: one turn took 17.1s, against 19.6s with no hook at all and
+# 15.9s with a live listener. Connection refused is not the response timeout.
 
 set -euo pipefail
 
@@ -56,6 +79,11 @@ CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-context.sh"
 # the same reason: the observer is silent on every event by contract, and this
 # one must print.
 PROMPT_CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-prompt-context.sh"
+
+# --http mode. The URL is what gets registered in place of the shell command,
+# and is also what --uninstall matches on, so the two directions stay symmetric.
+USE_HTTP=0
+HTTP_PORT="${INSPECTOR_HOOK_HTTP_PORT:-52376}"
 # The subagent briefer: rewrites the prompt of an Agent/Task call to prepend
 # prior work. Registered on PreToolUse, and INERT unless
 # INSPECTOR_HOOK_BRIEF_SUBAGENTS=1 -- registering it does not turn it on.
@@ -69,10 +97,21 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --uninstall|-u) UNINSTALL=1; shift ;;
     --settings) SETTINGS="$2"; shift 2 ;;
+    --http)
+      USE_HTTP=1
+      # An optional port follows. Anything not starting with "-" is taken as
+      # one, so `--http 52399` works and `--http --dry-run` still parses.
+      if [[ $# -gt 1 && "$2" != -* ]]; then HTTP_PORT="$2"; shift 2; else shift; fi
+      [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || fail "--http needs a numeric port, got: $HTTP_PORT"
+      ;;
     -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) fail "unknown option: $1" ;;
   esac
 done
+
+# The URL an HTTP hook posts to. One function so install and uninstall cannot
+# disagree about it.
+hook_url() { printf 'http://127.0.0.1:%s/api/hook' "$HTTP_PORT"; }
 
 command -v jq >/dev/null 2>&1 || fail "jq is required but not installed"
 
@@ -156,7 +195,7 @@ strip_legacy() {
             # keep anything that is not one of our historical scripts,
             # and keep our current one
             (.command == $cmd)
-            or ((.command | test("(hook-inspector|inspector-hook)\\.sh$")) | not)
+            or (((.command // "") | test("(hook-inspector|inspector-hook)\\.sh$")) | not)
           ))))
           | map(select((.hooks // []) | length > 0))
         )
@@ -175,6 +214,32 @@ strip_legacy() {
 register_one() {
   local json="$1" event="$2" cmd="$3"
   local m; m="$(matcher_for "$event")"
+
+  # In --http mode the observer becomes one URL for every event. The two
+  # context scripts stay command hooks regardless: they exist to WRITE to
+  # stdout, which Claude Code adds to the session context, and an HTTP hook's
+  # response body cannot do that.
+  local entry
+  if [[ "$USE_HTTP" == "1" && "$cmd" == "$HOOK_SCRIPT" ]]; then
+    entry="$(jq -n --arg url "$(hook_url)" '{ hooks: [ { type: "http", url: $url } ] }')"
+    printf '%s' "$json" | jq \
+      --arg ev "$event" \
+      --arg url "$(hook_url)" \
+      --argjson entry "$entry" \
+      --argjson matcher "$m" '
+        if ((.hooks[$ev] // []) | map(.hooks // [] | map(.url // "")) | flatten | any(. == $url))
+        then .
+        else
+          .hooks //= {}
+          | .hooks[$ev] //= []
+          | .hooks[$ev] += [
+              ( $entry + (if $matcher == null then {} else { matcher: $matcher } end) )
+            ]
+        end
+      '
+    return
+  fi
+
   printf '%s' "$json" | jq \
     --arg ev "$event" \
     --arg cmd "$cmd" \
@@ -215,6 +280,10 @@ build_install() {
 build_uninstall() {
   # Every script the installer can add must appear here, or uninstall leaves it
   # behind -- the exact install/uninstall drift this file was rewritten to stop.
+  # HTTP entries are matched on URL PATH, not the whole URL: the core's port
+  # can change between installing and uninstalling, and a port mismatch would
+  # otherwise leave a dead hook behind on every tool call. Any /api/hook on
+  # loopback is ours -- nothing else serves that path.
   jq --argjson cmds "[\"$HOOK_SCRIPT\", \"$CONTEXT_SCRIPT\", \"$PROMPT_CONTEXT_SCRIPT\", \"$SUBAGENT_BRIEF_SCRIPT\"]" '
     if .hooks == null then .
     else
@@ -223,7 +292,10 @@ build_uninstall() {
           # Exact equality, via index. `inside`/`contains` do SUBSTRING matching on
           # strings, so ["/h/a.sh"] | inside(["/h/a.sh.disabled"]) is true -- which
           # would delete another tool’s hook for merely containing our path.
-          map(.hooks |= (map(select(.command as $c | ($cmds | index($c)) == null))))
+          map(.hooks |= (map(select(
+              (.command as $c | ($cmds | index($c)) == null)
+              and ((.url // "") | test("^https?://(127\\.0\\.0\\.1|localhost):[0-9]+/api/hook$") | not)
+            ))))
           | map(select((.hooks // []) | length > 0))
         )
       )
@@ -243,6 +315,11 @@ report() {
     [.hooks // {} | to_entries[] | .value[] | .hooks // [] | .[] | select(.command != $cmd)] | length')"
   echo "  Inspector Hook registered on : $n events"
   echo "  other tools' hooks preserved : $others"
+  if [[ "$USE_HTTP" == "1" ]]; then
+    echo "  transport                    : HTTP -> $(hook_url)"
+    warn "an HTTP hook URL is static. If the core's port differs from $HTTP_PORT"
+    warn "(it scans upward when the port is taken) no event will be captured."
+  fi
 }
 
 [[ -f "$HOOK_SCRIPT" ]] || fail "hook script not found at $HOOK_SCRIPT"
@@ -264,7 +341,7 @@ fi
 
 LEGACY=$(jq -r --arg cmd "$HOOK_SCRIPT" '
   [.hooks // {} | to_entries[] | .value[] | .hooks // [] | .[]
-   | select((.command != $cmd) and (.command | test("(hook-inspector|inspector-hook)\\.sh$")))
+   | select((.command != $cmd) and ((.command // "") | test("(hook-inspector|inspector-hook)\\.sh$")))
    | .command] | unique | .[]' "$SETTINGS" 2>/dev/null || true)
 if [[ -n "$LEGACY" ]]; then
   warn "removing registrations of earlier Inspector Hook scripts:"

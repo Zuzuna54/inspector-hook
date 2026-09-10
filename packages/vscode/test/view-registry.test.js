@@ -32,7 +32,12 @@ import { fileURLToPath } from "node:url";
 import { installGlobals, readMedia } from "./harness.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const html = readFileSync(join(packageRoot, "src", "webview-html.ts"), "utf8");
+// The nav lives in webview-html.ts; the script manifest moved to
+// webview-assets.ts. Both are read, or `scriptManifest()` finds nothing and
+// every assertion below quietly passes against an empty list.
+const html = ["webview-html.ts", "webview-assets.ts"]
+	.map((f) => readFileSync(join(packageRoot, "src", f), "utf8"))
+	.join("\n");
 
 /** Views whose tab is deliberately absent, with the reason. Empty is healthy. */
 const TAB_EXEMPT = {};
@@ -44,7 +49,7 @@ function navTabs() {
 
 /** Every script the page loads, in the order it loads them. */
 function scriptManifest() {
-	const block = /const scripts: string\[\]\[\] = \[([\s\S]*?)\n\t\];/.exec(html);
+	const block = /(?:const scripts|export const SCRIPTS): string\[\]\[\] = \[([\s\S]*?)\n\];/.exec(html);
 	assert.ok(block, "could not find the scripts manifest");
 	return [...block[1].matchAll(/\[([^\]]*)\]/g)]
 		.map((m) => [...m[1].matchAll(/"([^"]+)"/g)].map((p) => p[1]).join("/"))

@@ -32,8 +32,9 @@ export async function getQualityProjects(
 export async function scanQuality(
 	rpc: QualityRpc,
 	root: string,
+	buildGraph = false,
 ): Promise<QualityReport> {
-	return rpc.sendRequest<QualityReport>("quality.scan", { root });
+	return rpc.sendRequest<QualityReport>("quality.scan", { root, buildGraph });
 }
 
 /** The newest stored report, without rescanning. */

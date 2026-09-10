@@ -24,6 +24,10 @@ export const PAYLOADS = {
 			"type": "project",
 			"worthKeeping": true
 		},
+		"narrative": {
+			"gate": "call",
+			"reason": "Not requested for this session."
+		},
 		"written": false
 	},
 	"digestError": {
@@ -33,6 +37,10 @@ export const PAYLOADS = {
 		"body": "# inspector-hook (milestone-0-harden) — 2026-09-04\n\nRecorded automatically by Inspector Hook from session `1f7c9a2e-0000-4000-8000-abcdefabcdef`.\n\n## Facts\n\n- Project: inspector-hook\n- Working directory: `/repo`\n- Branch: milestone-0-harden\n- Started: 2026-09-04T10:00:00.000Z\n- Duration: 42 min\n- Status at digest time: completed\n- Change records: 2\n- Log entries: 3\n- Errors logged: 1\n\n## Files changed (2)\n\n- `/repo/a.ts`\n- `/repo/b.ts`\n\n## Tools used\n\n- Edit ×1\n- Bash ×1\n\n1 call did not succeed.\n\n## What was asked\n\n- make the parser handle CRLF\n\n## What was concluded\n\n- Handled CRLF in the tokenizer.\n",
 		"description": "inspector-hook on milestone-0-harden: 2 files changed, 2 tool calls, 1 failed",
 		"name": "session-2026-09-04-1f7c9a2e",
+		"narrative": {
+			"gate": "call",
+			"reason": "Not requested for this session."
+		},
 		"sessionId": "1f7c9a2e-0000-4000-8000-abcdefabcdef",
 		"title": "inspector-hook (milestone-0-harden) — 2026-09-04",
 		"type": "project",
@@ -43,12 +51,27 @@ export const PAYLOADS = {
 		"body": "",
 		"description": "Session on scratch with no recorded activity",
 		"name": "session-2026-09-04-00000000",
+		"narrative": {
+			"gate": "call",
+			"reason": "Not requested for this session."
+		},
 		"sessionId": "00000000-0000-4000-8000-000000000000",
 		"skipReason": "no file changes and no tool executions",
 		"title": "scratch — 2026-09-04",
 		"type": "project",
 		"worthKeeping": false,
 		"written": false
+	},
+	"narrativeNotAsked": {
+		"gate": "call",
+		"reason": "Not requested for this session."
+	},
+	"narrativeOff": {
+		"gate": "env",
+		"reason": "Narratives are off. Set INSPECTOR_HOOK_NARRATIVE=1 to enable them."
+	},
+	"narrativeOk": {
+		"text": "Rewrote the tokenizer to handle CRLF, and the tests pass."
 	},
 	"results": {
 		"deleteRefused": {

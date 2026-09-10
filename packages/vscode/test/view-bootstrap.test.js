@@ -137,6 +137,53 @@ describe("view bootstrap: the router calls init() and nothing else", () => {
 		);
 	});
 
+	it("the Skills view builds its shell from init() alone", () => {
+		const dom = loadView({
+			scripts: [
+				"scripts/views/skills/tools-render.js",
+				"scripts/views/skills.js",
+			],
+			sliceName: "skillsView",
+			slice: {
+				skills: [],
+				servers: [],
+				archived: [],
+				summary: null,
+				source: null,
+				selected: null,
+				file: null,
+				filter: "all",
+				tab: "skills",
+				loading: false,
+				fileLoading: false,
+				busyId: null,
+				error: null,
+				actionError: null,
+			},
+			api: {
+				skillsOverview() {},
+				skillsReadFile() {},
+				skillsSetArchived() {},
+			},
+			containerId: "skills-view",
+			fallback: `<div class="sk-dim sk-pad">Loading skills…</div>`,
+		});
+
+		globalThis.window.SkillsView._unsubscribers = [];
+		globalThis.window.SkillsView.init();
+
+		assert.ok(
+			!dom.container.innerHTML.includes("Loading skills…"),
+			"the static fallback must be replaced",
+		);
+		assert.match(dom.container.innerHTML, /id="sk-list"/, "the list host exists");
+		assert.match(
+			dom.container.innerHTML,
+			/id="sk-source"/,
+			"the provenance footer exists -- a count with no source is the bug",
+		);
+	});
+
 	it("REGRESSION: the Search view builds its shell from init() alone", () => {
 		const dom = loadView({
 			scripts: [

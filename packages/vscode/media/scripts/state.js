@@ -93,6 +93,29 @@ const State = {
 		error: null,
 	},
 
+	// Skills and MCP tools (M8). `filter` is a UI choice; the counts come from
+	// the transcript corpus, and `source` says how many files produced them --
+	// "0 scanned" and "never used" are different claims.
+	skillsView: {
+		skills: [],
+		servers: [],
+		archived: [],
+		summary: null,
+		source: null,
+		selected: null,
+		file: null,
+		filter: "all",   // all | unused | used | invalid
+		tab: "skills",   // skills | tools
+		loading: false,
+		fileLoading: false,
+		busyId: null,
+		probes: {},
+		probing: false,
+		probeError: null,
+		error: null,
+		actionError: null,
+	},
+
 	agentsView: {
 		agents: [],
 		stats: null,
@@ -162,6 +185,17 @@ const State = {
 	// are per top-level key, so folding it in would re-run the memory view's
 	// five render branches on every keystroke in a tray editor.
 	// ==========================================================================
+	injectionsView: {
+		/** The session these records belong to, echoed back by the core. */
+		sessionId: null,
+		/** Deliveries, newest first. */
+		records: [],
+		/** One summary per session id, for marking rows. */
+		counts: {},
+		/** Lines the log could not parse. Shell scripts write it. */
+		unparseable: 0,
+		loading: false,
+	},
 	projectFilter: {
 		/** Every project the core can see, reconciled across three identity spaces. */
 		projects: [],
@@ -375,6 +409,7 @@ const State = {
 			searchQuery: this.searchQuery,
 			filters: { ...this.filters },
 			stats: { ...this.stats },
+			injectionsView: this.injectionsView,
 			projectFilter: this.projectFilter,
 			contextFind: this.contextFind,
 			contextTray: this.contextTray,
@@ -436,6 +471,25 @@ const State = {
 			scanning: false,
 			error: null,
 		};
+		this.skillsView = {
+			skills: [],
+			servers: [],
+			archived: [],
+			summary: null,
+			source: null,
+			selected: null,
+			file: null,
+			filter: "all",
+			tab: "skills",
+			loading: false,
+			fileLoading: false,
+			busyId: null,
+			probes: {},
+			probing: false,
+			probeError: null,
+			error: null,
+			actionError: null,
+		};
 		this.agentsView = {
 			agents: [],
 			stats: null,
@@ -483,6 +537,13 @@ const State = {
 			hasMore: false,
 			reason: null,
 			selected: new Set(),
+		};
+		this.injectionsView = {
+			sessionId: null,
+			records: [],
+			counts: {},
+			unparseable: 0,
+			loading: false,
 		};
 		this.projectFilter = {
 			projects: [],

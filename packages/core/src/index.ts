@@ -175,6 +175,37 @@ export type {
 	ProjectMatch,
 	ProjectObservation,
 } from "./projects/project-identity.js";
+export {
+	buildNarrative,
+	childEnv,
+	claudeOnPath,
+	findClaude,
+	DEFAULT_TIMEOUT_MS,
+	defaultRunner,
+	MAX_NARRATIVE_CHARS,
+	MAX_PROMPT_CHARS,
+	narrativePrompt,
+	withNarrative,
+} from "./memory/narrative.js";
+export type {
+	NarrativeOptions,
+	NarrativeResult,
+	NarrativeRunner,
+	RunResult,
+} from "./memory/narrative.js";
+export {
+	INJECTIONS_FILE,
+	injectionCounts,
+	injectionsPath,
+	MAX_INJECTIONS_BYTES,
+	readInjections,
+	recordInjection,
+} from "./context/injections.js";
+export type {
+	InjectionReadResult,
+	InjectionRecord,
+	InjectionTier,
+} from "./context/injections.js";
 export { ContextIndex, findResult } from "./context/context-index.js";
 export {
 	CHANGE_SCAN_LIMIT,
@@ -258,13 +289,19 @@ export {
 	parseSonarSecrets,
 	scanProject,
 	type ScanOptions,
+	GRAPH_BUILD_TIMEOUT_MS,
+	refuseGraphBuild,
 } from "./quality/scanner.js";
 
 export {
+	groundTruthReport,
 	groundTruthsFor,
+	MANIFEST_SOURCES,
 	rankFindings,
 	toRelative,
+	webviewManifestStatus,
 	webviewManifestTruth,
+	type ManifestStatus,
 	type Confidence,
 	type DeadCodeFinding,
 	type GroundTruth,
@@ -373,6 +410,71 @@ export {
 	resolveProject,
 	type ProjectInfo,
 } from "./managers/project-resolver.js";
+
+// Export agent parentage from the transcript layout (Milestone 5.9)
+export {
+	discoverAgentParents,
+	type AgentParent,
+	type ParentageResult,
+} from "./managers/agent-parentage.js";
+
+// Export skills and MCP tool utilization (Milestone 8)
+export {
+	INSTALLED_PLUGINS_PATH,
+	MAX_SKILL_BYTES,
+	MAX_TREE_FILES,
+	PROJECT_SKILLS_DIR,
+	SETTINGS_PATH,
+	SKILLS_ROOT,
+	discoverPluginSkills,
+	discoverSkills,
+	parseSkillFrontmatter,
+} from "./skills/skill-registry.js";
+export {
+	ARCHIVE_DIR,
+	ARCHIVE_MANIFEST,
+	archiveSkill,
+	listArchivedSkills,
+	restoreSkill,
+	type ArchivedSkill,
+	type ArchiveResult,
+} from "./skills/skill-archive.js";
+export {
+	MCP_PROTOCOL_VERSION,
+	PROBE_TIMEOUT_MS,
+	probeMcpServer,
+	probeMcpServers,
+	type ProbeResult,
+	type ProbeStatus,
+	type ProbeTarget,
+} from "./skills/mcp-probe.js";
+export {
+	buildSkillsOverview,
+	type OverviewOptions,
+} from "./skills/skills-overview.js";
+export {
+	CLAUDE_CONFIG,
+	findTranscripts,
+	mergeServers,
+	noUsage,
+	readConfiguredServers,
+	scanUtilization,
+	skillFromToolInput,
+	splitMcpTool,
+	type ScanOptions as UtilizationScanOptions,
+	type TranscriptRef,
+	type UtilizationResult,
+} from "./skills/utilization.js";
+
+// Export native hook payload normalisation (Milestone 2)
+export {
+	eventFor,
+	levelFor,
+	messageFor,
+	normaliseHookPayload,
+	type NativeHookPayload,
+	type NormalisedHookLog,
+} from "./server/hook-payload.js";
 
 // Export version
 export const VERSION = "0.1.0";

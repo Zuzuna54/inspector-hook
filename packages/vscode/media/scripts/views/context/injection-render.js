@@ -101,6 +101,22 @@ const ContextInjectionMixin = {
 	 * @param {Object} digest
 	 * @returns {string}
 	 */
+	/**
+	 * Why there is no prose summary, when one was asked for.
+	 *
+	 * A closed gate returns a reason, and showing it is the difference between
+	 * "Summarise did nothing" and "narratives are off on this machine, here is
+	 * the variable to set". A silent no-op on a button is the exact failure
+	 * this view was rebuilt to remove.
+	 */
+	renderNarrativeNote(digest) {
+		const n = digest?.narrative;
+		if (!n || n.text) return "";
+		// `gate: "call"` means nobody asked — the normal state, not a failure.
+		if (n.gate === "call") return "";
+		return `<div class="ctx-hint ctx-narrative-note">${Utils.escapeHtml(n.reason || "No summary was produced.")}</div>`;
+	},
+
 	renderDigest(digest) {
 		if (!digest) return "";
 
@@ -141,7 +157,16 @@ const ContextInjectionMixin = {
           <strong>Digest preview</strong>
           <button class="btn btn-xs ctx-tray-digest">Add to tray</button>
           <button class="btn btn-xs btn-success ctx-stage-digest">Stage this</button>
+          <button class="btn btn-xs ctx-narrate-digest"
+                  title="Add a generated prose summary above the facts. Costs a model call, and needs INSPECTOR_HOOK_NARRATIVE=1 plus claude on PATH">
+            Summarise
+          </button>
+          <button class="btn btn-xs ctx-write-digest"
+                  title="Write this digest into Claude Code's own memory for the project, where every future session loads it">
+            Save to memory
+          </button>
         </div>
+        ${this.renderNarrativeNote(digest)}
         <pre class="ctx-digest-text">${Utils.escapeHtml(text)}</pre>
       </div>
     `;

@@ -7,7 +7,7 @@
  */
 
 import { strict as assert } from "node:assert";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -168,12 +168,32 @@ describe("registry: which tools apply", () => {
 describe("registry: against this machine", () => {
 	const skip = !existsSync(TRANSCRIPT_ROOT);
 
-	it("reproduces the hand-measured counts", { skip }, () => {
+	it("discovers every project directory, counted independently", { skip }, () => {
+		// This asserted `discovered === 31`, hand-measured. It broke the moment
+		// a new project directory appeared -- one `claude -p` run in a temp dir
+		// was enough -- and the fix would have been to bump the number forever,
+		// which tests the machine rather than the function. So the expected
+		// count is now derived a second way: one readdir, the simplest possible
+		// independent implementation.
+		const expected = readdirSync(TRANSCRIPT_ROOT, {
+			withFileTypes: true,
+		}).filter((e) => e.isDirectory()).length;
+
 		const s = summarise(discoverProjects());
-		// Measured independently before the module existed.
-		assert.equal(s.discovered, 31, `discovered ${s.discovered}`);
-		assert.equal(s.existing, 17, `existing ${s.existing}`);
-		assert.equal(s.knipEligible, 3, `knip-eligible ${s.knipEligible}`);
+		assert.equal(s.discovered, expected, `discovered ${s.discovered}`);
+		// The measured shape still holds and is the part worth pinning: most
+		// projects Inspector Hook has seen are no longer on disk, and only a
+		// handful are JS/TS -- which is why knip reaches so few of them.
+		assert.ok(s.discovered >= 31, `only ${s.discovered} projects`);
+		assert.ok(
+			s.existing >= 17 && s.existing <= s.discovered,
+			`existing ${s.existing} of ${s.discovered}`,
+		);
+		assert.ok(s.knipEligible >= 3, `knip-eligible ${s.knipEligible}`);
+		assert.ok(
+			s.knipEligible < s.existing / 2,
+			`knip reaches ${s.knipEligible} of ${s.existing}, which should be a minority`,
+		);
 		assert.ok(s.missing > 0, "some projects have moved, and that is reported");
 	});
 });

@@ -557,10 +557,87 @@ describe("context: digest preview", () => {
 		assert.ok(!html.includes("ctx-stage-digest"), "offered to stage nothing");
 	});
 
-	it("has no write control anywhere in the preview", () => {
-		// v1 previews only; the client cannot even express a write.
+	it("offers a write, and only as a separate deliberate control", () => {
+		// This guard used to assert the OPPOSITE — "the client cannot even
+		// express a write" — which described a v1 limitation, not a decision:
+		// the bridge silently dropped the flag, so the core's write path had no
+		// caller anywhere. P10 wires it, and the plan is explicit that the
+		// digest write is "off by default, one click from the UI".
+		//
+		// What matters now is that it stays a SEPARATE control. Previewing must
+		// never write, because the file it writes lives outside the workspace
+		// and changes what every future session in the project is told.
 		const html = view.renderDigest(PAYLOADS.digestPayload);
-		assert.ok(!/write/i.test(html), "a write affordance appeared in the preview");
+		assert.match(html, /ctx-write-digest/, "no way to save the digest to memory");
+		assert.match(html, /ctx-stage-digest/, "staging and writing must both exist");
+		assert.ok(
+			!/ctx-write-digest[^>]*\bdisabled\b/.test(html),
+			"the control is present but dead",
+		);
+	});
+
+	it("offers a summary, as its own control", () => {
+		// The prose costs a model call, so it is a button rather than something
+		// the preview does on its own.
+		const html = view.renderDigest(PAYLOADS.digestPayload);
+		assert.match(html, /ctx-narrate-digest/, "no way to ask for a summary");
+	});
+
+	it("says WHY there is no summary when a gate is closed", () => {
+		// A closed gate returns a reason. Showing it is the difference between
+		// "Summarise did nothing" and "narratives are off, here is the variable
+		// to set" — a silent no-op on a button is what this view was rebuilt to
+		// remove.
+		// The fixture, not a literal. `narrativeOff` is what `buildNarrative`
+		// actually returns for a closed env gate, recorded by the generator —
+		// a hand-written `{reason, gate}` is the invented-shape failure these
+		// fixtures exist to make impossible.
+		const html = view.renderDigest({
+			...PAYLOADS.digestPayload,
+			narrative: PAYLOADS.narrativeOff,
+		});
+		// Asserted against the NOTE, not the page. The Summarise button's own
+		// tooltip names the environment variable too, so matching that string
+		// anywhere in the html passed whether or not the note rendered at all —
+		// the assertion was green against a function that returned "".
+		assert.match(html, /ctx-narrative-note/, "the reason was not rendered");
+		// Asserted against the NOTE, not the page: the Summarise button's own
+		// tooltip names the environment variable too, so matching that string
+		// anywhere passed whether or not the note rendered at all.
+		assert.ok(
+			html.includes(PAYLOADS.narrativeOff.reason),
+			"the core's own reason was not shown",
+		);
+	});
+
+	it("says nothing when no summary was asked for", () => {
+		// `gate: "call"` is the normal state, not a failure, and reporting it
+		// would put a notice under every preview.
+		const html = view.renderDigest({
+			...PAYLOADS.digestPayload,
+			narrative: PAYLOADS.narrativeNotAsked,
+		});
+		assert.ok(!/ctx-narrative-note/.test(html));
+	});
+
+	it("shows no note once a summary exists", () => {
+		const html = view.renderDigest({
+			...PAYLOADS.digestPayload,
+			narrative: PAYLOADS.narrativeOk,
+		});
+		assert.ok(!/ctx-narrative-note/.test(html));
+	});
+
+	it("offers no write for a digest not worth keeping", () => {
+		// Writing "nothing happened" into a project's memory is worse than
+		// writing nothing at all: every future session would load it.
+		const html = view.renderDigest(PAYLOADS.emptyDigestPayload);
+		assert.ok(!html.includes("ctx-write-digest"), "offered to memorialise nothing");
+	});
+
+	it("offers no write when the digest could not be built", () => {
+		const html = view.renderDigest(PAYLOADS.digestError);
+		assert.ok(!html.includes("ctx-write-digest"));
 	});
 });
 

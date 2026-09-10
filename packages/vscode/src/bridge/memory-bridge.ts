@@ -234,8 +234,21 @@ export function createMemoryBridge(send: SendRequest) {
 		 * most durable way to keep that true is for the extension to be unable to
 		 * express it — an option that cannot be passed cannot be passed by accident.
 		 */
-		async buildSessionDigest(sessionId: string): Promise<unknown> {
-			return send("memory.buildDigest", { sessionId });
+		/**
+		 * Build a session's digest, and optionally WRITE it into native memory.
+		 *
+		 * `write` was previously not forwarded at all, so the core method that
+		 * handles it (`ipc-server.ts`, `asBool(rec.write)`) had no caller: a
+		 * registered, tested, unreachable capability. Writing changes what every
+		 * future Claude session in that project is told, so it stays an explicit
+		 * per-call argument rather than a default.
+		 */
+		async buildSessionDigest(
+			sessionId: string,
+			write = false,
+			narrative = false,
+		): Promise<unknown> {
+			return send("memory.buildDigest", { sessionId, write, narrative });
 		},
 	};
 }

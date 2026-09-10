@@ -77,6 +77,29 @@ const MemoryApiMixin = {
 	memoryBuildDigest(sessionId) {
 		this.send("memory-build-digest", { sessionId });
 	},
+
+	/**
+	 * Build the digest AND write it into Claude Code's own auto memory.
+	 *
+	 * A separate sender from the preview on purpose: this writes a file that
+	 * changes what every future session in that project is told, so it cannot
+	 * be something a preview does as a side effect.
+	 */
+	memoryWriteDigest(sessionId) {
+		this.send("memory-build-digest", { sessionId, write: true });
+	},
+
+	/**
+	 * Preview the digest WITH a generated prose summary (P11).
+	 *
+	 * Separate from the plain preview because it costs a model call. Two more
+	 * gates sit behind it in the core — INSPECTOR_HOOK_NARRATIVE=1 and `claude`
+	 * on PATH — and a refusal comes back with the reason rather than silently
+	 * producing the same digest.
+	 */
+	memoryNarrateDigest(sessionId) {
+		this.send("memory-build-digest", { sessionId, narrative: true });
+	},
 };
 
 window.MemoryApiMixin = MemoryApiMixin;

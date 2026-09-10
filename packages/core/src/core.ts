@@ -22,6 +22,7 @@ import { VERSION } from "./index.js";
 import { IpcServer } from "./ipc/ipc-server.js";
 import { AgentTracker } from "./managers/agent-tracker.js";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { QualityStore } from "./quality/quality-store.js";
 import {
@@ -30,6 +31,25 @@ import {
 	type ScannableProject,
 } from "./quality/project-registry.js";
 import { scanProject, type ScanOptions } from "./quality/scanner.js";
+import {
+	archiveSkill,
+	listArchivedSkills,
+	restoreSkill,
+	type ArchiveResult,
+} from "./skills/skill-archive.js";
+import {
+	discoverSkills,
+	MAX_SKILL_BYTES,
+} from "./skills/skill-registry.js";
+import {
+	probeMcpServers,
+	type ProbeResult,
+} from "./skills/mcp-probe.js";
+import { readConfiguredServers } from "./skills/utilization.js";
+import {
+	buildSkillsOverview,
+	type OverviewOptions,
+} from "./skills/skills-overview.js";
 import { FileTracker } from "./managers/file-tracker.js";
 import { LogManager } from "./managers/log-manager.js";
 import { SessionManager } from "./managers/session-manager.js";
@@ -46,6 +66,15 @@ import { type Briefing, buildBriefing } from "./research/briefing.js";
 import { GraphifyReader } from "./research/graphify.js";
 import { ResearchIndex } from "./research/research-index.js";
 import { HttpServer } from "./server/http-server.js";
+
+/**
+ * How long a skills/MCP utilization count is reused.
+ *
+ * The scan reads every transcript, so it is not free; the corpus also changes
+ * only as fast as you work. Two minutes keeps a tab switch instant without
+ * showing a number from an hour ago.
+ */
+const SKILLS_CACHE_MS = 2 * 60 * 1000;
 
 export class InspectorCore {
 	private httpServer: HttpServer;
@@ -81,6 +110,18 @@ export class InspectorCore {
 	 * it watches, not its own repository.
 	 */
 	private readonly qualityStore: QualityStore;
+	/**
+	 * The last probe of each MCP server.
+	 *
+	 * Kept in memory rather than persisted: reachability is a fact about right
+	 * now, and a stored "reachable" that survives a restart would be a claim
+	 * nobody checked. `checkedAt` on each result lets a view age it.
+	 */
+	private readonly mcpProbes = new Map<string, ProbeResult>();
+	private skillsCache?: {
+		at: number;
+		overview: Awaited<ReturnType<typeof buildSkillsOverview>>;
+	};
 
 	/**
 	 * Periodic index flush.
@@ -455,6 +496,22 @@ export class InspectorCore {
 			if (agentsBuilt.agents > 0) {
 				process.stderr.write(
 					`[Agents] rebuilt ${agentsBuilt.agents} agents from ${agentsBuilt.scanned} logs\n`,
+				);
+			}
+
+			// Parentage, from the transcript LAYOUT rather than any hook event
+			// (M5.9). Directory walk only, so it costs milliseconds; failures
+			// leave the tree flat and are reported rather than thrown.
+			try {
+				const nesting = await this.agentTracker.loadParentage();
+				if (nesting.parents.size > 0) {
+					process.stderr.write(
+						`[Agents] parentage for ${nesting.parents.size} agents, max depth ${nesting.maxDepth}\n`,
+					);
+				}
+			} catch (error) {
+				process.stderr.write(
+					`[Agents] parentage unavailable: ${(error as Error).message}\n`,
 				);
 			}
 
@@ -838,6 +895,125 @@ export class InspectorCore {
 	/** The quality store (M7). */
 	getQualityStore(): QualityStore {
 		return this.qualityStore;
+	}
+
+	/**
+	 * Skills and MCP tools: what is installed against what actually fires (M8).
+	 *
+	 * Cached, because the scan streams the whole transcript corpus — 121 files
+	 * in ~1.7s on this machine — and the panel would otherwise pay that on
+	 * every tab switch. Pass `refresh` to recount; the cache carries the
+	 * measurement time so a caller can show how old the number is.
+	 */
+	async getSkillsOverview(options?: OverviewOptions & { refresh?: boolean }) {
+		const now = Date.now();
+		if (
+			!options?.refresh &&
+			this.skillsCache &&
+			now - this.skillsCache.at < SKILLS_CACHE_MS
+		) {
+			return this.skillsCache.overview;
+		}
+		const overview = await buildSkillsOverview(options);
+		this.skillsCache = { at: now, overview };
+		return overview;
+	}
+
+	/**
+	 * Archive an installed skill, or put one back (M8).
+	 *
+	 * The only write M8 performs, and it happens only when a caller asks. The
+	 * overview above never touches `~/.claude`, which is what makes the
+	 * "nothing was modified" check a property of the read path.
+	 */
+	async setSkillArchived(id: string, archived: boolean): Promise<ArchiveResult> {
+		const storeRoot = this.persistence.getBasePath();
+		const result = archived
+			? await archiveSkill(id, { storeRoot })
+			: await restoreSkill(id, { storeRoot });
+		// The inventory just changed on disk, so the cached count is now wrong.
+		if (result.ok) this.skillsCache = undefined;
+		return result;
+	}
+
+	/**
+	 * One skill's SKILL.md, for the detail pane (M8).
+	 *
+	 * The path is resolved by looking the id up in the discovered set rather
+	 * than by joining `SKILLS_ROOT` with the id. That is deliberate: it makes a
+	 * traversal attempt fail as "unknown skill" instead of reading a file, and
+	 * it is the only way a plugin or project skill's real location is known.
+	 */
+	async readSkillFile(id: string) {
+		const record = discoverSkills().find((s) => s.id === id);
+		if (!record) return { error: `unknown skill: ${id}` };
+		if (!record.skillFile) {
+			return {
+				id,
+				path: record.path,
+				text: "",
+				bytes: 0,
+				truncated: false,
+				error: "this skill has no SKILL.md",
+			};
+		}
+		try {
+			const raw = await readFile(record.skillFile, "utf-8");
+			const text = raw.slice(0, MAX_SKILL_BYTES);
+			return {
+				id,
+				path: record.skillFile,
+				text,
+				bytes: Buffer.byteLength(raw, "utf-8"),
+				truncated: text.length < raw.length,
+				subdirectories: record.subdirectories,
+				extraFiles: record.extraFiles,
+			};
+		} catch (error) {
+			return {
+				error: `could not read ${record.skillFile}: ${(error as Error).message}`,
+			};
+		}
+	}
+
+	/**
+	 * Handshake with each configured MCP server (M8).
+	 *
+	 * NEVER called by `getSkillsOverview`. This spawns real processes — one of
+	 * them starts a browser, and two fetch a package on first run — so it
+	 * happens only when a caller asks. The overview stays a pure read.
+	 *
+	 * `readConfiguredServers` drops `env` before this sees a target, so the
+	 * probe inherits the ambient environment and a server needing a key fails
+	 * its handshake. That failure is reported rather than worked around: this
+	 * is a diagnostic, and a diagnostic that handles secrets to make itself
+	 * succeed is a worse trade than one that says "it did not answer".
+	 */
+	async probeMcpServers(names?: string[]): Promise<ProbeResult[]> {
+		const wanted = names && names.length > 0 ? new Set(names) : undefined;
+		const targets = [...readConfiguredServers()]
+			.filter(([name]) => !wanted || wanted.has(name))
+			.map(([name, config]) => ({
+				name,
+				command: config.command,
+				args: config.args,
+			}));
+		const results = await probeMcpServers(targets);
+		for (const result of results) this.mcpProbes.set(result.server, result);
+		return results;
+	}
+
+	/** The most recent probe of each server, if any has been run. */
+	getMcpProbes(): ProbeResult[] {
+		return [...this.mcpProbes.values()];
+	}
+
+	/** Skills currently archived, newest first. */
+	async listArchivedSkills() {
+		const entries = await listArchivedSkills({
+			storeRoot: this.persistence.getBasePath(),
+		});
+		return entries.sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
 	}
 
 	/** Get the agent tracker (M5). */

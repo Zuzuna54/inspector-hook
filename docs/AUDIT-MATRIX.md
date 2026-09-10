@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 50 rows for Milestones 3, 4 and 5**, tallied separately at the end.
+status with evidence — **plus 119 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -747,20 +747,28 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 50 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
-from `docs/phases/*.md`; M3 and M4 were added by the plan and have no phase document, which is
-why this matrix covered neither of the two milestones the branch actually shipped. A backlog
+**These 119 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+from `docs/phases/*.md`; M3 onward were added by the plan and have no phase document, which is
+why this matrix covered none of the milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
 
-Criteria are taken from the plan's Milestone 3 (five numbered deliverables), Milestone 4
-(capture, per-project index, hybrid retrieval, storage tiering, graphify) and Milestone 5
-(agent capture, the live tree, MCP exposure).
+Criteria are taken from the plan's Milestone 2 (transport, event coverage, the installer),
+Milestone 3 (five numbered deliverables), Milestone 4
+(capture, per-project index, hybrid retrieval, storage tiering, graphify), Milestone 5
+(agent capture, the live tree, MCP exposure), Milestone 7 (per-project scans, confidence
+tiering, graph analysis) and Milestone 8 (skill inventory, utilization from transcripts, the
+Skills and Tools views). **M6 is deferred** and has no rows; every other shipped milestone now
+does. M7's were owed for a cycle — it shipped against live scans that were never written down
+here — and were added from one fresh scan rather than from recollection, which is how two of
+them came back `broken` rather than `verified`. M2's were added the same way, from a live
+measurement of 17,192 log rows plus one end-to-end run, and turned up a third: a second
+`install.sh --http` emptied the settings file.
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 46 | 92% |
-| **untested** | 3 | 6% |
-| **not-impl** | 1 | 2% |
+| **verified** | 113 | 94% |
+| **untested** | 4 | 3% |
+| **not-impl** | 2 | 1% |
 
 Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
@@ -829,10 +837,100 @@ produced it. No status outside the five defined above is used here.
 | M5.6 | Show duration | verified | test · `SubagentStop.durationMs` is null in 384 of 384, so it is computed and carries `durationSource`; a spawn call's duration is explicitly NOT trusted as the agent's runtime |
 | M5.7 | Live agent tree in the UI | verified | test · Agents tab in Monitor, filters incl. "Never reported" · `agents-view.test.js` |
 | M5.8 | Tree survives a core restart | verified | live · backfilled from the log on startup, 170 agents from 10000 rows |
-| M5.9 | Nesting: which agent spawned which | not-impl | read · no captured event states parentage. `children` exists and is always empty; inventing a hierarchy would be a guess |
+| M5.9 | Nesting: which agent spawned which | verified | live · no hook event states parentage, but the platform writes a subagent's transcript INSIDE its parent's directory, so the path is the answer. **83 agents resolved across 17 parent sessions.** `maxDepth` is 1 here because 0 agent-to-agent spawns exist — cross-checked twice: no second-level `subagents/` anywhere, and 0 `Task`/`Agent` calls inside any of the 83 subagent transcripts. A two-level fixture proves that is the corpus and not the code · `agent-parentage.test.js` |
 | M5.10 | Expose prior findings over MCP | verified | live · `--mcp`, real handshake: initialize / tools/list / tools/call, 3 tools, `-32601` on unknown |
 | M5.11 | MCP results never misdescribe themselves | verified | test · a spawn acknowledgement renders as "NEVER REPORTED"; the graph reports current / out-of-date / unknown age · `mcp-server.test.js` |
 | M5.12 | `--mcp` does not share stdio with IPC | verified | live · was **broken**: notifications were interleaved into the MCP stream. Observed before/after on the binary; an end-to-end test spawns `--mcp` and asserts zero unsolicited notifications |
+
+### Milestone 2 — transport and event coverage
+
+Measured 2026-09-09 over 17,192 live log rows and 11,172 tool events, plus one end-to-end
+`claude -p` run wired with HTTP-only hooks.
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M2.1 | Register every event the core can attribute | verified | live · 30 of 33 in settings.json. The 3 excluded are deliberate: `MessageDisplay` fires per streamed chunk, and the `Elicitation` pair adds nothing a dashboard shows |
+| M2.2 | `PostToolUseFailure` can actually fire | verified | live · was **inert**: handled in the core and registered by no installer. **57 captured** in the store now |
+| M2.3 | `StopFailure` can actually fire | untested | live · registered, and `ai.error` has 5 rows — but no turn has failed in a way that proves the StopFailure path specifically. Registered and unobserved, not handled and unregistered |
+| M2.4 | Events registered but never observed are not counted as working | verified | live · 23 of 30 event types have fired; the other 7 (worktrees, model switches, tasks) have never happened on this machine and are reported as unobserved rather than broken |
+| M2.5 | `tool_use_id` forwarded, so executions pair | verified | live · 86% overall, and the shortfall is entirely historical — **51% on 2026-09-03 before the hook fix, 100% every day since**. This is B2's real fix: the earlier one was correct, tested, and inert |
+| M2.6 | `prompt_id` forwarded for turn grouping | verified | live · 85%, same historical split |
+| M2.7 | `permission_mode` and `effort` forwarded | verified | live · 72% each, and `effort` is unwrapped from `.effort.level` |
+| M2.8 | Real duration, not a derived one | verified | live · `durationMs` on 42% of tool events, which is ~85% of PostToolUse; anything computed from our own timestamps would be a multiple of 1000ms or 0 |
+| M2.9 | Subagent identity forwarded | verified | live · `agentId` 34%, `agentType` 33% — only events fired inside a subagent carry them, and that is what makes M5's tree buildable from tool events alone |
+| M2.10 | `last_assistant_message` — Claude's actual replies | verified | live · present on **90%** of response events. Capturable for the first time |
+| M2.11 | Level is derived, not hardcoded | verified | live+test · was `"info"` always, so Errors/Warnings/Blocked could never populate. A tool error naming a denial becomes `blocked`, not `error` · `hooks.test.js`, `hook-payload.test.js` |
+| M2.12 | The installer is additive, not destructive | verified | test · was a single jq assignment to the whole `.hooks` key — a full replace that silently deleted any co-installed tool's entries. Now merges per event; a fixture carrying 3 foreign hooks keeps all 3 · `hooks.test.js`. (Written out rather than quoted: `docs-safety.test.js` scans every document for that literal, so a reader cannot copy it out of a doc, and it caught this row) |
+| M2.13 | Install is idempotent | verified | test · three consecutive runs produce one entry per event |
+| M2.14 | Uninstall is symmetric | verified | test · `uninstall.sh` delegates to `install.sh --uninstall` so one file owns both directions, and the test DERIVES the uninstall list from the install source — the drift it was written after left one of four scripts behind |
+| M2.15 | The modern nested schema | verified | test · `{matcher, hooks:[{type, command}]}`; the legacy flat shape Claude Code no longer accepts is stripped on upgrade |
+| M2.16 | An HTTP hook does not stall a dead core | verified | live · the M2 blocker, measured: 17.1s for one turn against a closed port, vs 19.6s with no hook and 15.9s with a live listener. 600s is the RESPONSE timeout; connection refused returns at once. A control run against a recording listener proved the hook fires |
+| M2.17 | The core can BE the hook handler | verified | live · `/api/hook` takes the native payload. One `claude -p` run with four HTTP-only hooks and no shell script captured all four events, correct levels, matching `tool_use_id` across the Pre/Post pair, 1733ms real duration, `tool_result` and `last_assistant_message` present |
+| M2.18 | Both transports produce the same record | verified | test · one shared `ingestLog`, and a drift test that derives the event-rename and level tables FROM the shell source rather than restating them · `hook-payload.test.js` |
+| M2.19 | `--http` installs and uninstalls cleanly | verified | test · was **broken**: two jq filters called `test()` on `.command`, null for an http entry, so a second install emptied the settings file — reachable by anyone with an http hook from any tool. Uninstall matches the `/api/hook` path, not the URL, since the port can change between install and uninstall · `hooks.test.js` |
+| M2.20 | HTTP hooks as the DEFAULT transport | not-impl | live · by decision, not omission. An HTTP hook URL is static and the core's port is not — it scans upward when 52376 is taken, and the live core is on 52377. The shell hook re-reads the port file every event. Also, only a command hook can inject context: an HTTP response body cannot write to stdout, so the two context scripts stay command hooks even under `--http` |
+| M2.21 | A hook response never alters the session | verified | read+live · `/api/hook` always answers `{}` with 200, including on malformed input. Claude Code reads the response as hook output, so an error body could surface to the user and a `decision` field could block a tool call |
+
+### Milestone 7 — code quality across every observed project
+
+Measured by one live scan of this repository on 2026-09-09: 12.0s, 8 analysers,
+`high 1 · medium 1 · low 1 · suppressed 80 · circular 3 · secrets 0 · deadSymbols 16`.
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M7.1 | Scan across observed projects, not this repo | verified | live · 32 discovered, 18 on disk, 14 moved away. `quality.getProjects` returns the missing ones with `exists: false` rather than dropping them |
+| M7.2 | knip, and its false-positive rate | verified | live · knip flags 83 files here; **80 are suppressed** as webview scripts the manifest loads. A Quality view built on raw knip would be 96% noise · `quality-scanner.test.js` |
+| M7.3 | The manifest is ground truth and suppresses | verified | live · 118 paths parsed from `webview-assets.ts`; every suppressed finding names it in `suppressedBy` |
+| M7.4 | A missing ground truth is reported, not silent | verified | test · was **broken**: the manifest moved to `webview-assets.ts`, the reader looked only at `webview-html.ts`, returned null, and null reads as "suppress nothing" — 80 false positives promoted to real with nothing on screen. `groundTruth.problems` now carries the reason · `confidence.test.js` |
+| M7.5 | The graph ranks confidence and never suppresses alone | verified | live · `persistence/index.ts` is knip-flagged with 6 graph edges and lands **low**, not suppressed — the graph's `contains`/`imports` edges are not reachability |
+| M7.6 | Two agreeing signals give high confidence | verified | live · `scripts/debug-webview.js` — `agreed=[graph-orphan, knip]` → **high**, the plan's named case |
+| M7.7 | The graph reaches what knip cannot | verified | live · `config/claude-hooks/lib/http_logger.py` is Python, invisible to knip, and surfaces from the graph alone. **It lands `medium`, not `high` as plan §7.6 predicted** — one signal cannot corroborate itself, and the tiering is right where the plan's acceptance line was optimistic |
+| M7.8 | Manifest-loaded scripts never appear as dead | verified | live · 15 `api/inbound-*.js` findings, **all 15 suppressed**, none at high/medium/low |
+| M7.9 | Four languages, not one | verified | live · registry of 7 analysers: knip, madge (ts-js) · vulture, ruff (python) · go-deadcode (go) · clippy (rust) · sonar-secrets (any). This repo detects `ts-js 189, python 10` and runs 5 |
+| M7.10 | An analyser needs no install | verified | live · `npx --yes`, `uvx`, `go run …@latest`, `cargo clippy`. vulture and ruff both ran here (682ms, 218ms) with neither installed |
+| M7.11 | vulture does not drown in vendored code | verified | live · unfiltered it reports 66 findings, 62 inside `.venv`/site-packages. **0 of the 16 dead symbols in this scan are in either** |
+| M7.12 | "not applicable" ≠ "clean" | verified | live · go-deadcode and clippy report `not-applicable` with a reason ("the project has no go files"); sonar-secrets reports `unavailable` with the install command. None is counted as a measurement |
+| M7.13 | Sonar's local tier only | verified | read+live · only `sonar analyze secrets` is used; the issue and quality-gate commands are server-bound and not invoked. Not installed here, so it degrades to `unavailable` rather than failing the scan |
+| M7.14 | Every count states which tools produced it | verified | live · `summary.measured = [knip, madge, vulture, ruff, graphify]`, `unmeasured = [go-deadcode, clippy, sonar-secrets]`; the view refuses to render "clean" when `measured` is empty · `quality-view.test.js` |
+| M7.15 | Circular dependencies | verified | live · was **wrong**: madge walked build output and reported 6 cycles, 3 of them `packages/core/dist/*.d.ts` restating the other 3. Excluding VENDOR_DIRS gives **3 real cycles**, all `core.ts → index.ts` — the barrel import the god-node analysis independently implicates |
+| M7.16 | Dead symbols are kept apart from dead files | verified | live · 16 dead symbols (knip 11, ruff 5) in `deadSymbols`, never merged into `findings`: a symbol is one tool's local observation that no second signal can corroborate |
+| M7.17 | Graph analysis: orphans, god nodes, coupling, rot | verified | live · 4095 nodes / 4922 edges · 9 orphans · god node `index.ts` at **149 edges** · 339 communities at **12% crossing** · rot reported with `checked` so an unverifiable count is not shown as zero |
+| M7.18 | A stale graph is labelled, never trusted silently | verified | live · this repo's graph reports `stale: true` against HEAD, and `stale` is three-valued — `null` means unknown, which is not the same as current |
+| M7.19 | Scans are persisted with history, and trend | verified | test · `MAX_HISTORY = 30`; `highDelta` compares only scans whose `measured` tool sets match, so a trend never compares a 5-tool scan with a 2-tool one · `quality-store.test.js` |
+| M7.20 | graphify builds graphs for every project | verified | live · was **inert**: `ScanOptions.buildGraph` was declared, documented and read by nothing for a whole milestone. Now wired scan → IPC → a separate "Build graph + scan" button, and proved end to end on a project that had never had one (build 852ms → 8 nodes analysed) · `quality-scanner.test.js` |
+| M7.22 | A graph build refuses a root it must not walk | verified | test · one of the 18 real projects IS `/Users/giorgobg`, because `discoverProjects` reads the cwd a session ran in. graphify walks everything below its root, so a build there would crawl the whole home directory. Refused structurally — at or above home, or under two segments deep — and reported as `not-applicable` WITH the reason rather than skipped silently |
+| M7.23 | Building is never implied by a scan | verified | test · a plain scan emits no `graphify-build` result at all. It is the only thing a scan does to the PROJECT rather than to our store, so it is a separate button, not a checkbox |
+| M7.21 | Gating a build on a scan | not-impl | read · deferred with M6 by decision. No project on this machine has run Forge, so the gate has nothing to attach to |
+
+### Milestone 8 — skills and MCP tools: inventory against utilization
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| M8.1 | Discover global `~/.claude/skills` | verified | live · 22 found · `skills-registry.test.js` |
+| M8.2 | Discover project `<root>/.claude/skills` | verified | test · no project on this machine has one, so the path is covered by fixture only and says so |
+| M8.3 | Discover plugin skills via `enabledPlugins` | verified | live · resolved through `installed_plugins.json` → `installPath`. 3 plugins enabled, **1 skill** (`frontend-design`); `typescript-lsp` and `pyright-lsp` ship none. The cache holds 5 versions of that plugin and the marketplace holds skills for 4 never-installed plugins — walking either would report skills that cannot fire |
+| M8.4 | Report `frontmatterValid` as a defect, not skip it | verified | live · 8 of 22 have no `name`; they sort to the top of the list and the detail says "can never be chosen" · `skills-view.test.js` |
+| M8.5 | Handle a skill as a directory tree | verified | live · `bytes` covers the tree, `subdirectories` and `extraFiles` are separate; archive/restore moves the whole tree and the test asserts a `references/` file survives the round trip |
+| M8.6 | Count utilization from transcripts, not our pruned logs | verified | live · 121 transcripts in 1.9s → **13 Skill invocations across 7 skills**. The logs showed 1 skill; the plan's "1 of 22" headline came from them and was wrong |
+| M8.7 | Count nested subagent transcripts | verified | live · 83 of the 121 files are `<session>/subagents/agent-*.jsonl`; a flat readdir sees 31% of the corpus. Their calls go to the PARENT session, verified disjoint (0 overlapping `tool_use` ids on a sampled session). Both tests fail against the flat version |
+| M8.8 | Do not credit a built-in skill to the installed set | verified | live · 4 of the 7 that fired ship with Claude Code; they carry `source: "builtin"` and are counted apart, so the headline is **3 of 22** and not 7 of 22 · `skills-registry.test.js` |
+| M8.9 | Per item: invocations, last used, distinct sessions, distinct projects | verified | live · `artifact-design` 5× / 5 sessions / 4 projects. `lastUsed` is a max, not a last-write, because a scan visits files in directory order |
+| M8.10 | MCP servers from `~/.claude.json`, incl. per-project | verified | live · 4 global, 0 per-project across 33 projects; the per-project key is read anyway |
+| M8.11 | Never render `env` | verified | live · dropped at the reader, so it never enters a record. Checked by key, not substring — the first check matched `.venv/bin/python` and was a false positive · `skills-registry.test.js` |
+| M8.12 | Observed-but-unconfigured servers are first-class | verified | live · `claude-in-chrome` is **548 of 684** calls and is in no config file; `claude_ai_Google_Drive` (16) likewise. A config-driven list would omit the busiest server on the machine · `skills-view.test.js` |
+| M8.13 | A configured server never called is reported as such | verified | live · 3 of 4 configured servers have 0 calls; only playwright (120) has any |
+| M8.14 | Server reachability | verified | live · a real handshake — initialize / notifications/initialized / tools/list — against each configured server. Found `memory` **cannot start** (its venv interpreter was deleted) in 9ms, and that `fetcher` answers as `browser-mcp` and `mcp-ical` as `Calendar`, neither matching its config key. Advertised tools are kept apart from observed: playwright advertises 24 and 9 were ever called · `mcp-probe.test.js` |
+| M8.24 | Detail pane renders SKILL.md as markdown | verified | live+test · hand-rolled, because the CSP admits scripts from an allowlist and the package has no runtime dependency. Its non-negotiable property is that unrecognised syntax survives as text — checked against **all 22 real skills, every word of every file survives**. Escaping happens once, before any markup, and a fixture `<img onerror>` renders as visible text · `skills-view.test.js` |
+| M8.25 | Detail pane shows a supporting-file tree | verified | test · `SkillRecord.files` carries the real paths, capped at 200 with `extraFiles` as the true total, so a truncated list says how many it hides instead of looking complete · `skills-view.test.js` |
+| M8.22 | Reachability never runs itself | verified | test · it spawns a process per server, one of them a browser, so it is a button. An unchecked server renders as "not checked" — never as reachable, never as broken · `skills-view.test.js` |
+| M8.23 | A probe never handles secrets to succeed | verified | test · the probe's targets come from `readConfiguredServers`, which is asserted to carry no `env` key and not to leak a configured `sk-secret` value; the probe therefore inherits only the ambient environment, and a server needing a key fails its handshake rather than being worked around · `skills-registry.test.js` |
+| M8.15 | Every count states its source | verified | test · the footer names the transcript count and scan time; 0 transcripts renders "Not measured — unknown, not zero" rather than a confident zero · `skills-view.test.js` |
+| M8.16 | Filter unused / used / invalid | verified | test · `skills-view.test.js` |
+| M8.17 | Detail: rendered SKILL.md, path, open-in-editor, supporting tree | verified | test · read in the core so the byte cap and the containment check have one implementation; the path is resolved by looking the id up in the discovered set, so a traversal fails as "unknown skill" |
+| M8.18 | Archive instead of a disable toggle | verified | live · `settings.json` has no skills key (12 top-level keys, none for skills). The button says Archive, the tooltip says outright it is not a disable switch, and plugin/built-in skills are read-only · `skills-view.test.js` |
+| M8.19 | Archive is reversible and refuses to overwrite | verified | test · restore uses the recorded `originalPath`, not `SKILLS_ROOT` + id, so a project skill goes back where it came from. Refuses when something else has taken the path, when already archived, and on a traversal id |
+| M8.20 | The read path modifies nothing under `~/.claude/` | verified | live · 584 files under `skills/`, `settings.json` and `plugins/` compared by path, mtime and size before and after a full scan: **0 differences**. Archive is the one write and no scan calls it |
+| M8.21 | The view builds itself from `init()` alone | verified | test · `view-bootstrap.test.js`, the guard added after Agents and Search both shipped stuck on their static fallback |
 
 ## Method, and what it does not claim
 

@@ -46,7 +46,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 STORAGE="${INSPECTOR_HOOK_STORAGE:-$HOME/.inspector-hook}"
 
 # Read the payload once. Without stdin there is no session to target.
-PAYLOAD="$(cat 2>/dev/null || true)"
+#
+# Bounded, never a bare `cat`. UserPromptSubmit always supplies stdin, so this
+# has not bitten here — but it is the identical failure to the one the
+# SessionStart hook shipped: an open pipe with no data and no EOF blocks
+# forever, and a hook that blocks holds up the prompt it is attached to. The
+# timeout is an INTEGER because macOS ships bash 3.2, which rejects a
+# fractional one outright and would silently read nothing.
+PAYLOAD=""
+IFS= read -r -d '' -t 1 PAYLOAD 2>/dev/null || true
 [ -n "$PAYLOAD" ] || exit 0
 
 SESSION_ID="$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)"
@@ -76,6 +84,30 @@ emit_section() {
   printf '%s' "$1" | jq -r "$UNEXPIRED" 2>/dev/null || true
 }
 
+# Record what was DELIVERED, not what was armed.
+#
+# One JSON object per line, appended with a single `>>`. Every field is a short
+# scalar and the text itself is never recorded, so the line stays well under
+# PIPE_BUF and two hooks firing at once interleave whole lines rather than
+# fragments. Never fails the prompt: every path here is best-effort.
+INJECTIONS="$STORAGE/context/injections.jsonl"
+
+record_injection() {
+  # $1 tier, $2 byte count, $3 label
+  [ -n "${2:-}" ] || return 0
+  [ "$2" -gt 0 ] 2>/dev/null || return 0
+  mkdir -p "$STORAGE/context" 2>/dev/null || return 0
+  jq -cn \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg sessionId "$SESSION_ID" \
+    --arg tier "$1" \
+    --argjson bytes "$2" \
+    --arg label "${3:-}" \
+    '{at:$at, sessionId:$sessionId, tier:$tier, bytes:$bytes}
+     + (if ($label | length) > 0 then {label:$label} else {} end)' \
+    >> "$INJECTIONS" 2>/dev/null || true
+}
+
 NOW_TEXT=""
 PINNED_TEXT=""
 
@@ -85,6 +117,8 @@ if [ -r "$NOW_FILE" ]; then
   NOW_PAYLOAD="$(cat "$NOW_FILE" 2>/dev/null || true)"
   rm -f "$NOW_FILE" 2>/dev/null || true
   NOW_TEXT="$(emit_section "$NOW_PAYLOAD")"
+  record_injection "now" "${#NOW_TEXT}" \
+    "$(printf '%s' "$NOW_PAYLOAD" | jq -r '.label // ""' 2>/dev/null || true)"
 fi
 
 # Pinned: read and print. Never deleted here -- it persists until the panel
@@ -92,6 +126,8 @@ fi
 if [ -r "$PINNED_FILE" ]; then
   PINNED_PAYLOAD="$(cat "$PINNED_FILE" 2>/dev/null || true)"
   PINNED_TEXT="$(emit_section "$PINNED_PAYLOAD")"
+  record_injection "pinned" "${#PINNED_TEXT}" \
+    "$(printf '%s' "$PINNED_PAYLOAD" | jq -r '.label // ""' 2>/dev/null || true)"
 fi
 
 [ -z "$NOW_TEXT" ] && [ -z "$PINNED_TEXT" ] && exit 0

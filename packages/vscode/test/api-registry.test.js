@@ -50,6 +50,9 @@ const EXPECTED_TYPES = [
 	"context-armed",
 	// P9: the global project list, reconciled across three identity spaces.
 	"projects",
+	// P10: what was injected INTO a session, from the log the hooks write.
+	"context-injections",
+	"context-injection-counts",
 	// P8: the four-corpus search. Results and corpus sizes arrive separately
 	// because a rebuild changes the sizes without changing the last result.
 	"context-find-results",
@@ -78,6 +81,10 @@ const EXPECTED_TYPES = [
 	"restore-result",
 	"session",
 	"session-activity",
+	"skills-archived",
+	"skills-file",
+	"skills-overview",
+	"skills-probes",
 	"session-logs",
 	"sessions",
 	"stats",

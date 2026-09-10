@@ -300,10 +300,15 @@ describe("installer", () => {
 	const read = (path) => JSON.parse(readFileSync(path, "utf-8"));
 
 	/** Every command registered across every event. */
+	// `.filter(Boolean)` because an http hook has a `url` and no `command`.
+	// Without it every caller's `.includes(...)` throws on undefined, which is
+	// how the --http tests below first failed.
 	const allCommands = (s) =>
-		Object.values(s.hooks ?? {}).flatMap((groups) =>
-			groups.flatMap((g) => (g.hooks ?? []).map((h) => h.command)),
-		);
+		Object.values(s.hooks ?? {})
+			.flatMap((groups) =>
+				groups.flatMap((g) => (g.hooks ?? []).map((h) => h.command)),
+			)
+			.filter(Boolean);
 
 	it("writes the nested schema Claude Code requires", () => {
 		const path = fixture();
@@ -435,6 +440,88 @@ describe("installer", () => {
 			"all of ours removed",
 		);
 		assert.equal(cmds.length, 3, "all three foreign hooks remain");
+	});
+
+	describe("--http, the transport that needs no shell (M2)", () => {
+		/** Every url across all events. */
+		function allUrls(settings) {
+			const out = [];
+			for (const groups of Object.values(settings.hooks ?? {})) {
+				for (const group of groups) {
+					for (const hook of group.hooks ?? []) {
+						if (hook.url) out.push(hook.url);
+					}
+				}
+			}
+			return out;
+		}
+
+		it("registers http entries instead of the observer script", () => {
+			const path = fixture();
+			run(path, "--http", "52399");
+			const settings = read(path);
+
+			const urls = allUrls(settings);
+			assert.ok(urls.length >= 25, `only ${urls.length} http entries`);
+			assert.ok(urls.every((u) => u === "http://127.0.0.1:52399/api/hook"));
+			// The observer script is replaced, not registered alongside.
+			assert.equal(
+				allCommands(settings).filter((c) => c.includes("inspector-hook.sh"))
+					.length,
+				0,
+				"the shell observer must not also be registered",
+			);
+		});
+
+		it("keeps the context scripts as command hooks", () => {
+			// They exist to WRITE to stdout, which Claude Code adds to the
+			// session context. An HTTP hook's response body cannot do that, so
+			// converting them would silently disable the feature.
+			const path = fixture();
+			run(path, "--http", "52399");
+			const cmds = allCommands(read(path));
+			assert.ok(cmds.some((c) => c.includes("inspector-context.sh")));
+			assert.ok(cmds.some((c) => c.includes("inspector-prompt-context.sh")));
+		});
+
+		it("REGRESSION: a second --http run neither duplicates nor empties", () => {
+			// It emptied the file. Two jq filters called `test()` on `.command`,
+			// which is null for an http entry -- a shape that did not exist when
+			// they were written -- so the second run died mid-pipeline and wrote
+			// nothing. Any user with an http hook from ANY tool would have hit
+			// it on a plain install.
+			const path = fixture();
+			run(path, "--http", "52399");
+			const first = allUrls(read(path)).length;
+			run(path, "--http", "52399");
+			const settings = read(path);
+			assert.ok(settings.hooks, "the settings file must survive a re-run");
+			assert.equal(allUrls(settings).length, first, "no duplicates");
+			assert.equal(
+				allCommands(settings).filter((c) => c.includes("/other/")).length,
+				3,
+				"the other tool's hooks must survive too",
+			);
+		});
+
+		it("uninstalls http entries without being told the port", () => {
+			// The core scans upward when its port is taken, so the port at
+			// uninstall time need not be the port at install time. Matching on
+			// the /api/hook path rather than the whole URL is what makes an
+			// uninstall complete rather than leaving a dead hook that fires on
+			// every tool call.
+			const path = fixture();
+			run(path, "--http", "52399");
+			run(path, "--uninstall");
+			const settings = read(path);
+			assert.deepEqual(allUrls(settings), [], "every http entry removed");
+			assert.equal(allCommands(settings).length, 3, "foreign hooks remain");
+		});
+
+		it("refuses a non-numeric port rather than registering a broken url", () => {
+			const path = fixture();
+			assert.throws(() => run(path, "--http", "not-a-port"));
+		});
 	});
 
 	it("refuses to touch a settings file that is not valid JSON", () => {

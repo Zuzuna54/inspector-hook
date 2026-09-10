@@ -76,11 +76,37 @@ export interface AgentRecord {
 	 * than papered over, because an unlinked half is a real gap.
 	 */
 	linked: boolean;
+	/**
+	 * The agent that spawned this one, when the nesting is known.
+	 *
+	 * Resolved from the transcript LAYOUT, not from any hook event — no
+	 * captured event states parentage. See core/managers/agent-parentage.ts.
+	 * Undefined means either "spawned by the session directly" or "no
+	 * transcript to resolve it from", and `parentSource` tells them apart.
+	 */
+	parentAgentId?: string;
+	/** Where the parentage came from, so an absence is not read as a fact. */
+	parentSource?: "transcript-layout" | "unresolved";
 }
 
 export interface AgentTreeNode extends AgentRecord {
 	/** Agents spawned by this one, when the nesting is known. */
 	children: AgentTreeNode[];
+}
+
+/** What the nesting actually looks like, as opposed to what it supports. */
+export interface AgentNesting {
+	/**
+	 * The deepest nesting FOUND. 1 means no agent spawned another agent.
+	 *
+	 * Reported so a flat tree is never mistaken for an unimplemented one —
+	 * which is exactly how M5.9 read for two milestones.
+	 */
+	maxDepth: number;
+	/** Agents whose parent could be resolved from a transcript. */
+	resolved: number;
+	/** Agents with no transcript, whose parentage is simply unknown. */
+	unresolved: number;
 }
 
 export interface AgentStats {
@@ -93,6 +119,8 @@ export interface AgentStats {
 	/** Agents that returned a spawn acknowledgement and never a report. */
 	spawnAckOnly: number;
 	byType: Record<string, number>;
+	/** Present once parentage has been loaded. */
+	nesting?: AgentNesting;
 	totalToolCalls: number;
 }
 

@@ -71,28 +71,44 @@ export interface GroundTruth {
 }
 
 /**
- * Files a webview manifest loads, read from the source that loads them.
+ * Files that may hold the webview manifest, newest layout first.
  *
- * This is ground truth rather than a heuristic: `webview-html.ts` holds the
- * array the extension iterates to emit `<script>` and `<link>` tags, so a path
- * in it is loaded by definition. Read from the file rather than duplicated into
- * a config, because a second copy of the manifest would drift the moment
- * someone adds a script — and a stale suppression list is worse than none.
- *
- * Returns null when the file does not exist, so a project without a webview
- * gets no suppression rather than an empty one that looks authoritative.
+ * Two entries because the manifest moved: it lived inside `webview-html.ts`
+ * until that file crossed the package's 600-line limit and the arrays were
+ * split into `webview-assets.ts`. Both are read so a checkout from either side
+ * of that split resolves, and the list is a constant so the next move is one
+ * edit rather than a silent regression.
  */
-export function webviewManifestTruth(root: string): GroundTruth | null {
-	const source = join(root, "packages", "vscode", "src", "webview-html.ts");
-	if (!existsSync(source)) return null;
+export const MANIFEST_SOURCES = [
+	["packages", "vscode", "src", "webview-assets.ts"],
+	["packages", "vscode", "src", "webview-html.ts"],
+] as const;
 
-	let text: string;
-	try {
-		text = readFileSync(source, "utf-8");
-	} catch {
-		return null;
-	}
+/** The directory whose existence means this project HAS a webview to vouch for. */
+const WEBVIEW_MEDIA = ["packages", "vscode", "media", "scripts"] as const;
 
+export interface ManifestStatus {
+	/** True when this project has a webview, so a manifest is expected. */
+	expected: boolean;
+	/** Which file the entries came from, project-relative. */
+	source?: string;
+	/** How many paths were parsed. */
+	files: number;
+	/**
+	 * Set when a manifest was expected and not found.
+	 *
+	 * This exists because the failure is otherwise invisible in the worst
+	 * possible way. `webviewManifestTruth` returning null means "no
+	 * suppression", so a manifest that moves takes 64 of this repository's 66
+	 * knip findings from `suppressed` to `high` — the Quality view fills with
+	 * false positives and nothing says why. Measured: splitting the arrays out
+	 * of `webview-html.ts` did exactly that, and only a test caught it.
+	 */
+	error?: string;
+}
+
+/** Parse manifest entries out of one source file. */
+function manifestEntries(text: string): Set<string> {
 	const used = new Set<string>();
 	// Entries look like ["scripts", "views", "research.js"].
 	for (const match of text.matchAll(/\[((?:\s*"[^"]+"\s*,?)+)\]/g)) {
@@ -101,11 +117,71 @@ export function webviewManifestTruth(root: string): GroundTruth | null {
 		if (parts[0] !== "scripts" && parts[0] !== "styles") continue;
 		used.add(`packages/vscode/media/${parts.join("/")}`);
 	}
+	return used;
+}
 
+/**
+ * Where the manifest was found, or why it was not.
+ *
+ * Separate from `webviewManifestTruth` so a caller can report the absence.
+ * A scan that quietly loses its ground truth is the false-reporting class this
+ * whole module exists to prevent, and "null" cannot carry a reason.
+ */
+export function webviewManifestStatus(root: string): ManifestStatus {
+	const expected = existsSync(join(root, ...WEBVIEW_MEDIA));
+
+	for (const parts of MANIFEST_SOURCES) {
+		const source = join(root, ...parts);
+		if (!existsSync(source)) continue;
+		let text: string;
+		try {
+			text = readFileSync(source, "utf-8");
+		} catch {
+			continue;
+		}
+		const used = manifestEntries(text);
+		if (used.size === 0) continue;
+		return { expected, source: parts.join("/"), files: used.size };
+	}
+
+	return {
+		expected,
+		files: 0,
+		...(expected
+			? {
+					error: `this project has a webview at packages/vscode/media/scripts but no asset manifest was found in ${MANIFEST_SOURCES.map(
+						(p) => p.join("/"),
+					).join(" or ")}; dead-code findings for webview scripts cannot be suppressed and will be reported as real`,
+				}
+			: {}),
+	};
+}
+
+/**
+ * Files a webview manifest loads, read from the source that loads them.
+ *
+ * This is ground truth rather than a heuristic: `webview-html.ts` holds the
+ * array the extension iterates to emit `<script>` and `<link>` tags, so a path
+ * in it is loaded by definition. Read from the file rather than duplicated into
+ * a config, because a second copy of the manifest would drift the moment
+ * someone adds a script — and a stale suppression list is worse than none.
+ *
+ * Returns null when there is no manifest, so a project without a webview gets
+ * no suppression rather than an empty one that looks authoritative. When a
+ * manifest was EXPECTED and not found, `webviewManifestStatus` carries the
+ * reason — null alone cannot distinguish "nothing to vouch for" from "the
+ * ground truth is gone", and those must never look the same.
+ */
+export function webviewManifestTruth(root: string): GroundTruth | null {
+	const status = webviewManifestStatus(root);
+	if (!status.source) return null;
+
+	const text = readFileSync(join(root, ...status.source.split("/")), "utf-8");
+	const used = manifestEntries(text);
 	return used.size === 0
 		? null
 		: {
-				name: "the webview manifest in packages/vscode/src/webview-html.ts",
+				name: `the webview manifest in ${status.source}`,
 				used,
 			};
 }
@@ -115,6 +191,27 @@ export function groundTruthsFor(root: string): GroundTruth[] {
 	return [webviewManifestTruth(root)].filter(
 		(t): t is GroundTruth => t !== null,
 	);
+}
+
+/**
+ * The ground truths that applied, and the ones that should have and did not.
+ *
+ * The second list is the point. `groundTruthsFor` returning an empty array is
+ * indistinguishable from a project that has nothing to suppress, and a scan
+ * that quietly loses its suppressor reports false positives as real.
+ */
+export function groundTruthReport(root: string): {
+	truths: GroundTruth[];
+	available: { name: string; files: number }[];
+	problems: string[];
+} {
+	const status = webviewManifestStatus(root);
+	const truths = groundTruthsFor(root);
+	return {
+		truths,
+		available: truths.map((t) => ({ name: t.name, files: t.used.size })),
+		problems: status.error ? [status.error] : [],
+	};
 }
 
 export interface SignalInput {

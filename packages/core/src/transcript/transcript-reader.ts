@@ -222,6 +222,15 @@ export interface ReadOptions {
 	limit?: number;
 	/** Include bookkeeping and unknown entries. Off by default. */
 	includeAll?: boolean;
+	/**
+	 * Called for EVERY entry as it streams, before paging is applied.
+	 *
+	 * For counting passes over many transcripts. M8's utilization scan needs
+	 * every `Skill` and `mcp__*` call across 121 files; paging them in would
+	 * retain entries it never looks at twice. With `limit: 0` nothing is kept
+	 * and memory stays flat whatever the file size.
+	 */
+	visit?: (entry: TranscriptEntry) => void;
 }
 
 export interface TranscriptPage {
@@ -339,6 +348,7 @@ export async function readTranscript(
 			entry.index = index++;
 			if (entry.kind === "unknown") stats.unrecognised++;
 			stats.byKind[entry.kind] = (stats.byKind[entry.kind] ?? 0) + 1;
+			options.visit?.(entry);
 
 			const wanted = options.includeAll || entry.kind !== "unknown";
 			if (!wanted) continue;

@@ -23,6 +23,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -119,5 +120,48 @@ describe("documentation cannot destroy the reader's configuration", () => {
 			/install\.sh/,
 			"the safe path has to be the one the reader is given",
 		);
+	});
+});
+
+describe("the README's stated defaults match the code", () => {
+	// The README said `INSPECTOR_HOOK_RETENTION_DAYS=7` for as long as the core
+	// shipped 0. Nobody reading it could have known their history was being
+	// kept; someone reading it would have believed it was being deleted. A
+	// documented default that disagrees with the code is the same failure class
+	// as a button that does nothing — it is confidently wrong, and free.
+	const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+	const readme = readFileSync(join(root, "README.md"), "utf-8");
+	const cli = readFileSync(join(root, "packages", "core", "src", "cli.ts"), "utf-8");
+
+	/** The default the core falls back to for an env var, from cli.ts. */
+	function coreDefault(name) {
+		const m = new RegExp(`${name} \\|\\| "([^"]*)"`).exec(cli);
+		assert.ok(m, `cli.ts has no default for ${name}`);
+		return m[1];
+	}
+
+	function readmeValue(name) {
+		const m = new RegExp(`^${name}=(\\S*)`, "m").exec(readme);
+		assert.ok(m, `${name} is not documented in the README`);
+		return m[1];
+	}
+
+	it("retention: the README states what the core actually defaults to", () => {
+		assert.equal(readmeValue("INSPECTOR_HOOK_RETENTION_DAYS"), coreDefault("INSPECTOR_HOOK_RETENTION_DAYS"));
+	});
+
+	it("documents the narrative gate at all", () => {
+		// One of three gates, and the only one that is not a click. Undocumented,
+		// it is a feature nobody can turn on.
+		assert.match(readme, /INSPECTOR_HOOK_NARRATIVE/);
+		assert.match(readme, /three gates|ONE of three/i);
+	});
+
+	it("says the narrative is off by default", () => {
+		assert.equal(readmeValue("INSPECTOR_HOOK_NARRATIVE"), "0");
+	});
+
+	it("documents session memory as off by default", () => {
+		assert.equal(readmeValue("INSPECTOR_HOOK_SESSION_MEMORY"), "0");
 	});
 });
