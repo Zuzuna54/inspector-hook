@@ -409,6 +409,13 @@ export {
 	type ProjectInfo,
 } from "./managers/project-resolver.js";
 
+// Export agent parentage from the transcript layout (Milestone 5.9)
+export {
+	discoverAgentParents,
+	type AgentParent,
+	type ParentageResult,
+} from "./managers/agent-parentage.js";
+
 // Export skills and MCP tool utilization (Milestone 8)
 export {
 	INSTALLED_PLUGINS_PATH,

@@ -499,6 +499,22 @@ export class InspectorCore {
 				);
 			}
 
+			// Parentage, from the transcript LAYOUT rather than any hook event
+			// (M5.9). Directory walk only, so it costs milliseconds; failures
+			// leave the tree flat and are reported rather than thrown.
+			try {
+				const nesting = await this.agentTracker.loadParentage();
+				if (nesting.parents.size > 0) {
+					process.stderr.write(
+						`[Agents] parentage for ${nesting.parents.size} agents, max depth ${nesting.maxDepth}\n`,
+					);
+				}
+			} catch (error) {
+				process.stderr.write(
+					`[Agents] parentage unavailable: ${(error as Error).message}\n`,
+				);
+			}
+
 			// Start HTTP server for hook ingestion
 			await this.httpServer.start();
 

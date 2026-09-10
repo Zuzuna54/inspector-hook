@@ -32,6 +32,11 @@
 
 import { EventEmitter } from "node:events";
 
+import {
+	discoverAgentParents,
+	type ParentageResult,
+} from "./agent-parentage.js";
+
 import type {
 	AgentRecord,
 	AgentResultKind,
@@ -122,6 +127,9 @@ export declare interface AgentTracker {
 }
 
 export class AgentTracker extends EventEmitter {
+	/** Set by loadParentage. Undefined means it has not been looked for. */
+	private parentage?: ParentageResult;
+
 	private readonly agents = new Map<string, AgentRecord>();
 	/** platform agentId -> our record id, once the two are linked. */
 	private readonly byAgentId = new Map<string, string>();
@@ -422,11 +430,34 @@ export class AgentTracker extends EventEmitter {
 	}
 
 	/**
-	 * The tree, newest first.
+	 * Load parentage from the transcript layout (M5.9).
 	 *
-	 * Nesting is flat today: no captured event states which agent spawned
-	 * another, so inventing a hierarchy would be a guess. `children` exists so
-	 * the shape does not change when parentage becomes available.
+	 * No captured hook event states which agent spawned another — but the
+	 * platform writes a subagent's transcript INSIDE its parent's directory,
+	 * so the path is the answer. Called once at startup beside the backfill;
+	 * it walks directories only and never opens a transcript.
+	 */
+	async loadParentage(transcriptRoot?: string): Promise<ParentageResult> {
+		const result = await discoverAgentParents(transcriptRoot);
+		this.parentage = result;
+		for (const [agentId, parent] of result.parents) {
+			const agent = this.agents.get(agentId) ?? this.resolve(agentId);
+			if (!agent) continue;
+			agent.parentSource = "transcript-layout";
+			if (parent.parentAgentId) agent.parentAgentId = parent.parentAgentId;
+		}
+		return result;
+	}
+
+	/**
+	 * The tree, newest first — and now actually a tree.
+	 *
+	 * An agent whose parent is in the same result becomes a child of it;
+	 * everything else stays at the top level, which is where an agent spawned
+	 * by the session itself belongs. Measured on this machine: **maxDepth 1**,
+	 * because no agent has ever spawned an agent here. That is a finding about
+	 * the corpus, not a limit of this code — `stats().nesting.maxDepth` reports
+	 * it so a flat tree is never read as an unimplemented one again.
 	 */
 	getTree(options?: { sessionId?: string; limit?: number }): AgentTreeNode[] {
 		let list = [...this.agents.values()];
@@ -434,12 +465,33 @@ export class AgentTracker extends EventEmitter {
 			list = list.filter((a) => a.sessionId === options.sessionId);
 		}
 		list.sort((a, b) => (b.startTime ?? "").localeCompare(a.startTime ?? ""));
-		return list
+
+		const nodes = new Map<string, AgentTreeNode>();
+		const ordered = list
 			.slice(0, options?.limit ?? 200)
-			.map((agent) => ({ ...agent, children: [] }));
+			.map((agent) => ({ ...agent, children: [] as AgentTreeNode[] }));
+		for (const node of ordered) nodes.set(node.id, node);
+		// The platform's agent id, when it differs from ours, is what a parent
+		// reference names.
+		for (const node of ordered) {
+			if (node.agentId) nodes.set(node.agentId, node);
+		}
+
+		const roots: AgentTreeNode[] = [];
+		for (const node of ordered) {
+			const parent = node.parentAgentId
+				? nodes.get(node.parentAgentId)
+				: undefined;
+			// A parent outside this page (filtered out, or past the limit) must
+			// not make its child disappear.
+			if (parent && parent !== node) parent.children.push(node);
+			else roots.push(node);
+		}
+		return roots;
 	}
 
 	stats(): AgentStats {
+		const parentage = this.parentage;
 		const byType: Record<string, number> = {};
 		let running = 0;
 		let completed = 0;
