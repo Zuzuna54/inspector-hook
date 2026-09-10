@@ -59,6 +59,14 @@ export const MAX_SKILL_BYTES = 2 * 1024 * 1024;
 const MAX_TREE_DEPTH = 4;
 
 /**
+ * Supporting file paths kept per skill.
+ *
+ * A cap rather than everything: `extraFiles` stays the true count, so a list
+ * shorter than the count is visibly truncated rather than quietly wrong.
+ */
+export const MAX_TREE_FILES = 200;
+
+/**
  * Parse a SKILL.md frontmatter block.
  *
  * Hand-rolled for the same reason `native-memory.ts` hand-rolls its own: the
@@ -115,10 +123,12 @@ function measureTree(root: string): {
 	bytes: number;
 	subdirectories: string[];
 	extraFiles: number;
+	files: string[];
 } {
 	let bytes = 0;
 	let extraFiles = 0;
 	const subdirectories: string[] = [];
+	const files: string[] = [];
 
 	const walk = (dir: string, depth: number, prefix: string): void => {
 		if (depth > MAX_TREE_DEPTH) return;
@@ -141,12 +151,17 @@ function measureTree(root: string): {
 			} catch {
 				// A file that vanished mid-walk contributes nothing.
 			}
-			if (rel !== "SKILL.md") extraFiles++;
+			if (rel !== "SKILL.md") {
+				extraFiles++;
+				if (files.length < MAX_TREE_FILES) files.push(rel);
+			}
 		}
 	};
 	walk(root, 0, "");
 
-	return { bytes, subdirectories, extraFiles };
+	// Sorted so a rendered tree is stable between scans; readdir order is not.
+	files.sort();
+	return { bytes, subdirectories, extraFiles, files };
 }
 
 /** Read one skill directory. */
@@ -182,6 +197,7 @@ function readSkill(dir: string, id: string, source: SkillSource): SkillRecord {
 		bytes: tree.bytes,
 		subdirectories: tree.subdirectories,
 		extraFiles: tree.extraFiles,
+		files: tree.files,
 	};
 }
 

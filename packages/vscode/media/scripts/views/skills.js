@@ -365,6 +365,8 @@ const SkillsView = {
 				${this.actionHtml(skill, archived, v)}
 			</div>
 			${this.factsHtml(skill)}
+			<div class="sk-section-label">Supporting files</div>
+			${this.renderFileTree(skill)}
 			${v.actionError ? `<div class="sk-error">${Utils.escapeHtml(v.actionError)}</div>` : ""}
 			<div class="sk-file">${this.fileHtml(v)}</div>`;
 
@@ -430,8 +432,8 @@ const SkillsView = {
 					: "none — this skill can never be chosen",
 			],
 			[
-				"Tree",
-				`${(skill.bytes / 1024).toFixed(1)} KB · ${skill.extraFiles} supporting file${skill.extraFiles === 1 ? "" : "s"}${skill.subdirectories.length ? ` · ${skill.subdirectories.join(", ")}` : ""}`,
+				"Size",
+				`${(skill.bytes / 1024).toFixed(1)} KB across ${skill.extraFiles + 1} file${skill.extraFiles === 0 ? "" : "s"}`,
 			],
 		];
 		if (skill.frontmatter.trigger) {
@@ -457,7 +459,9 @@ const SkillsView = {
 		}
 		if (!file.text)
 			return `<div class="sk-dim">This skill has no SKILL.md.</div>`;
-		return `<pre class="sk-md">${Utils.escapeHtml(file.text)}</pre>${
+		// Escaped ONCE here; the renderer only ever matches escaped text, so no
+		// path below can emit an unescaped fragment of the file.
+		return `<div class="sk-md">${this.renderMarkdown(Utils.escapeHtml(file.text))}</div>${
 			file.truncated
 				? `<div class="sk-warn">Truncated — the file is ${(file.bytes / 1024).toFixed(0)} KB.</div>`
 				: ""
@@ -469,6 +473,10 @@ const SkillsView = {
 // first. Composed rather than inherited, matching FindView and ResearchView.
 if (typeof window !== "undefined" && window.SkillsToolsMixin) {
 	Object.assign(SkillsView, window.SkillsToolsMixin);
+}
+
+if (typeof window !== "undefined" && window.SkillsMarkdownMixin) {
+	Object.assign(SkillsView, window.SkillsMarkdownMixin);
 }
 
 if (typeof window !== "undefined") window.SkillsView = SkillsView;

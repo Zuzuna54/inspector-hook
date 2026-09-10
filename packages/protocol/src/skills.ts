@@ -68,6 +68,16 @@ export interface SkillRecord {
 	subdirectories: string[];
 	/** Files beyond SKILL.md. Skills are trees, not single files. */
 	extraFiles: number;
+	/**
+	 * Every supporting file, relative to the skill directory.
+	 *
+	 * The count alone was what shipped first, and it cannot answer the question
+	 * a reader actually has: a skill reporting "3 supporting files ·
+	 * references" never names `references/patterns.md`. Capped at
+	 * MAX_TREE_FILES so one pathological skill cannot bloat the record;
+	 * `extraFiles` remains the true total, so a truncated list is detectable.
+	 */
+	files: string[];
 }
 
 /** How often something was used, and where that was counted. */

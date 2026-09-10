@@ -56,6 +56,7 @@ function builtinRecord(id: string): SkillRecord {
 		bytes: 0,
 		subdirectories: [],
 		extraFiles: 0,
+		files: [],
 	};
 }
 

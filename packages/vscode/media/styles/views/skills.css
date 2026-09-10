@@ -232,3 +232,89 @@
 }
 
 .sk-bad { color: var(--vscode-errorForeground); }
+
+/* Rendered SKILL.md (M8.24). The pane is a document, so it gets document
+   spacing rather than the compact list spacing above it. */
+.sk-md {
+	background: var(--vscode-textCodeBlock-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 3px;
+	font-size: 12px;
+	line-height: 1.5;
+	max-height: 460px;
+	overflow: auto;
+	padding: 10px 14px;
+}
+
+.sk-md h1, .sk-md h2, .sk-md h3,
+.sk-md h4, .sk-md h5, .sk-md h6 {
+	font-weight: 600;
+	line-height: 1.3;
+	margin: 14px 0 6px;
+}
+
+.sk-md h1 { font-size: 15px; }
+.sk-md h2 { font-size: 13.5px; }
+.sk-md h3, .sk-md h4, .sk-md h5, .sk-md h6 { font-size: 12.5px; }
+.sk-md > :first-child { margin-top: 0; }
+.sk-md p { margin: 6px 0; }
+.sk-md ul, .sk-md ol { margin: 6px 0; padding-left: 20px; }
+.sk-md li { margin: 2px 0; }
+
+.sk-md code {
+	background: var(--vscode-editor-background);
+	border-radius: 2px;
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 11px;
+	padding: 1px 4px;
+}
+
+.sk-md .md-code {
+	background: var(--vscode-editor-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 3px;
+	font-size: 11px;
+	margin: 8px 0;
+	overflow-x: auto;
+	padding: 8px 10px;
+	white-space: pre;
+}
+
+.sk-md blockquote {
+	border-left: 2px solid var(--vscode-panel-border);
+	color: var(--vscode-descriptionForeground);
+	margin: 6px 0;
+	padding-left: 10px;
+}
+
+.sk-md hr {
+	border: none;
+	border-top: 1px solid var(--vscode-panel-border);
+	margin: 12px 0;
+}
+
+.sk-md .md-url {
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+}
+
+/* The supporting-file tree (M8.25). */
+.sk-section-label {
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	margin: 14px 0 4px;
+	text-transform: uppercase;
+}
+
+.sk-tree {
+	font-size: 11px;
+	list-style: none;
+	margin: 0;
+	padding-left: 14px;
+}
+
+.sk-tree .md-dir {
+	color: var(--vscode-descriptionForeground);
+	list-style: none;
+	margin-top: 3px;
+}

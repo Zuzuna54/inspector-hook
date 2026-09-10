@@ -95,6 +95,8 @@ function loadSkills(stateOverrides = {}) {
 	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 	eval(readMedia("scripts/views/skills/tools-render.js"));
 	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
+	eval(readMedia("scripts/views/skills/markdown-render.js"));
+	// biome-ignore lint/security/noGlobalEval: classic script, see harness.js
 	eval(readMedia("scripts/views/skills.js"));
 	const view = globalThis.window.SkillsView;
 	view._unsubscribers = [];
@@ -111,6 +113,7 @@ const skill = (over = {}) => ({
 	bytes: 4096,
 	subdirectories: [],
 	extraFiles: 0,
+	files: [],
 	usage: {
 		invocations: 0,
 		distinctSessions: 0,
@@ -495,6 +498,107 @@ describe("the Skills view", () => {
 		assert.match(detail, /Advertises/);
 		assert.match(detail, /2 of 3/);
 		assert.match(detail, /fetch_urls/);
+	});
+
+	it("renders SKILL.md as markdown, not as a wall of pre", () => {
+		// §8.3 asked for a rendered SKILL.md and it shipped as escaped <pre>.
+		// The structure is the point: a skill's headings and lists are what
+		// tell you what it does at a glance.
+		const { view, made, State } = loadSkills({
+			skills: [skill()],
+			summary: summary(),
+			source: { transcriptsScanned: 121, scanMs: 1800 },
+			selected: "writing-tests",
+		});
+		view.init();
+		State.update("skillsView", {
+			...State.skillsView,
+			fileLoading: false,
+			file: {
+				id: "writing-tests",
+				path: "/x/SKILL.md",
+				text: [
+					"---",
+					"name: writing-tests",
+					"---",
+					"",
+					"# Writing tests",
+					"",
+					"Use **node:test**. Steps:",
+					"",
+					"- run `pnpm test`",
+					"- read the output",
+					"",
+					"```bash",
+					"pnpm -r run test",
+					"```",
+				].join("\n"),
+			},
+		});
+		const html = made.get("sk-detail").innerHTML;
+		assert.match(html, /<h1>Writing tests<\/h1>/);
+		assert.match(html, /<strong>node:test<\/strong>/);
+		assert.match(html, /<li>run <code>pnpm test<\/code><\/li>/);
+		assert.match(html, /<pre class="md-code" data-lang="bash">/);
+		assert.equal(html.includes('<pre class="sk-md">'), false);
+	});
+
+	it("REGRESSION: markdown rendering escapes before it renders", () => {
+		// The renderer only ever matches ALREADY-escaped text, so no path can
+		// emit an unescaped fragment of a file. A skill is a file on disk that
+		// the user may not have written.
+		const { view, made, State } = loadSkills({
+			skills: [skill()],
+			summary: summary(),
+			source: { transcriptsScanned: 121, scanMs: 1800 },
+			selected: "writing-tests",
+		});
+		view.init();
+		State.update("skillsView", {
+			...State.skillsView,
+			fileLoading: false,
+			file: {
+				id: "writing-tests",
+				path: "/x/SKILL.md",
+				text: '# Head\n\n<img src=x onerror="alert(1)">\n',
+			},
+		});
+		const html = made.get("sk-detail").innerHTML;
+		assert.equal(html.includes("<img"), false, "no live tag from file content");
+		assert.match(html, /&lt;img/, "it survives as visible text");
+	});
+
+	it("names the supporting files instead of counting them", () => {
+		// It shipped as a comma-joined list of directory NAMES plus a count,
+		// which never names references/patterns.md.
+		const { view, made } = loadSkills({
+			skills: [
+				skill({
+					subdirectories: ["references", "assets"],
+					extraFiles: 3,
+					files: ["assets/logo.svg", "references/patterns.md", "notes.txt"],
+				}),
+			],
+			summary: summary(),
+			source: { transcriptsScanned: 121, scanMs: 1800 },
+			selected: "writing-tests",
+		});
+		view.init();
+		const html = made.get("sk-detail").innerHTML;
+		assert.match(html, /patterns\.md/);
+		assert.match(html, /logo\.svg/);
+		assert.match(html, /references\//);
+	});
+
+	it("says how many files it is not listing rather than looking complete", () => {
+		const { view, made } = loadSkills({
+			skills: [skill({ extraFiles: 250, files: ["a.md", "b.md"] })],
+			summary: summary(),
+			source: { transcriptsScanned: 121, scanMs: 1800 },
+			selected: "writing-tests",
+		});
+		view.init();
+		assert.match(made.get("sk-detail").innerHTML, /248 more not listed/);
 	});
 
 	it("shows the failure instead of an empty list", () => {
