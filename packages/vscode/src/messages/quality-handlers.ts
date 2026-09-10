@@ -37,7 +37,8 @@ export async function handleQualityCommand(
 	const rpc = ctx.coreBridge as unknown as {
 		sendRequest<T>(method: string, params?: unknown): Promise<T>;
 	};
-	const root = (params as { root?: string })?.root;
+	const p = (params ?? {}) as { root?: string; buildGraph?: boolean };
+	const root = p.root;
 
 	switch (command) {
 		case "quality-projects": {
@@ -72,7 +73,7 @@ export async function handleQualityCommand(
 			try {
 				ctx.send({
 					type: "quality-report",
-					payload: await scanQuality(rpc, root),
+					payload: await scanQuality(rpc, root, p.buildGraph === true),
 				});
 			} catch (error) {
 				// A scan that dies must land as a failed scan, not a spinner that

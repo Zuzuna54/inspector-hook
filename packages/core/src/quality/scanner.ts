@@ -30,9 +30,9 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-
 import type {
 	CircularDependency,
 	QualityFinding,
@@ -41,8 +41,7 @@ import type {
 	ToolResult,
 	ToolStatus,
 } from "@inspector-hook/protocol";
-
-import { GraphifyReader } from "../research/graphify.js";
+import { buildGraph, GraphifyReader } from "../research/graphify.js";
 import {
 	ANALYZERS,
 	type Analyzer,
@@ -221,8 +220,46 @@ export function parseSonarSecrets(stdout: string): SecretFinding[] {
 	return out;
 }
 
+/**
+ * How long a graph build gets.
+ *
+ * `graphify update` is AST-only with no model call, but it walks the whole
+ * repository. Measured on this one: 4095 nodes in well under a minute. Five
+ * minutes is generous for a large repository and still bounded.
+ */
+export const GRAPH_BUILD_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Roots a graph build must refuse.
+ *
+ * `discoverProjects` reads the `cwd` a session ran in, and a session started
+ * in a home directory makes that home directory a "project" — measured: one of
+ * the 18 on this machine is `/Users/giorgobg` itself. `graphify update` walks
+ * everything below its root, so building there would crawl the entire home
+ * directory, every repository inside it, and every node_modules along the way.
+ *
+ * The check is structural rather than a denylist: a root at or above the home
+ * directory, or fewer than two segments deep, is not a project.
+ */
+export function refuseGraphBuild(root: string): string | null {
+	const home = homedir();
+	if (root === home || home.startsWith(`${root}/`)) {
+		return `refusing to build a graph at ${root}: it is at or above the home directory, and graphify walks everything below its root`;
+	}
+	if (root.split("/").filter(Boolean).length < 2) {
+		return `refusing to build a graph at ${root}: too close to the filesystem root`;
+	}
+	return null;
+}
+
 export interface ScanOptions {
-	/** Rebuild the graph before analysing it. Slow; off by default. */
+	/**
+	 * Build the graph before analysing it.
+	 *
+	 * Off by default, because `graphify update` walks the whole repository.
+	 * When true the scan reports a `graphify-build` tool result, so a build
+	 * that failed is visible rather than showing up as "no graph".
+	 */
 	buildGraph?: boolean;
 	timeoutMs?: number;
 	/**
@@ -368,6 +405,42 @@ export async function scanProject(
 
 	// --- graphify -----------------------------------------------------------
 	{
+		// Build FIRST when asked (M7.20). §7.2 makes per-project graph building
+		// a deliverable -- "the scan does that, so all 17 get graphs rather than
+		// 1" -- and `buildGraph` sat here declared and read by nothing for a
+		// whole milestone. The scan read graphs and never created one, so 17 of
+		// 18 projects on disk got the narrow signal only.
+		//
+		// Off by default and it stays off by default: `graphify update` walks a
+		// whole repository and takes seconds to minutes, which is not something
+		// a scan should do without being asked.
+		if (options?.buildGraph) {
+			const buildStart = Date.now();
+			const refusal = refuseGraphBuild(root);
+			if (refusal) {
+				tools.push({
+					tool: "graphify-build",
+					language: "any",
+					label: "graphify (build the graph)",
+					status: "not-applicable",
+					durationMs: 0,
+					reason: refusal,
+				});
+			} else {
+				const built = await buildGraph(root, {
+					timeoutMs: options.timeoutMs ?? GRAPH_BUILD_TIMEOUT_MS,
+				});
+				tools.push({
+					tool: "graphify-build",
+					language: "any",
+					label: "graphify (build the graph)",
+					status: built.ok ? "ok" : "failed",
+					durationMs: Date.now() - buildStart,
+					...(built.ok ? {} : { error: built.error ?? built.output }),
+				});
+			}
+		}
+
 		const reader = new GraphifyReader(root);
 		const before = Date.now();
 		const loaded = reader.load();
@@ -378,7 +451,9 @@ export async function scanProject(
 				durationMs: Date.now() - before,
 				error:
 					("error" in loaded && loaded.error) ||
-					"no graph; build one with `graphify update .`",
+					(options?.buildGraph
+						? "the build ran and produced no readable graph"
+						: "no graph; use Build graph + scan, or run `graphify update .`"),
 			});
 		} else {
 			const analysis = analyseGraph(loaded.graph, { root, topN: 20 });

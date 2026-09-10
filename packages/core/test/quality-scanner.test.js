@@ -12,9 +12,12 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
 	parseKnipFiles,
@@ -22,9 +25,13 @@ import {
 	parseSonarSecrets,
 	projectStoreId,
 	QualityStore,
+	refuseGraphBuild,
 	scanProject,
 } from "../dist/index.js";
 import { cleanup, makeTempStore } from "./helpers.js";
+
+/** The repository root, so the source probe works on any machine. */
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 const dirs = [];
 after(async () => {
@@ -446,5 +453,87 @@ describe("quality: stored history and trends", () => {
 		const id = projectStoreId("/Users/me/Desktop/my-app");
 		assert.match(id, /Users_me_Desktop_my-app/);
 		assert.ok(!id.includes("/"));
+	});
+});
+
+describe("building the graph, not just reading it (M7.20)", () => {
+	it("REGRESSION: buildGraph is read — it was declared and inert", () => {
+		// §7.2 makes per-project graph building a deliverable: "the scan does
+		// that, so all 17 get graphs rather than 1". ScanOptions.buildGraph
+		// existed, was documented, and was read by NOTHING for a whole
+		// milestone, so 17 of the 18 projects on disk had the broad
+		// language-agnostic signal missing entirely.
+		const source = readFileSync(
+			join(REPO, "packages/core/src/quality/scanner.ts"),
+			"utf8",
+		).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+		// Probing for `options?.buildGraph` was NOT enough: the flag is also read
+		// to word the "no graph" message, so that probe passed with the build
+		// block deleted. Verified by deleting it. This asserts the CALL, which
+		// is the thing that was actually missing.
+		assert.match(
+			source,
+			/await buildGraph\(\s*root/,
+			"the scan must actually invoke the builder — comments stripped first",
+		);
+	});
+
+	it("refuses a root at or above the home directory", () => {
+		// discoverProjects reads the cwd a session ran in, and one of the 18
+		// real projects IS /Users/giorgobg. graphify walks everything below its
+		// root, so building there would crawl the whole home directory.
+		const home = homedir();
+		assert.match(refuseGraphBuild(home), /at or above the home directory/);
+		// A parent of the home directory is refused by the same branch.
+		assert.match(refuseGraphBuild(dirname(home)), /at or above the home/);
+		// `/` is refused too, by the depth check rather than the home check —
+		// asserted separately so the two reasons cannot be confused.
+		assert.match(refuseGraphBuild("/"), /too close to the filesystem root/);
+		assert.equal(refuseGraphBuild(join(home, "Desktop", "app")), null);
+	});
+
+	it("reports a refused build as not-applicable, with the reason", async () => {
+		const report = await scanProject(
+			{
+				root: homedir(),
+				name: "home",
+				exists: true,
+				hasGit: false,
+				hasPackageJson: false,
+				hasTsconfig: false,
+				hasGraph: false,
+				transcriptDir: "",
+				tools: {},
+				rootSource: "transcript",
+			},
+			{ buildGraph: true, commands: {}, timeoutMs: 1000 },
+		);
+		const build = report.tools.find((t) => t.tool === "graphify-build");
+		assert.ok(build, "a refused build must still be reported");
+		assert.equal(build.status, "not-applicable");
+		assert.match(build.reason, /home directory/);
+	});
+
+	it("does not build unless asked", async () => {
+		const report = await scanProject(
+			{
+				root: join(REPO, "packages/core"),
+				name: "core",
+				exists: true,
+				hasGit: false,
+				hasPackageJson: true,
+				hasTsconfig: true,
+				hasGraph: false,
+				transcriptDir: "",
+				tools: {},
+				rootSource: "transcript",
+			},
+			{ commands: {}, timeoutMs: 1000 },
+		);
+		assert.equal(
+			report.tools.find((t) => t.tool === "graphify-build"),
+			undefined,
+			"a plain scan must never write into the project",
+		);
 	});
 });

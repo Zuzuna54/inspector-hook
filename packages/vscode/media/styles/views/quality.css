@@ -163,3 +163,5 @@
 	background: var(--vscode-textCodeBlock-background);
 	padding: 1px 4px;
 }
+
+.ql-actions { display: flex; gap: 6px; flex-shrink: 0; }

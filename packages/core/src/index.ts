@@ -289,6 +289,8 @@ export {
 	parseSonarSecrets,
 	scanProject,
 	type ScanOptions,
+	GRAPH_BUILD_TIMEOUT_MS,
+	refuseGraphBuild,
 } from "./quality/scanner.js";
 
 export {

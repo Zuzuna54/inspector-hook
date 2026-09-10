@@ -829,6 +829,9 @@ export class IpcServer {
 			}
 			return this.core.scanProjectQuality(root, {
 				timeoutMs: asNum(rec.timeoutMs),
+				// M7.20: the scan can now CREATE a graph, not just read one.
+				// Off unless asked, because it walks the whole repository.
+				buildGraph: asBool(rec.buildGraph) === true,
 			});
 		});
 
