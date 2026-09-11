@@ -25,16 +25,19 @@ describe("SessionManager", () => {
 	describe("session creation", () => {
 		it("creates a session from hook metadata on first activity", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1",
-				hook: "SessionStart",
-				event: "session.start",
-				details: {
-					cwd: "/home/dev/my-project",
-					projectName: "my-project",
-					gitBranch: "main",
-				},
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					hook: "SessionStart",
+					event: "session.start",
+					details: {
+						cwd: "/home/dev/my-project",
+						projectName: "my-project",
+						gitBranch: "main",
+					},
+				}),
+			);
 
 			const session = await mgr.getSession("s1");
 			assert.equal(session.status, "active");
@@ -44,12 +47,15 @@ describe("SessionManager", () => {
 
 		it("derives a project name from cwd when none is supplied", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1",
-				hook: "SessionStart",
-				event: "session.start",
-				details: { cwd: "/a/b/inferred-name" },
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					hook: "SessionStart",
+					event: "session.start",
+					details: { cwd: "/a/b/inferred-name" },
+				}),
+			);
 
 			assert.equal((await mgr.getSession("s1")).name, "inferred-name");
 		});
@@ -62,23 +68,29 @@ describe("SessionManager", () => {
 			// Three concurrent Bash calls, as happens when several tool calls are
 			// issued in one assistant message.
 			for (const id of ["toolu_1", "toolu_2", "toolu_3"]) {
-				mgr.trackActivity("s1", makeLog({
-					sessionId: "s1",
-					tool: "Bash",
-					event: "PreToolUse",
-					executionId: id,
-				}));
+				mgr.trackActivity(
+					"s1",
+					makeLog({
+						sessionId: "s1",
+						tool: "Bash",
+						event: "PreToolUse",
+						executionId: id,
+					}),
+				);
 			}
 
 			// They complete out of order - the case that used to mispair, because
 			// "first running execution named Bash" is not necessarily this one.
 			for (const id of ["toolu_3", "toolu_1", "toolu_2"]) {
-				mgr.trackActivity("s1", makeLog({
-					sessionId: "s1",
-					tool: "Bash",
-					event: "PostToolUse",
-					executionId: id,
-				}));
+				mgr.trackActivity(
+					"s1",
+					makeLog({
+						sessionId: "s1",
+						tool: "Bash",
+						event: "PostToolUse",
+						executionId: id,
+					}),
+				);
 			}
 
 			const session = await mgr.getSession("s1");
@@ -97,12 +109,22 @@ describe("SessionManager", () => {
 
 		it("falls back to tool-name matching when no tool_use_id is present", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Read", event: "PreToolUse",
-			}));
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Read", event: "PostToolUse",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Read",
+					event: "PreToolUse",
+				}),
+			);
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Read",
+					event: "PostToolUse",
+				}),
+			);
 
 			const [exec] = (await mgr.getSession("s1")).toolExecutions;
 			assert.equal(exec.status, "completed");
@@ -110,16 +132,25 @@ describe("SessionManager", () => {
 
 		it("marks a failed tool execution as failed", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Bash", event: "PreToolUse", executionId: "t1",
-			}));
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1",
-				tool: "Bash",
-				event: "PostToolUse",
-				executionId: "t1",
-				level: "error",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Bash",
+					event: "PreToolUse",
+					executionId: "t1",
+				}),
+			);
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Bash",
+					event: "PostToolUse",
+					executionId: "t1",
+					level: "error",
+				}),
+			);
 
 			const [exec] = (await mgr.getSession("s1")).toolExecutions;
 			assert.equal(exec.status, "failed");
@@ -127,17 +158,26 @@ describe("SessionManager", () => {
 
 		it("marks a blocked tool execution as blocked", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Bash", event: "PreToolUse", executionId: "t1",
-			}));
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1",
-				tool: "Bash",
-				event: "PostToolUse",
-				executionId: "t1",
-				level: "blocked",
-				message: "denied by policy",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Bash",
+					event: "PreToolUse",
+					executionId: "t1",
+				}),
+			);
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Bash",
+					event: "PostToolUse",
+					executionId: "t1",
+					level: "blocked",
+					message: "denied by policy",
+				}),
+			);
 
 			const [exec] = (await mgr.getSession("s1")).toolExecutions;
 			assert.equal(exec.status, "blocked");
@@ -151,15 +191,25 @@ describe("SessionManager", () => {
 			let endedEvents = 0;
 			mgr.on("session:ended", () => endedEvents++);
 
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", hook: "SessionStart", event: "session.start",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					hook: "SessionStart",
+					event: "session.start",
+				}),
+			);
 
 			// Stop fires after every single assistant response.
 			for (let i = 0; i < 3; i++) {
-				mgr.trackActivity("s1", makeLog({
-					sessionId: "s1", hook: "Stop", event: "ai.response",
-				}));
+				mgr.trackActivity(
+					"s1",
+					makeLog({
+						sessionId: "s1",
+						hook: "Stop",
+						event: "ai.response",
+					}),
+				);
 			}
 
 			const session = await mgr.getSession("s1");
@@ -173,12 +223,22 @@ describe("SessionManager", () => {
 			let ended = null;
 			mgr.on("session:ended", (s) => (ended = s));
 
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", hook: "SessionStart", event: "session.start",
-			}));
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", hook: "SessionEnd", event: "session.end",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					hook: "SessionStart",
+					event: "session.start",
+				}),
+			);
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					hook: "SessionEnd",
+					event: "session.end",
+				}),
+			);
 
 			const session = await mgr.getSession("s1");
 			assert.equal(session.status, "completed");
@@ -214,9 +274,15 @@ describe("SessionManager", () => {
 	describe("stuck execution reconciliation", () => {
 		it("REGRESSION: resolves executions that never received a completion", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Bash", event: "PreToolUse", executionId: "t1",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Bash",
+					event: "PreToolUse",
+					executionId: "t1",
+				}),
+			);
 
 			// A PreToolUse denial produces neither PostToolUse nor
 			// PostToolUseFailure, so this execution never terminates on its own.
@@ -232,14 +298,24 @@ describe("SessionManager", () => {
 			// failure" -- the test contradicted itself and still passed.
 			assert.equal(exec.status, "unknown");
 			assert.ok(exec.endTime, "must be given an end time");
-			assert.match(exec.error, /outcome is unknown/i, "must be honest, not claim failure");
+			assert.match(
+				exec.error,
+				/outcome is unknown/i,
+				"must be honest, not claim failure",
+			);
 		});
 
 		it("leaves a genuinely recent execution alone", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Bash", event: "PreToolUse", executionId: "t1",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Bash",
+					event: "PreToolUse",
+					executionId: "t1",
+				}),
+			);
 
 			// A long-running Bash command must not be resolved out from under itself.
 			const { resolved } = await mgr.reconcileStuckExecutions({
@@ -247,26 +323,46 @@ describe("SessionManager", () => {
 			});
 
 			assert.equal(resolved, 0);
-			assert.equal((await mgr.getSession("s1")).toolExecutions[0].status, "running");
+			assert.equal(
+				(await mgr.getSession("s1")).toolExecutions[0].status,
+				"running",
+			);
 		});
 
 		it("does not touch already-resolved executions", async () => {
 			const mgr = await newManager();
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Read", event: "PreToolUse", executionId: "t1",
-			}));
-			mgr.trackActivity("s1", makeLog({
-				sessionId: "s1", tool: "Read", event: "PostToolUse", executionId: "t1",
-			}));
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Read",
+					event: "PreToolUse",
+					executionId: "t1",
+				}),
+			);
+			mgr.trackActivity(
+				"s1",
+				makeLog({
+					sessionId: "s1",
+					tool: "Read",
+					event: "PostToolUse",
+					executionId: "t1",
+				}),
+			);
 
 			const { resolved } = await mgr.reconcileStuckExecutions({ maxAgeMs: 0 });
 
 			assert.equal(resolved, 0);
-			assert.equal((await mgr.getSession("s1")).toolExecutions[0].status, "completed");
+			assert.equal(
+				(await mgr.getSession("s1")).toolExecutions[0].status,
+				"completed",
+			);
 		});
 
 		it("drains executions left running by a previous process on load", async () => {
-			const { PersistenceStore, SessionManager } = await import("../dist/index.js");
+			const { PersistenceStore, SessionManager } = await import(
+				"../dist/index.js"
+			);
 			const storagePath = await makeTempStore();
 			tempDirs.push(storagePath);
 			const persistence = new PersistenceStore({ basePath: storagePath });
@@ -279,7 +375,13 @@ describe("SessionManager", () => {
 				startTime: "2026-01-01T00:00:00.000Z",
 				lastActivityTime: "2026-01-01T00:00:00.000Z",
 				toolExecutions: [
-					{ id: "t1", tool: "Bash", input: {}, startTime: "2026-01-01T00:00:00.000Z", status: "running" },
+					{
+						id: "t1",
+						tool: "Bash",
+						input: {},
+						startTime: "2026-01-01T00:00:00.000Z",
+						status: "running",
+					},
 				],
 				fileChanges: [],
 			});
@@ -311,9 +413,14 @@ describe("SessionManager", () => {
 		it("filters sessions by status", async () => {
 			const mgr = await newManager();
 			mgr.trackActivity("a", makeLog({ sessionId: "a" }));
-			mgr.trackActivity("b", makeLog({
-				sessionId: "b", hook: "SessionEnd", event: "session.end",
-			}));
+			mgr.trackActivity(
+				"b",
+				makeLog({
+					sessionId: "b",
+					hook: "SessionEnd",
+					event: "session.end",
+				}),
+			);
 
 			const { sessions } = await mgr.getSessions({ status: "completed" });
 			assert.equal(sessions.length, 1);
@@ -334,15 +441,25 @@ describe("REGRESSION: an unreported outcome is not a failure", () => {
 	it("marks an abandoned execution unknown, not failed", async () => {
 		const { markAbandoned } = await import("../dist/index.js");
 		const exec = {
-			id: "e1", tool: "Read", input: {}, startTime: "2026-09-03T10:00:00.000Z",
+			id: "e1",
+			tool: "Read",
+			input: {},
+			startTime: "2026-09-03T10:00:00.000Z",
 			status: "running",
 		};
 
 		markAbandoned(exec);
 
-		assert.equal(exec.status, "unknown", "not failed — we do not know that it failed");
+		assert.equal(
+			exec.status,
+			"unknown",
+			"not failed — we do not know that it failed",
+		);
 		assert.match(exec.error, /outcome is unknown/);
-		assert.ok(exec.endTime, "and it is terminal, so it stops being reported as running");
+		assert.ok(
+			exec.endTime,
+			"and it is terminal, so it stops being reported as running",
+		);
 	});
 
 	it("REGRESSION: a late completion reconciles a reaped execution", async () => {
@@ -352,10 +469,17 @@ describe("REGRESSION: an unreported outcome is not a failure", () => {
 		// required status "running" on both branches, so the completion matched
 		// nothing and was dropped.
 		const manager = await newManager();
-		manager.trackActivity("s1", makeLog({
-			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
-			tool: "Bash", executionId: "tu-late", details: { cwd: "/w" },
-		}));
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "PreToolUse",
+				event: "PreToolUse",
+				sessionId: "s1",
+				tool: "Bash",
+				executionId: "tu-late",
+				details: { cwd: "/w" },
+			}),
+		);
 		await manager.reconcileStuckExecutions({ maxAgeMs: 0 });
 
 		const before = (await manager.getSession("s1")).toolExecutions[0];
@@ -363,15 +487,26 @@ describe("REGRESSION: an unreported outcome is not a failure", () => {
 		assert.match(before.error, /No completion event/);
 
 		// The real completion finally arrives.
-		manager.trackActivity("s1", makeLog({
-			hook: "PostToolUse", event: "PostToolUse", sessionId: "s1",
-			tool: "Bash", executionId: "tu-late", details: { cwd: "/w" },
-		}));
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "PostToolUse",
+				event: "PostToolUse",
+				sessionId: "s1",
+				tool: "Bash",
+				executionId: "tu-late",
+				details: { cwd: "/w" },
+			}),
+		);
 
 		const after = (await manager.getSession("s1")).toolExecutions;
 		assert.equal(after.length, 1, "reconciled, not duplicated");
 		assert.equal(after[0].status, "completed");
-		assert.equal(after[0].error, undefined, "the stale reaper note must be cleared");
+		assert.equal(
+			after[0].error,
+			undefined,
+			"the stale reaper note must be cleared",
+		);
 	});
 
 	it("a late completion may NOT reconcile by tool name alone", async () => {
@@ -379,17 +514,31 @@ describe("REGRESSION: an unreported outcome is not a failure", () => {
 		// name could attach a late completion to a different call, which is the
 		// cross-pairing bug B2 exists to prevent.
 		const manager = await newManager();
-		manager.trackActivity("s1", makeLog({
-			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
-			tool: "Bash", executionId: "tu-a", details: { cwd: "/w" },
-		}));
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "PreToolUse",
+				event: "PreToolUse",
+				sessionId: "s1",
+				tool: "Bash",
+				executionId: "tu-a",
+				details: { cwd: "/w" },
+			}),
+		);
 		await manager.reconcileStuckExecutions({ maxAgeMs: 0 });
 
 		// A completion with a DIFFERENT id must not claim the reaped one.
-		manager.trackActivity("s1", makeLog({
-			hook: "PostToolUse", event: "PostToolUse", sessionId: "s1",
-			tool: "Bash", executionId: "tu-b", details: { cwd: "/w" },
-		}));
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "PostToolUse",
+				event: "PostToolUse",
+				sessionId: "s1",
+				tool: "Bash",
+				executionId: "tu-b",
+				details: { cwd: "/w" },
+			}),
+		);
 
 		const execs = (await manager.getSession("s1")).toolExecutions;
 		const reaped = execs.find((e) => e.id === "tu-a");
@@ -404,10 +553,15 @@ describe("REGRESSION: an unreported outcome is not a failure", () => {
 			idleTimeoutMs: 1,
 			completedTimeoutMs: 2,
 		});
-		manager.trackActivity("s1", makeLog({
-			hook: "SessionStart", event: "session.start", sessionId: "s1",
-			details: { cwd: "/w" },
-		}));
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "SessionStart",
+				event: "session.start",
+				sessionId: "s1",
+				details: { cwd: "/w" },
+			}),
+		);
 
 		const session = await manager.getSession("s1");
 		session.lastActivityTime = new Date(Date.now() - 60_000).toISOString();
@@ -422,18 +576,102 @@ describe("REGRESSION: an unreported outcome is not a failure", () => {
 		);
 	});
 
+	it("REGRESSION: an idle session ends when it went quiet, not when we noticed", async () => {
+		// `endTime = new Date()` looked harmless and broke two things at once.
+		// A session idle since last week was recorded as ending the moment the
+		// core next started — so its duration was however long the machine had
+		// been off — and, worse, its age RESET on every restart, so retention
+		// could never expire it. That is the mechanism that kept `summaries/`
+		// empty on the real machine while every unit test of the collapse path
+		// passed: the collapse was correct and nothing ever reached it.
+		const completedTimeoutMs = 2000;
+		const manager = await newManager({ idleTimeoutMs: 1, completedTimeoutMs });
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "SessionStart",
+				event: "session.start",
+				sessionId: "s1",
+				details: { cwd: "/w" },
+			}),
+		);
+
+		const quietAt = new Date(Date.now() - 9 * 86_400_000);
+		(await manager.getSession("s1")).lastActivityTime = quietAt.toISOString();
+
+		manager.checkStaleSessions();
+		manager.checkStaleSessions();
+
+		const session = await manager.getSession("s1");
+		assert.equal(session.status, "completed");
+
+		const endedAt = new Date(session.endTime).getTime();
+		assert.equal(
+			endedAt,
+			quietAt.getTime() + completedTimeoutMs,
+			"endTime must be derived from the session's own last activity",
+		);
+		// The property that actually matters to retention: this is OLD.
+		assert.ok(
+			Date.now() - endedAt > 8 * 86_400_000,
+			`a session quiet for 9 days ended ${Date.now() - endedAt}ms ago`,
+		);
+	});
+
+	it("ends it strictly AFTER its last activity, so the B4 repair leaves it alone", async () => {
+		// The timeout is added rather than using lastActivity directly because
+		// migration 0->1 deletes an endTime that is <= the last activity,
+		// reading it as the Stop-as-session-end bug. An endTime equal to it
+		// would be undone on the next start and the pair would flip-flop
+		// forever — completed, repaired to idle, completed again.
+		const manager = await newManager({
+			idleTimeoutMs: 1,
+			completedTimeoutMs: 2,
+		});
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "SessionStart",
+				event: "session.start",
+				sessionId: "s1",
+				details: { cwd: "/w" },
+			}),
+		);
+		const quiet = new Date(Date.now() - 60_000).toISOString();
+		(await manager.getSession("s1")).lastActivityTime = quiet;
+
+		manager.checkStaleSessions();
+		manager.checkStaleSessions();
+
+		const session = await manager.getSession("s1");
+		assert.ok(
+			session.endTime > session.lastActivityTime,
+			`endTime ${session.endTime} must be after lastActivityTime ${session.lastActivityTime}`,
+		);
+	});
+
 	it("does not count an unknown outcome as an error in session stats", async () => {
 		// This is where the reaper's guess became a reported error count.
 		const manager = await newManager();
 		// trackActivity(sessionId, log) — synchronous, two arguments.
-		manager.trackActivity("s1", makeLog({
-			hook: "PreToolUse", event: "PreToolUse", sessionId: "s1",
-			tool: "ExitPlanMode", executionId: "tu-x",
-			details: { cwd: "/w/proj" },
-		}));
+		manager.trackActivity(
+			"s1",
+			makeLog({
+				hook: "PreToolUse",
+				event: "PreToolUse",
+				sessionId: "s1",
+				tool: "ExitPlanMode",
+				executionId: "tu-x",
+				details: { cwd: "/w/proj" },
+			}),
+		);
 
 		const session = await manager.getSession("s1");
-		assert.equal(session.toolExecutions.length, 1, "the execution was recorded");
+		assert.equal(
+			session.toolExecutions.length,
+			1,
+			"the execution was recorded",
+		);
 		const { markAbandoned } = await import("../dist/index.js");
 		markAbandoned(session.toolExecutions[0]);
 
