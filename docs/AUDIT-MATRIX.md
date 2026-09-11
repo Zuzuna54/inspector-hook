@@ -38,8 +38,8 @@ not where it names a behaviour.
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 124 | 46% |
-| **broken** | 20 | 7% |
+| **verified** | 127 | 47% |
+| **broken** | 17 | 6% |
 | **not-impl** | 55 | 20% |
 | **untested** | 69 | 25% |
 | **total** | 268 | |
@@ -347,7 +347,7 @@ work". Two rows changed status purely by someone running the command.
 | Create diff-engine.ts | **verified** | `packages/core/src/managers/diff-engine.ts` — _artifact_ |
 | Implement basic diff algorithm | **verified** | `diff-engine.test.js` — LCS, hunk boundaries, context lines — _test_ |
 | Implement unified diff formatting | **verified** | `diff-engine.test.js` — LCS, hunk boundaries, context lines — _test_ |
-| Add hunk-level operations | **broken** | `keepHunk`/`revertHunk` exist in `api.js` and `panel.ts`; no core implementation behind them |
+| Add hunk-level operations | **verified** | Fixed 2026-09-08 and this row was stale until 2026-09-11. `FileTracker.resolveHunk` is the core implementation, reached through `core-bridge.ts`, and it refuses when the file on disk has moved on — _test_ · `hunk-operations.test.js` |
 
 ### Task 2.6: Implement Persistence Layer
 
@@ -650,21 +650,21 @@ work". Two rows changed status purely by someone running the command.
 | CHANGELOG.md updated | **not-impl** | No CHANGELOG.md |
 | README.md reviewed | **untested** | Rewritten; `wsPort` and the legacy hook schema removed — _evidence class: read; downgraded per the rule above_ |
 | Security audit completed | **broken** | Partial. Origin rejection, rate limiting, redaction and a **path-traversal fix** landed; no full audit |
-| Performance benchmarks met | **broken** | Hook 37ms and payload size met; **core start 533ms misses the 500ms target** |
+| Performance benchmarks met | **broken** | Hook 37ms and payload size met; core start still misses the 500ms target and the figure moved the wrong way — **1388ms** against a 123 MB store on 2026-09-11, because start now also backfills agents, parentage and the research index |
 
 ### Build
 
 | Criterion | Status | Evidence |
 |---|---|---|
 | Clean build succeeds | **verified** | `pnpm build` from deleted `node_modules`, no flags — _live_ |
-| VSIX package created | **broken** | **No VSIX can be built.** `vsce ls` → `ERROR Invalid extension name '@inspector-hook/vscode'` — a scoped name is illegal in a VS Code manifest. Was marked untested; running it showed it is broken |
+| VSIX package created | **verified** | Fixed, and this row was stale until 2026-09-11. Packaged again on that date: **125 files, 371.8 KB**. CI packages it on every run, which is what stops the unpackageable state returning — _live_ |
 | Package size acceptable (< 5MB) | **untested** | Blocked by the manifest name above. With the name patched, a scratch build produced 149 KB / 67 files — so the size is fine and the packaging is not |
 
 ### Testing
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Fresh install works | **broken** | `vsce package --no-dependencies` ships no `node_modules`, while `core-bridge.ts` resolves the core to `<extensionPath>/node_modules/@inspector-hook/core/dist/cli.js`. A fresh install would spawn a file that is not in the package; it works in the dev tree only via the workspace symlink |
+| Fresh install works | **verified** | Fixed by `findCorePath`, and this row was stale until 2026-09-11. Re-checked by unzipping the VSIX: the bundled core is at `extension/dist/core/cli.js`, no `node_modules` ships, and the packaged core answers JSON-RPC — the same three assertions CI makes — _live_ |
 | Upgrade from previous version works | **not-impl** | No released version to upgrade from |
 | All features functional | **broken** | The shipped views work; Phase 4 and 5 features do not exist |
 | No console errors | **untested** | None seen in the UI pass; not systematically checked |
@@ -737,7 +737,7 @@ work". Two rows changed status purely by someone running the command.
 | Criterion | Status | Evidence |
 |---|---|---|
 | Zero critical security issues | **broken** | One found and fixed this session (path traversal); no independent audit |
-| < 200MB memory usage | **broken** | **927 MB RSS measured** on a long-running core — 4.6x the budget. Was untested; measuring it settled it |
+| < 200MB memory usage | **broken** | Still over, but the number was stale by 3x. Re-measured 2026-09-11 against the same 123 MB store: **325 MB RSS after start**, down from 927 MB once `listJSON` stopped JSON-parsing every session to read its size. 1.6x the budget rather than 4.6x — _live_ |
 | < 100ms average response | **untested** | Not measured |
 | < 5MB package size | **untested** | Never packaged, so never measured |
 | 100% documented features | **broken** | Docs corrected, but Phase 4/5 specs describe features that do not exist |
