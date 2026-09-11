@@ -316,7 +316,26 @@ export class SessionManager extends EventEmitter {
 				// Check if idle session should become completed
 				if (timeSinceActivity >= this.completedTimeoutMs) {
 					session.status = "completed";
-					session.endTime = new Date().toISOString();
+					// Derived from the session's OWN last activity, not from the
+					// clock. Using `now` looked harmless and broke two things:
+					//
+					//  - a session idle since last week was recorded as having
+					//    ended the moment the core next started, so its duration
+					//    was however long the machine had been off;
+					//  - and it reset the session's age on EVERY restart, so
+					//    retention could never expire it. That is the mechanism
+					//    that kept `summaries/` empty on the real machine while
+					//    every unit test of the collapse path passed.
+					//
+					// The timeout is added rather than using lastActivity
+					// directly because the B4 repair migration deletes an
+					// endTime that is <= the last activity, treating it as the
+					// Stop-as-session-end bug — so an endTime equal to it would
+					// be undone on the next start and the pair would flip-flop
+					// forever.
+					session.endTime = new Date(
+						lastActivityTime + this.completedTimeoutMs,
+					).toISOString();
 					this.emit("session:ended", session);
 					await this.persistSession(session);
 				}

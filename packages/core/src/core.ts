@@ -254,6 +254,14 @@ export class InspectorCore {
 			fileTracker: this.fileTracker,
 			// The subagent briefing hook reaches the core over HTTP.
 			getBriefing: (options) => this.getBriefing(options),
+			// A reclaim moves the core onto the canonical port after startup,
+			// which every discovery point has to follow (M2.20).
+			onPortChange: (next) => {
+				process.stderr.write(
+					`[Inspector Hook] reclaimed the canonical port ${next}\n`,
+				);
+				this.onHttpPortChange?.(next);
+			},
 		});
 
 		this.ipcServer = new IpcServer({
@@ -1020,6 +1028,15 @@ export class InspectorCore {
 	getAgentTracker(): AgentTracker {
 		return this.agentTracker;
 	}
+
+	/**
+	 * Notified when the HTTP server migrates to the canonical port.
+	 *
+	 * Set by the CLI so the port file follows the move. A field rather than an
+	 * event because there is exactly one interested party and an unobserved
+	 * emitter is how a port file goes stale unnoticed.
+	 */
+	onHttpPortChange?: (port: number) => void;
 
 	/** The workspace this core was started for. */
 	getWorkspaceRoot(): string {

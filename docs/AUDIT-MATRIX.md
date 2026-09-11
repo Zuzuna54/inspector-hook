@@ -1,7 +1,7 @@
 # Feature Audit Matrix
 
 Milestone 1.3. **All 268 acceptance checkboxes from `docs/phases/*.md`**, each resolved to a
-status with evidence — **plus 119 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
+status with evidence — **plus 122 rows for Milestones 2, 3, 4, 5, 7 and 8**, tallied separately at the end.
 
 M3 and M4 have no phase document, so neither appeared here at all: this matrix covered every
 milestone except the two the branch actually shipped.
@@ -38,8 +38,8 @@ not where it names a behaviour.
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 124 | 46% |
-| **broken** | 20 | 7% |
+| **verified** | 127 | 47% |
+| **broken** | 17 | 6% |
 | **not-impl** | 55 | 20% |
 | **untested** | 69 | 25% |
 | **total** | 268 | |
@@ -347,7 +347,7 @@ work". Two rows changed status purely by someone running the command.
 | Create diff-engine.ts | **verified** | `packages/core/src/managers/diff-engine.ts` — _artifact_ |
 | Implement basic diff algorithm | **verified** | `diff-engine.test.js` — LCS, hunk boundaries, context lines — _test_ |
 | Implement unified diff formatting | **verified** | `diff-engine.test.js` — LCS, hunk boundaries, context lines — _test_ |
-| Add hunk-level operations | **broken** | `keepHunk`/`revertHunk` exist in `api.js` and `panel.ts`; no core implementation behind them |
+| Add hunk-level operations | **verified** | Fixed 2026-09-08 and this row was stale until 2026-09-11. `FileTracker.resolveHunk` is the core implementation, reached through `core-bridge.ts`, and it refuses when the file on disk has moved on — _test_ · `hunk-operations.test.js` |
 
 ### Task 2.6: Implement Persistence Layer
 
@@ -650,21 +650,21 @@ work". Two rows changed status purely by someone running the command.
 | CHANGELOG.md updated | **not-impl** | No CHANGELOG.md |
 | README.md reviewed | **untested** | Rewritten; `wsPort` and the legacy hook schema removed — _evidence class: read; downgraded per the rule above_ |
 | Security audit completed | **broken** | Partial. Origin rejection, rate limiting, redaction and a **path-traversal fix** landed; no full audit |
-| Performance benchmarks met | **broken** | Hook 37ms and payload size met; **core start 533ms misses the 500ms target** |
+| Performance benchmarks met | **broken** | Hook 37ms and payload size met; core start still misses the 500ms target and the figure moved the wrong way — **1388ms** against a 123 MB store on 2026-09-11, because start now also backfills agents, parentage and the research index |
 
 ### Build
 
 | Criterion | Status | Evidence |
 |---|---|---|
 | Clean build succeeds | **verified** | `pnpm build` from deleted `node_modules`, no flags — _live_ |
-| VSIX package created | **broken** | **No VSIX can be built.** `vsce ls` → `ERROR Invalid extension name '@inspector-hook/vscode'` — a scoped name is illegal in a VS Code manifest. Was marked untested; running it showed it is broken |
+| VSIX package created | **verified** | Fixed, and this row was stale until 2026-09-11. Packaged again on that date: **125 files, 371.8 KB**. CI packages it on every run, which is what stops the unpackageable state returning — _live_ |
 | Package size acceptable (< 5MB) | **untested** | Blocked by the manifest name above. With the name patched, a scratch build produced 149 KB / 67 files — so the size is fine and the packaging is not |
 
 ### Testing
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Fresh install works | **broken** | `vsce package --no-dependencies` ships no `node_modules`, while `core-bridge.ts` resolves the core to `<extensionPath>/node_modules/@inspector-hook/core/dist/cli.js`. A fresh install would spawn a file that is not in the package; it works in the dev tree only via the workspace symlink |
+| Fresh install works | **verified** | Fixed by `findCorePath`, and this row was stale until 2026-09-11. Re-checked by unzipping the VSIX: the bundled core is at `extension/dist/core/cli.js`, no `node_modules` ships, and the packaged core answers JSON-RPC — the same three assertions CI makes — _live_ |
 | Upgrade from previous version works | **not-impl** | No released version to upgrade from |
 | All features functional | **broken** | The shipped views work; Phase 4 and 5 features do not exist |
 | No console errors | **untested** | None seen in the UI pass; not systematically checked |
@@ -737,7 +737,7 @@ work". Two rows changed status purely by someone running the command.
 | Criterion | Status | Evidence |
 |---|---|---|
 | Zero critical security issues | **broken** | One found and fixed this session (path traversal); no independent audit |
-| < 200MB memory usage | **broken** | **927 MB RSS measured** on a long-running core — 4.6x the budget. Was untested; measuring it settled it |
+| < 200MB memory usage | **broken** | Still over, but the number was stale by 3x. Re-measured 2026-09-11 against the same 123 MB store: **325 MB RSS after start**, down from 927 MB once `listJSON` stopped JSON-parsing every session to read its size. 1.6x the budget rather than 4.6x — _live_ |
 | < 100ms average response | **untested** | Not measured |
 | < 5MB package size | **untested** | Never packaged, so never measured |
 | 100% documented features | **broken** | Docs corrected, but Phase 4/5 specs describe features that do not exist |
@@ -747,7 +747,7 @@ work". Two rows changed status purely by someone running the command.
 
 ## Milestones 3–4 — native memory, research history and RAG
 
-**These 119 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
+**These 122 rows are ADDITIONAL to the 268 above and are tallied separately.** The 268 come
 from `docs/phases/*.md`; M3 onward were added by the plan and have no phase document, which is
 why this matrix covered none of the milestones the branch actually shipped. A backlog
 silent about the newest work is the same failure this document was already corrected for once.
@@ -766,9 +766,17 @@ measurement of 17,192 log rows plus one end-to-end run, and turned up a third: a
 
 | | Count | Share |
 |---|---:|---:|
-| **verified** | 113 | 94% |
-| **untested** | 4 | 3% |
-| **not-impl** | 2 | 1% |
+| **verified** | 121 | 99% |
+| **untested** | 0 | 0% |
+| **not-impl** | 1 | 0% |
+
+**The last four `untested` rows closed on 2026-09-11, and two of them were hiding real bugs.**
+`untested` meant "wired, but nothing on this machine has ever produced one", and chasing each to
+the ground was worth more than the rows themselves: M4.13 (`summaries/` permanently empty) turned
+out not to be a collapse-path problem at all — the idle sweep reset every session's `endTime` to
+`now`, so retention never saw anything old enough to expire. And M2.20 stopped being a decision
+once the canonical port could be reclaimed. M3.7 closed on an A/B against a real session rather
+than on a code read. The one row left at `not-impl` is M7.21, which is tied to the deferred M6.
 
 Four of the 46 `verified` rows were **`broken` or `inert` when first audited this cycle** —
 M4.5 (one repository held six project keys), M4.17 (`buildGraph` reachable by nothing) and
@@ -787,7 +795,7 @@ produced it. No status outside the five defined above is used here.
 | M3.4 | The flag reaches the core process | verified | live · forwarded explicitly in `core-bridge.ts`; inheritance made it unreachable before `dec9245` |
 | M3.5 | Memory directory is created on first write | verified | test · `1a5ab2a`; the first write per project used to ENOENT |
 | M3.6 | Every path writes the same digest | verified | test · `8209091`, one digest collector |
-| M3.7 | Native loading picks the file up with no injection hook | untested | read · the platform reads these files; never observed end to end from a session Claude actually started |
+| M3.7 | Native loading picks the file up with no injection hook | verified | live · A/B against a real session. A memory file carrying a token written nowhere else (`PLATYPUS-77`) was answered correctly by a fresh `claude -p` with NO injection hook; with the memory directory moved aside the same question answered `UNKNOWN`. This is the evidence for M3's central decision — write into native memory rather than build a parallel injection mechanism |
 | M3.8 | Curation UI lists memory files across every project | verified | test · `context-view.test.js` |
 | M3.9 | Shows what would load, per file | verified | test · `f0f12f3` |
 | M3.10 | Edit a memory file | verified | test · `01a6ea1` — an edit used to land on a different file than the one opened |
@@ -818,7 +826,8 @@ produced it. No status outside the five defined above is used here.
 | M4.10 | Degrades to BM25 when the model is absent, and says so | verified | test · `retrieval` is reported as lexical or hybrid on every result; CI installs `--no-optional` so every run exercises it |
 | M4.11 | Vectors persist across a restart | verified | live · 693 restored, 0 re-embedded |
 | M4.12 | Retention enforced (`logRetentionDays`) | verified | live · logs pruned to 2026-09-03, 4 rotated files; was a stub returning zeros |
-| M4.13 | Storage tiering: collapse to summaries before pruning | untested | read · `collapseSession` is wired and `summaries/` exists, but is **empty** — the store holds 4 days against a 7-day default, so this has never actually run |
+| M4.13 | Storage tiering: collapse to summaries before pruning | verified | live+test · was **broken for a reason outside the collapse path**: the idle sweep set `endTime = now`, so every session's age reset on each restart and retention never saw anything old enough to expire. `summaries/` was empty because nothing ever reached the collapse, not because the collapse was wrong. Fixed, then verified against a COPY of the real store — one session collapsed to a summary carrying its digest and counts, raw record pruned (14 → 13) · `retention-integration.test.js` |
+| M4.14 | A session ends when it went quiet, not when we noticed | verified | test · `endTime` is derived from the session's own last activity plus the completed timeout. Added rather than equal, because migration 0→1 deletes an `endTime` <= the last activity as the Stop-as-session-end bug — an equal value would be undone on the next start and flip-flop forever · `session-manager.test.js` |
 | M4.14 | graphify owns the code/docs graph | verified | live · 4095 nodes / 333 communities built from this repo |
 | M4.15 | Graph is searchable by word, not just exact symbol | verified | live · `identifierText` splitting; "research" returns 104 hits |
 | M4.16 | Graph staleness is three-valued (true/false/**unknown**) | verified | test · `graphify.test.js`; unknown is never rendered as current |
@@ -830,7 +839,7 @@ produced it. No status outside the five defined above is used here.
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
 | M5.1 | Capture `SubagentStart`/`SubagentStop` | verified | live · 44 starts, 384 stops in the store; all five agent events registered in settings.json |
-| M5.2 | Capture `TaskCreated`/`TaskCompleted`/`TeammateIdle` | untested | live · registered and ingested, but **0 TaskCreated/TaskCompleted have ever been captured**; 23 TeammateIdle have. Nothing to verify against yet |
+| M5.2 | Capture `TaskCreated`/`TaskCompleted`/`TeammateIdle` | verified | live+test · `TeammateIdle` has fired 23 times for real. `TaskCreated`/`TaskCompleted` still show 0, because this user has never used the task queue — so the path is proved by driving the real payloads through the real HTTP server instead, and each lands under its own event name rather than being renamed into something the core ignores. An absence of occasions, not an absence of handling · `unobserved-events.test.js` |
 | M5.3 | Attribute an agent's work to it | verified | live · 3757 of 9014 tool events carry `agentId`; 1874 calls attributed across the backfill · `agent-tracker.test.js` |
 | M5.4 | Show what each agent was asked | verified | live · from the spawn call's `tool_input`, present on 32 of 32 |
 | M5.5 | Show what each returned, and what KIND of thing that is | verified | live · `resultKind` report/spawn-ack/none; 14 of 170 are spawn-ack · `agents-view.test.js` |
@@ -851,7 +860,7 @@ Measured 2026-09-09 over 17,192 live log rows and 11,172 tool events, plus one e
 |---|---|---|---|
 | M2.1 | Register every event the core can attribute | verified | live · 30 of 33 in settings.json. The 3 excluded are deliberate: `MessageDisplay` fires per streamed chunk, and the `Elicitation` pair adds nothing a dashboard shows |
 | M2.2 | `PostToolUseFailure` can actually fire | verified | live · was **inert**: handled in the core and registered by no installer. **57 captured** in the store now |
-| M2.3 | `StopFailure` can actually fire | untested | live · registered, and `ai.error` has 5 rows — but no turn has failed in a way that proves the StopFailure path specifically. Registered and unobserved, not handled and unregistered |
+| M2.3 | `StopFailure` can actually fire | verified | test · driven through the real HTTP server into the real managers: it lands as `level: error`, `event: ai.error`, with the error text preserved, and is kept apart from `Stop` — the two share `last_assistant_message`, so one event name would file a failure as a successful reply. Still never observed live, because no turn on this machine has failed that way; what was guesswork was the PATH, and that is no longer guesswork · `unobserved-events.test.js` |
 | M2.4 | Events registered but never observed are not counted as working | verified | live · 23 of 30 event types have fired; the other 7 (worktrees, model switches, tasks) have never happened on this machine and are reported as unobserved rather than broken |
 | M2.5 | `tool_use_id` forwarded, so executions pair | verified | live · 86% overall, and the shortfall is entirely historical — **51% on 2026-09-03 before the hook fix, 100% every day since**. This is B2's real fix: the earlier one was correct, tested, and inert |
 | M2.6 | `prompt_id` forwarded for turn grouping | verified | live · 85%, same historical split |
@@ -868,7 +877,9 @@ Measured 2026-09-09 over 17,192 live log rows and 11,172 tool events, plus one e
 | M2.17 | The core can BE the hook handler | verified | live · `/api/hook` takes the native payload. One `claude -p` run with four HTTP-only hooks and no shell script captured all four events, correct levels, matching `tool_use_id` across the Pre/Post pair, 1733ms real duration, `tool_result` and `last_assistant_message` present |
 | M2.18 | Both transports produce the same record | verified | test · one shared `ingestLog`, and a drift test that derives the event-rename and level tables FROM the shell source rather than restating them · `hook-payload.test.js` |
 | M2.19 | `--http` installs and uninstalls cleanly | verified | test · was **broken**: two jq filters called `test()` on `.command`, null for an http entry, so a second install emptied the settings file — reachable by anyone with an http hook from any tool. Uninstall matches the `/api/hook` path, not the URL, since the port can change between install and uninstall · `hooks.test.js` |
-| M2.20 | HTTP hooks as the DEFAULT transport | not-impl | live · by decision, not omission. An HTTP hook URL is static and the core's port is not — it scans upward when 52376 is taken, and the live core is on 52377. The shell hook re-reads the port file every event. Also, only a command hook can inject context: an HTTP response body cannot write to stdout, so the two context scripts stay command hooks even under `--http` |
+| M2.20 | HTTP hooks as the DEFAULT transport | verified | live · the blocker was that a static URL could point at a dead port, since the core scans upward and stayed there for life. It now RECLAIMS the canonical port when its holder exits, binding the new socket before closing the old, and rewrites the port file when it moves. Both transports are registered by default — the plan's actual design — which needed idempotent ingest first · `port-reclaim.test.js` |
+| M2.22 | Two transports deliver one record | verified | live · both registered means every firing arrives twice. Keyed on hook + session + `tool_use_id`, exact even for parallel calls to the same tool. Proved on a real `claude -p` run: **9 records stored, 8 duplicates dropped** — 8 events × 2 transports plus one internal record, which also proves both transports actually delivered · `transport-parity.test.js` |
+| M2.23 | Dedupe never silently drops a real event | verified | test · deliberately asymmetric — a duplicate is visible and annoying, a dropped event is invisible and permanent. Anything too thin to key confidently is STORED, and the drop count is reported on `/api/stats`, so a zero there while both transports are registered means one is not arriving at all |
 | M2.21 | A hook response never alters the session | verified | read+live · `/api/hook` always answers `{}` with 200, including on malformed input. Claude Code reads the response as hook output, so an error body could surface to the user and a `decision` field could block a tool call |
 
 ### Milestone 7 — code quality across every observed project

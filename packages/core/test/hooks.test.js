@@ -314,7 +314,7 @@ describe("installer", () => {
 		const path = fixture();
 		run(path);
 		const entry = read(path).hooks.PostToolUse.find((g) =>
-			(g.hooks ?? []).some((h) => h.command.includes("inspector-hook")),
+			(g.hooks ?? []).some((h) => (h.command ?? "").includes("inspector-hook")),
 		);
 		assert.ok(entry, "PostToolUse should be registered");
 		assert.ok(Array.isArray(entry.hooks), "must use the nested `hooks` array");
@@ -330,7 +330,7 @@ describe("installer", () => {
 		for (const ev of ["PostToolUseFailure", "StopFailure", "SubagentStart"]) {
 			assert.ok(
 				(s.hooks[ev] ?? []).some((g) =>
-					(g.hooks ?? []).some((h) => h.command.includes("inspector-hook")),
+					(g.hooks ?? []).some((h) => (h.command ?? "").includes("inspector-hook")),
 				),
 				`${ev} must be registered`,
 			);
@@ -456,7 +456,11 @@ describe("installer", () => {
 			return out;
 		}
 
-		it("registers http entries instead of the observer script", () => {
+		it("registers HTTP as primary AND the script as fallback", () => {
+			// The plan's actual design: "http hooks as primary, with one minimal
+			// shell script retained as fallback for when the core isn't
+			// running". Delivering twice is safe because ingest is idempotent --
+			// transport-parity.test.js pins that.
 			const path = fixture();
 			run(path, "--http", "52399");
 			const settings = read(path);
@@ -464,12 +468,30 @@ describe("installer", () => {
 			const urls = allUrls(settings);
 			assert.ok(urls.length >= 25, `only ${urls.length} http entries`);
 			assert.ok(urls.every((u) => u === "http://127.0.0.1:52399/api/hook"));
-			// The observer script is replaced, not registered alongside.
-			assert.equal(
+			assert.ok(
 				allCommands(settings).filter((c) => c.includes("inspector-hook.sh"))
-					.length,
-				0,
-				"the shell observer must not also be registered",
+					.length >= 25,
+				"the shell fallback must be registered too",
+			);
+		});
+
+		it("HTTP is the DEFAULT, not something to opt into (M2.20)", () => {
+			const path = fixture();
+			run(path);
+			assert.ok(
+				allUrls(read(path)).length >= 25,
+				"a plain install must register the HTTP transport",
+			);
+		});
+
+		it("--shell opts out of HTTP entirely", () => {
+			// For a machine where the core runs on a port no URL can name.
+			const path = fixture();
+			run(path, "--shell");
+			assert.deepEqual(allUrls(read(path)), []);
+			assert.ok(
+				allCommands(read(path)).filter((c) => c.includes("inspector-hook.sh"))
+					.length >= 25,
 			);
 		});
 

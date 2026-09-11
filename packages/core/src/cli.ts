@@ -185,6 +185,20 @@ async function main(): Promise<void> {
 			);
 		}
 
+		// If this core settled for a scanned-up port it keeps trying to take the
+		// canonical one back, and the port file has to follow it there --
+		// otherwise the shell transport would keep pointing at the port this
+		// core just left.
+		core.onHttpPortChange = (next) => {
+			void claimPortFile(next).then((moved) => {
+				if (moved.claimed) {
+					process.stderr.write(
+						`[Inspector Hook] port file now points at ${next}\n`,
+					);
+				}
+			});
+		};
+
 		// Output ready JSON for parent process (VS Code extension)
 		const readyMessage = JSON.stringify({ type: "ready", port });
 		process.stdout.write(readyMessage + "\n");

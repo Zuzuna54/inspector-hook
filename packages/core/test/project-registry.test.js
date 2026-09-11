@@ -181,19 +181,28 @@ describe("registry: against this machine", () => {
 
 		const s = summarise(discoverProjects());
 		assert.equal(s.discovered, expected, `discovered ${s.discovered}`);
-		// The measured shape still holds and is the part worth pinning: most
-		// projects Inspector Hook has seen are no longer on disk, and only a
-		// handful are JS/TS -- which is why knip reaches so few of them.
-		assert.ok(s.discovered >= 31, `only ${s.discovered} projects`);
-		assert.ok(
-			s.existing >= 17 && s.existing <= s.discovered,
-			`existing ${s.existing} of ${s.discovered}`,
+
+		// Every absolute floor is gone, and that is the point of this edit.
+		// The previous version derived `expected` and then ALSO asserted
+		// `discovered >= 31` and `existing >= 17` — still pinning this machine,
+		// just less obviously. Claude Code prunes its own project directories,
+		// the count fell from 32 to 30 on its own, and the suite failed for a
+		// reason that had nothing to do with the code.
+		//
+		// What survives is what is true of the FUNCTION regardless of machine:
+		// the parts sum to the whole, and nothing existing is also missing.
+		assert.equal(
+			s.existing + s.missing,
+			s.discovered,
+			`${s.existing} existing + ${s.missing} missing != ${s.discovered}`,
 		);
-		assert.ok(s.knipEligible >= 3, `knip-eligible ${s.knipEligible}`);
 		assert.ok(
-			s.knipEligible < s.existing / 2,
-			`knip reaches ${s.knipEligible} of ${s.existing}, which should be a minority`,
+			s.knipEligible <= s.existing,
+			`knip-eligible ${s.knipEligible} exceeds the ${s.existing} that exist`,
 		);
-		assert.ok(s.missing > 0, "some projects have moved, and that is reported");
+		assert.ok(
+			s.withGraph <= s.existing,
+			`${s.withGraph} graphs across ${s.existing} existing projects`,
+		);
 	});
 });

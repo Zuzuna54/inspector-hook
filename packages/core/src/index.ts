@@ -14,7 +14,11 @@ export { IpcServer } from "./ipc/ipc-server.js";
 
 // Export managers
 export { FileTracker } from "./managers/file-tracker.js";
-export { LogManager } from "./managers/log-manager.js";
+export {
+	DUPLICATE_WINDOW_MS,
+	LogManager,
+	MAX_DELIVERY_KEYS,
+} from "./managers/log-manager.js";
 export { SessionManager } from "./managers/session-manager.js";
 export {
 	deriveSessionName,
@@ -44,7 +48,8 @@ export {
 } from "./persistence/migrations.js";
 
 // Export HTTP server
-export { HttpServer } from "./server/http-server.js";
+export { HttpServer,
+	PORT_RECLAIM_MS } from "./server/http-server.js";
 export {
 	RateLimiter,
 	type RateLimiterOptions,

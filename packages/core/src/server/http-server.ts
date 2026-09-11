@@ -21,6 +21,18 @@ import { redactPayload } from "./redaction.js";
 const PORT_SCAN_RANGE = 20;
 
 /**
+ * How often a core on a scanned-up port retries the canonical one.
+ *
+ * This is what makes a STATIC hook URL safe (M2.20). An HTTP hook is
+ * configured with a literal `http://127.0.0.1:<port>/api/hook`, and until now
+ * the core would settle on 52377 when 52376 was taken and simply stay there —
+ * so once the incumbent exited, the canonical port was dead and every event
+ * posted to it went nowhere, silently. Reclaiming closes that window to one
+ * interval instead of leaving it open forever.
+ */
+export const PORT_RECLAIM_MS = 5_000;
+
+/**
  * Ingest rate limit. Generous relative to real hook traffic — a busy session
  * produces a few events per second — while still bounding a flood.
  */
@@ -46,6 +58,13 @@ export interface HttpServerOptions {
 		projectKey?: string;
 		maxChars?: number;
 	}) => Promise<{ text: string; cited: number; empty: boolean }>;
+	/**
+	 * Called when the server moves to a different port after starting.
+	 *
+	 * Only fires on a successful reclaim of the canonical port. The caller
+	 * rewrites the port file so the shell transport follows the move too.
+	 */
+	onPortChange?: (port: number) => void;
 }
 
 export class HttpServer {
@@ -60,10 +79,14 @@ export class HttpServer {
 	/** Supplies the prior-work briefing, when a core provided one. */
 	private getBriefingFn?: HttpServerOptions["getBriefing"];
 	private pruneInterval: ReturnType<typeof setInterval> | null = null;
+	/** Runs only while this core sits on a port it did not ask for. */
+	private reclaimInterval: ReturnType<typeof setInterval> | null = null;
+	private onPortChange?: HttpServerOptions["onPortChange"];
 
 	constructor(options: HttpServerOptions) {
 		this.requestedPort = options.port;
 		this.redactSecrets = options.redactSecrets !== false;
+		this.onPortChange = options.onPortChange;
 		this.getBriefingFn = options.getBriefing;
 		this.rateLimiter = new RateLimiter({
 			limit: RATE_LIMIT,
@@ -97,6 +120,10 @@ export class HttpServer {
 		) {
 			try {
 				await this.listenOn(port);
+				// Settling for a scanned-up port is not permanent. A statically
+				// configured HTTP hook points at the canonical one, so keep
+				// trying to take it back once its holder goes away.
+				if (port !== this.requestedPort) this.startReclaim();
 				return;
 			} catch (error) {
 				const err = error as NodeJS.ErrnoException;
@@ -154,10 +181,59 @@ export class HttpServer {
 		return this.actualPort;
 	}
 
+	/** True while this core is waiting to take the canonical port back. */
+	isReclaiming(): boolean {
+		return this.reclaimInterval !== null;
+	}
+
+	/**
+	 * Poll for the canonical port and migrate onto it when it frees up.
+	 *
+	 * The new socket is bound BEFORE the old one closes, so there is no instant
+	 * at which the core is listening nowhere. A failed attempt is the normal
+	 * case — the incumbent is still alive — and costs one bind that is rejected
+	 * immediately.
+	 */
+	private startReclaim(): void {
+		if (this.reclaimInterval) return;
+		this.reclaimInterval = setInterval(() => {
+			void this.tryReclaim();
+		}, PORT_RECLAIM_MS);
+		// Never hold the process open just to watch a port.
+		this.reclaimInterval.unref?.();
+	}
+
+	private async tryReclaim(): Promise<void> {
+		if (this.actualPort === this.requestedPort) {
+			this.stopReclaim();
+			return;
+		}
+		const previous = this.server;
+		try {
+			await this.listenOn(this.requestedPort);
+		} catch {
+			// Still taken. Normal; try again next tick.
+			return;
+		}
+		// listenOn replaced this.server, so the old socket is ours to close.
+		previous?.close();
+		this.stopReclaim();
+		this.onPortChange?.(this.actualPort);
+	}
+
+	private stopReclaim(): void {
+		if (!this.reclaimInterval) return;
+		clearInterval(this.reclaimInterval);
+		this.reclaimInterval = null;
+	}
+
 	/**
 	 * Stop the HTTP server
 	 */
 	async stop(): Promise<void> {
+		// A reclaim timer outliving its server would rebind the canonical port
+		// after the core was told to stop.
+		this.stopReclaim();
 		if (this.pruneInterval) {
 			clearInterval(this.pruneInterval);
 			this.pruneInterval = null;
@@ -470,7 +546,22 @@ export class HttpServer {
 	 */
 	private handleStats(res: ServerResponse): void {
 		const stats = this.logManager.getStats();
-		this.sendJson(res, stats);
+		this.sendJson(res, {
+			...stats,
+			/**
+			 * Repeat deliveries collapsed into an existing record (M2.20).
+			 *
+			 * Reported rather than hidden. With both transports registered this
+			 * should roughly equal the event count, and a ZERO here while both
+			 * are registered means one transport is not arriving at all —
+			 * which is the failure a silent dedupe would disguise as success.
+			 */
+			duplicatesDropped: this.logManager.getDuplicatesDropped(),
+			/** The port actually held, which a static hook URL must match. */
+			port: this.actualPort,
+			/** True while this core is waiting to take the canonical port back. */
+			reclaimingPort: this.isReclaiming(),
+		});
 	}
 
 	/**
