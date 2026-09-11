@@ -8,7 +8,12 @@ echo "🔍 Inspector Hook Validation"
 echo "=============================="
 
 # Port file location per Phase 1 spec
-PORT_FILE="/tmp/inspector-hook.port"
+# Overridable, like every other script here. This was hardcoded while
+# test-e2e.sh, seed-data.sh and the hook itself all honoured
+# INSPECTOR_HOOK_PORT_FILE, so validate.sh was the one tool that could not be
+# pointed at an isolated core -- and reported "the core is not running" about a
+# core that was running.
+PORT_FILE="${INSPECTOR_HOOK_PORT_FILE:-/tmp/inspector-hook.port}"
 
 echo -e "\n📁 Checking port file: $PORT_FILE"
 
@@ -62,7 +67,10 @@ fi
 
 # Test 4: Check storage directory
 echo -e "\n📋 Test 4: Storage Directory"
-STORAGE_PATH="$HOME/.inspector-hook"
+# Same reason as PORT_FILE above: a core pointed at an isolated store was
+# reported against the DEFAULT store, so the directory listing described
+# something the running core had never written to.
+STORAGE_PATH="${INSPECTOR_HOOK_STORAGE:-$HOME/.inspector-hook}"
 if [ -d "$STORAGE_PATH" ]; then
     echo "✅ Storage directory exists: $STORAGE_PATH"
     echo "   Contents:"
