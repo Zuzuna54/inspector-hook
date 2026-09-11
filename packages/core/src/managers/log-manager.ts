@@ -23,7 +23,10 @@ export interface LogManagerOptions {
 	 * Called for each session about to be aged out, so it can be preserved in a
 	 * durable form first. Returning false cancels that session's deletion.
 	 */
-	collapseSession?: (id: string, session: unknown) => Promise<boolean> | boolean;
+	collapseSession?: (
+		id: string,
+		session: unknown,
+	) => Promise<boolean> | boolean;
 	persistence?: PersistenceStore;
 }
 
@@ -64,7 +67,23 @@ function readEffort(
 	return undefined;
 }
 
+/**
+ * How long two deliveries of one hook firing can be apart (M2.20).
+ *
+ * Both transports fire from the same event within milliseconds. Ten seconds is
+ * far beyond that and far below the gap between two genuinely repeated events.
+ */
+export const DUPLICATE_WINDOW_MS = 10_000;
+
+/** Cap on remembered delivery keys, so dedupe cannot leak memory. */
+export const MAX_DELIVERY_KEYS = 5_000;
+
 export class LogManager extends EventEmitter {
+	/** Delivery key → when it was first seen. Pruned on insert. */
+	private readonly recentDeliveries = new Map<string, number>();
+	/** Repeat deliveries recognised and dropped. Reported, never silent. */
+	private duplicatesDropped = 0;
+
 	private logs: LogEntry[] = [];
 	private options: LogManagerOptions;
 	private persistence?: PersistenceStore;
@@ -88,7 +107,6 @@ export class LogManager extends EventEmitter {
 		}, 60000);
 		this.cleanupInterval.unref?.();
 	}
-
 
 	/**
 	 * Load logs from persistence
@@ -117,9 +135,110 @@ export class LogManager extends EventEmitter {
 	/**
 	 * Add a new log entry
 	 */
+	/**
+	 * A key that identifies one HOOK FIRING, not one delivery of it (M2.20).
+	 *
+	 * Both transports can be registered at once — the shell script and a
+	 * `"type": "http"` hook — and then Claude Code delivers the same firing
+	 * twice. Without this the store double-counts everything, which is B1 (one
+	 * edit producing two FileChanges) returning by a different route.
+	 *
+	 * `tool_use_id` is the platform's own identity for a tool call and is
+	 * present on 100% of Pre/PostToolUse since the hook fix, so `hook +
+	 * tool_use_id` is exact even for parallel calls to the same tool. For
+	 * events that carry no tool_use_id the key falls back to hook + session +
+	 * prompt + message, which the two transports derive identically — pinned by
+	 * the drift test in hook-payload.test.js.
+	 *
+	 * Returns null when the data is too thin to key safely. A null key is
+	 * NEVER deduped: silently dropping a real event is worse than storing a
+	 * duplicate, and the duplicate is at least visible.
+	 */
+	private static deliveryKey(
+		data: Partial<LogEntry> & Record<string, unknown>,
+	): string | null {
+		const hook = typeof data.hook === "string" ? data.hook : "";
+		if (!hook) return null;
+		const session = typeof data.sessionId === "string" ? data.sessionId : "";
+		const toolUseId =
+			(data.tool_use_id as string | undefined) ||
+			(data.executionId as string | undefined);
+		if (toolUseId) return `${hook}|${session}|${toolUseId}`;
+
+		const promptId =
+			(data.prompt_id as string | undefined) ||
+			(data.promptId as string | undefined);
+		const message = typeof data.message === "string" ? data.message : "";
+		// With neither a tool id nor a prompt id there is nothing distinguishing
+		// two legitimate repeats of the same event, so do not risk it.
+		if (!promptId && !session) return null;
+		return `${hook}|${session}|${promptId ?? ""}|${message}`;
+	}
+
+	/**
+	 * Has this exact firing already been ingested, within the window?
+	 *
+	 * Time-bounded because the key is not globally unique forever: the same
+	 * `Stop` in the same turn is one firing, but the same `PostToolBatch`
+	 * message an hour later is a different one. Duplicates from double
+	 * registration arrive milliseconds apart.
+	 */
+	private isDuplicateDelivery(key: string | null): boolean {
+		if (!key) return false;
+		const now = Date.now();
+		const seenAt = this.recentDeliveries.get(key);
+		if (seenAt !== undefined && now - seenAt < DUPLICATE_WINDOW_MS) {
+			return true;
+		}
+		this.recentDeliveries.set(key, now);
+		// Bounded: prune on insert rather than on a timer, so an idle core
+		// holds nothing and a busy one never grows without limit.
+		if (this.recentDeliveries.size > MAX_DELIVERY_KEYS) {
+			for (const [k, at] of this.recentDeliveries) {
+				if (now - at >= DUPLICATE_WINDOW_MS) this.recentDeliveries.delete(k);
+			}
+			// Still oversized means a burst inside the window; drop the oldest.
+			while (this.recentDeliveries.size > MAX_DELIVERY_KEYS) {
+				const oldest = this.recentDeliveries.keys().next().value;
+				if (oldest === undefined) break;
+				this.recentDeliveries.delete(oldest);
+			}
+		}
+		return false;
+	}
+
+	/** How many deliveries have been recognised as repeats and dropped. */
+	getDuplicatesDropped(): number {
+		return this.duplicatesDropped;
+	}
+
 	async addLog(
 		data: Partial<LogEntry> & Record<string, unknown>,
 	): Promise<LogEntry> {
+		// One firing, one record — however many transports delivered it.
+		const key = LogManager.deliveryKey(data);
+		if (this.isDuplicateDelivery(key)) {
+			this.duplicatesDropped++;
+			// Newest first, without findLast: the package targets a lib older
+			// than es2023 and raising it for one call is not the trade.
+			let existing: LogEntry | undefined;
+			for (let i = this.logs.length - 1; i >= 0; i--) {
+				const candidate = this.logs[i];
+				if (
+					LogManager.deliveryKey(
+						candidate as Partial<LogEntry> & Record<string, unknown>,
+					) === key
+				) {
+					existing = candidate;
+					break;
+				}
+			}
+			// Return the record already stored, so a caller that chains off the
+			// result (file tracking, session attribution) works on the real one
+			// rather than on a throwaway.
+			if (existing) return existing;
+		}
+
 		// Build details object, merging existing details with toolInput/toolResponse
 		// The hook script sends toolInput and toolResponse at root level
 		const details: Record<string, unknown> = {};

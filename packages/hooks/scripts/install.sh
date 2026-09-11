@@ -32,29 +32,41 @@
 #   ./install.sh --dry-run    show the resulting settings without writing
 #   ./install.sh --uninstall  remove only Inspector Hook's entries
 #   ./install.sh --settings <path>   target a different settings file
-#   ./install.sh --http [port]       register HTTP hooks instead of the shell
-#                                    script (default port 52376)
+#   ./install.sh --shell             register ONLY the shell script, no HTTP
+#   ./install.sh --http [port]        pin the HTTP port (default 52376)
 #
-# ## About --http
+# ## Transports: HTTP primary, shell fallback (M2.20)
+#
+# BOTH are registered by default, which is what the plan always described:
+# "http hooks as primary, with one minimal shell script retained as fallback
+# for when the core isn't running."
 #
 # Claude Code supports `{"type": "http", "url": "…"}` hooks, which POST the raw
-# event to a URL. The core's own server answers at /api/hook, so --http deletes
-# the shell + jq + curl + port-file layer entirely. Verified end to end on
-# 2026-09-09: four HTTP-registered events (PreToolUse, PostToolUse,
-# UserPromptSubmit, Stop) all captured, correctly levelled, with tool_use_id
+# event to a URL. The core answers at /api/hook, so the HTTP path needs no
+# shell, no jq, no curl and no port file. Verified end to end: four
+# HTTP-registered events all captured, correctly levelled, with tool_use_id
 # matching across the Pre/Post pair and a real 1733ms duration.
 #
-# It is NOT the default, for one measured reason. An HTTP hook URL is static
-# and the core's port is not: the core tries 52376 and scans upward when that
-# is taken, and at the time of writing the live core is on 52377 for exactly
-# that reason. The shell hook reads the port file on every event and always
-# finds it; a registered URL cannot. So --http is the faster, dependency-free
-# transport for a pinned port, and the shell hook is the one that always works.
+# Two things had to be true before this could be the default, and both now are.
 #
-# The other worry turned out not to be one. An HTTP hook's documented timeout
-# is 600s, so a dead core might have stalled every tool call. Measured against
-# a closed port: one turn took 17.1s, against 19.6s with no hook at all and
-# 15.9s with a live listener. Connection refused is not the response timeout.
+# 1. A dead core must not stall a tool call. An HTTP hook'"'"'s documented timeout
+#    is 600s, so this was the blocking worry. Measured against a closed port:
+#    one turn took 17.1s, against 19.6s with no hook at all and 15.9s with a
+#    live listener. Connection refused is not the response timeout.
+#
+# 2. A static URL must keep finding the core. The core prefers 52376 and scans
+#    upward when it is taken, so a literal URL could point at a port nothing
+#    was listening on. The core now RECLAIMS the canonical port as soon as its
+#    holder exits, and rewrites the port file when it moves, so both transports
+#    converge on the same place.
+#
+# Registering both means Claude Code delivers every firing twice. That is safe
+# because ingest is idempotent: one hook firing produces one record however
+# many transports delivered it, keyed on tool_use_id, and the count of dropped
+# repeats is reported rather than hidden. See LogManager.deliveryKey.
+#
+# `--shell` opts out of HTTP entirely, for a machine where the core runs on a
+# port that cannot be predicted.
 
 set -euo pipefail
 
@@ -82,7 +94,9 @@ PROMPT_CONTEXT_SCRIPT="$(cd "$SCRIPT_DIR/../claude" && pwd)/inspector-prompt-con
 
 # --http mode. The URL is what gets registered in place of the shell command,
 # and is also what --uninstall matches on, so the two directions stay symmetric.
-USE_HTTP=0
+# HTTP is the primary transport; the shell script stays registered as the
+# fallback. --shell drops HTTP, --http pins a different port.
+USE_HTTP=1
 HTTP_PORT="${INSPECTOR_HOOK_HTTP_PORT:-52376}"
 # The subagent briefer: rewrites the prompt of an Agent/Task call to prepend
 # prior work. Registered on PreToolUse, and INERT unless
@@ -97,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --uninstall|-u) UNINSTALL=1; shift ;;
     --settings) SETTINGS="$2"; shift 2 ;;
+    --shell) USE_HTTP=0; shift ;;
     --http)
       USE_HTTP=1
       # An optional port follows. Anything not starting with "-" is taken as
@@ -215,14 +230,18 @@ register_one() {
   local json="$1" event="$2" cmd="$3"
   local m; m="$(matcher_for "$event")"
 
-  # In --http mode the observer becomes one URL for every event. The two
-  # context scripts stay command hooks regardless: they exist to WRITE to
-  # stdout, which Claude Code adds to the session context, and an HTTP hook's
-  # response body cannot do that.
+  # With HTTP enabled the observer is registered BOTH ways: the URL is the
+  # primary transport and the script is the fallback for when the core is on a
+  # port the URL cannot name. Delivering twice is safe because ingest is
+  # idempotent -- see LogManager.deliveryKey.
+  #
+  # The two context scripts stay command hooks regardless: they exist to WRITE
+  # to stdout, which Claude Code adds to the session context, and an HTTP
+  # hook's response body cannot do that.
   local entry
   if [[ "$USE_HTTP" == "1" && "$cmd" == "$HOOK_SCRIPT" ]]; then
     entry="$(jq -n --arg url "$(hook_url)" '{ hooks: [ { type: "http", url: $url } ] }')"
-    printf '%s' "$json" | jq \
+    json="$(printf '%s' "$json" | jq \
       --arg ev "$event" \
       --arg url "$(hook_url)" \
       --argjson entry "$entry" \
@@ -236,8 +255,8 @@ register_one() {
               ( $entry + (if $matcher == null then {} else { matcher: $matcher } end) )
             ]
         end
-      '
-    return
+      ')"
+    # Fall through: the shell fallback is registered for this event too.
   fi
 
   printf '%s' "$json" | jq \
